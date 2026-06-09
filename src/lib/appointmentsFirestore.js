@@ -13,10 +13,10 @@ import {
   ensureFirebaseAdmin,
   ensureFirebaseCustomer,
   firebaseProjectId,
-  firestoreDb,
+  getFirestoreDb,
 } from '@/lib/firebase';
 
-const appointmentsCollection = () => collection(firestoreDb, 'appointments');
+const appointmentsCollection = () => collection(getFirestoreDb(), 'appointments');
 
 const addMinutes = (startTime, durationMinutes) => {
   const [hours, minutes] = String(startTime || '00:00').split(':').map(Number);
@@ -72,20 +72,35 @@ const normalizeAppointment = (input, customerId) => {
 };
 
 export const createCustomerAppointment = async (input) => {
-  const user = await ensureFirebaseCustomer();
-  const payload = normalizeAppointment(input, user.uid);
-  const appointment = await addDoc(appointmentsCollection(), payload);
-
-  console.info('[Firestore] Appointment created', {
+  console.info('[Firestore] Customer appointment write attempt', {
     projectId: firebaseProjectId,
-    appointmentId: appointment.id,
-    customerId: user.uid,
-    date: payload.date,
-    startTime: payload.startTime,
-    status: payload.status,
+    date: input.date,
+    startTime: input.startTime || input.time,
+    status: 'pending',
   });
 
-  return { id: appointment.id, ...payload };
+  try {
+    const user = await ensureFirebaseCustomer();
+    const payload = normalizeAppointment(input, user.uid);
+    const appointment = await addDoc(appointmentsCollection(), payload);
+
+    console.info('[Firestore] Customer appointment created', {
+      projectId: firebaseProjectId,
+      appointmentId: appointment.id,
+      date: payload.date,
+      startTime: payload.startTime,
+      status: payload.status,
+    });
+
+    return { id: appointment.id, ...payload };
+  } catch (error) {
+    console.error('[Firestore] Customer appointment write failed', {
+      projectId: firebaseProjectId,
+      code: error?.code || 'unknown',
+      message: error?.message || 'Unknown Firestore error',
+    });
+    throw error;
+  }
 };
 
 export const createAdminAppointment = async (input) => {
@@ -133,7 +148,7 @@ const normalizeChanges = (changes) => {
 };
 
 const updateAppointment = async (appointmentId, changes) => {
-  await updateDoc(doc(firestoreDb, 'appointments', appointmentId), normalizeChanges(changes));
+  await updateDoc(doc(getFirestoreDb(), 'appointments', appointmentId), normalizeChanges(changes));
 };
 
 export const updateOwnAppointment = async (appointmentId, changes) => {
@@ -143,7 +158,28 @@ export const updateOwnAppointment = async (appointmentId, changes) => {
 
 export const updateAdminAppointment = async (appointmentId, changes) => {
   await ensureFirebaseAdmin();
-  await updateAppointment(appointmentId, changes);
+  console.info('[Firestore] Admin appointment update attempt', {
+    projectId: firebaseProjectId,
+    appointmentId,
+    status: changes.status || 'unchanged',
+  });
+
+  try {
+    await updateAppointment(appointmentId, changes);
+    console.info('[Firestore] Admin appointment updated', {
+      projectId: firebaseProjectId,
+      appointmentId,
+      status: changes.status || 'unchanged',
+    });
+  } catch (error) {
+    console.error('[Firestore] Admin appointment update failed', {
+      projectId: firebaseProjectId,
+      appointmentId,
+      code: error?.code || 'unknown',
+      message: error?.message || 'Unknown Firestore error',
+    });
+    throw error;
+  }
 };
 
 export const cancelOwnAppointment = (appointmentId) =>
@@ -151,15 +187,41 @@ export const cancelOwnAppointment = (appointmentId) =>
 
 export const deleteAppointment = async (appointmentId) => {
   await ensureFirebaseAdmin();
-  await deleteDoc(doc(firestoreDb, 'appointments', appointmentId));
+  await deleteDoc(doc(getFirestoreDb(), 'appointments', appointmentId));
 };
 
-const subscribe = async (appointmentQuery, audience, authenticate, onData, onError, isCancelled) => {
-  await authenticate();
+const logListenerError = (audience, stage, error) => {
+  const details = {
+    projectId: firebaseProjectId,
+    code: error?.code || 'unknown',
+    message: error?.message || 'Unknown Firestore error',
+  };
+
+  const isPermissionDenied = [
+    'admin/not-authorized',
+    'permission-denied',
+    'firestore/permission-denied',
+  ].includes(error?.code);
+
+  if (audience === 'admin' && isPermissionDenied) {
+    console.error('[Firestore] Admin appointments listener permission denied', details);
+    return;
+  }
+
+  console.error(`[Firestore] ${audience} appointments listener ${stage}`, details);
+};
+
+const subscribe = async (buildQuery, audience, authenticate, onData, onError, isCancelled) => {
+  const user = await authenticate();
   if (isCancelled()) return () => {};
 
+  console.info(`[Firestore] ${audience} appointments listener subscribing`, {
+    projectId: firebaseProjectId,
+    audience,
+  });
+
   return onSnapshot(
-    appointmentQuery,
+    buildQuery(user),
     (snapshot) => {
       const appointments = snapshot.docs.map(mapAppointment).sort(bySchedule);
       console.info(
@@ -176,7 +238,7 @@ const subscribe = async (appointmentQuery, audience, authenticate, onData, onErr
       onData(appointments);
     },
     (error) => {
-      console.error(`[Firestore] ${audience} appointments snapshot failed`, error);
+      logListenerError(audience, 'snapshot failed', error);
       onError(error);
     },
   );
@@ -186,12 +248,17 @@ const createRealtimeSubscription = (buildQuery, audience, authenticate, onData, 
   let unsubscribe = () => {};
   let cancelled = false;
 
-  subscribe(buildQuery(), audience, authenticate, onData, onError, () => cancelled)
+  console.info(`[Firestore] ${audience} appointments listener subscription attempt`, {
+    projectId: firebaseProjectId,
+    audience,
+  });
+
+  subscribe(buildQuery, audience, authenticate, onData, onError, () => cancelled)
     .then((stopListening) => {
       unsubscribe = stopListening;
     })
     .catch((error) => {
-      console.error(`[Firestore] ${audience} appointments listener failed`, error);
+      logListenerError(audience, 'subscription failed', error);
       onError(error);
     });
 
@@ -210,29 +277,12 @@ export const subscribeToAdminAppointments = (onData, onError) =>
     onError,
   );
 
-export const subscribeToCustomerAppointments = (onData, onError) => {
-  let unsubscribe = () => {};
-  let cancelled = false;
-
-  ensureFirebaseCustomer()
-    .then((user) => subscribe(
+export const subscribeToCustomerAppointments = (onData, onError) =>
+  createRealtimeSubscription(
+    (user) =>
       query(appointmentsCollection(), where('customerId', '==', user.uid)),
-      'customer',
-      ensureFirebaseCustomer,
-      onData,
-      onError,
-      () => cancelled,
-    ))
-    .then((stopListening) => {
-      unsubscribe = stopListening;
-    })
-    .catch((error) => {
-      console.error('[Firestore] Customer appointments listener failed', error);
-      onError(error);
-    });
-
-  return () => {
-    cancelled = true;
-    unsubscribe();
-  };
-};
+    'customer',
+    ensureFirebaseCustomer,
+    onData,
+    onError,
+  );

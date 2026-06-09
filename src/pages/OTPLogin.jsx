@@ -55,11 +55,27 @@ export default function OTPLogin() {
     if (!adminEmail || !adminPassword) { setError('נא למלא אימייל וסיסמה'); return; }
     setLoading(true);
     try {
-      const firebaseUser = await signInFirebaseAdmin(adminEmail.trim(), adminPassword);
-      loginUser({ name: 'מנהל', email: firebaseUser.email, uid: firebaseUser.uid, isAdmin: true });
+      const { user: firebaseUser, profile } = await signInFirebaseAdmin(adminEmail.trim(), adminPassword);
+      loginUser({
+        name: profile.name || 'מנהל',
+        email: profile.email || firebaseUser.email,
+        uid: firebaseUser.uid,
+        isAdmin: true,
+      });
       navigate('/admin');
-    } catch {
-      setError('התחברות Firebase נכשלה. ודא שחשבון המנהל קיים ומורשה.');
+    } catch (signInError) {
+      console.error('[Firebase] Admin sign-in failed', {
+        code: signInError?.code || 'unknown',
+        message: signInError?.message || 'Unknown Firebase error',
+      });
+
+      if (signInError?.code === 'admin/not-authorized') {
+        setError('החשבון קיים, אך אינו מוגדר כמנהל פעיל ב-Firestore.');
+      } else if (signInError?.message?.includes('Missing Vercel build-time environment variables')) {
+        setError('Firebase אינו מוגדר ב-Vercel. יש להגדיר משתני סביבה ולפרוס מחדש.');
+      } else {
+        setError('התחברות Firebase נכשלה. ודא שחשבון המנהל קיים ומורשה.');
+      }
     } finally {
       setLoading(false);
     }

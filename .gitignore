@@ -30,3 +30,8 @@ dist-ssr
 
 .env
 .vite
+
+# Firebase Admin credentials must stay outside the repository
+*service-account*.json
+*-firebase-adminsdk-*.json
+serviceAccountKey.json

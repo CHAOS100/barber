@@ -60,7 +60,8 @@ The deployed `firestore.rules` enforce:
 - Customers can read only their own appointments.
 - Customers can only reschedule or cancel their own appointments.
 - Admins can read, create, update, and delete all appointments.
-- Admin access requires a document at `admins/{firebaseAuthUid}`.
+- Admin access requires an active admin document at `admins/{firebaseAuthUid}`
+  with `role: "admin"` and `active: true`.
 - All unrelated Firestore documents are denied by default.
 
 ## Admin Provisioning
@@ -69,7 +70,8 @@ No permanent admin account was created during testing. To authorize a real
 admin:
 
 1. Create an email/password user in Firebase Authentication.
-2. Create an empty Firestore document at `admins/{that-user-uid}`.
+2. Follow `ADMIN_FIRESTORE_SETUP.md` to create `admins/{that-user-uid}` with
+   the required role, active flag, profile fields, and timestamp.
 3. Sign in through the app's admin login.
 
 The previous browser-only admin flag is not trusted by Firestore rules.
