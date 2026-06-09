@@ -1,4 +1,4 @@
-import barberPhoto from '@/assets/hero.png';
+import barberPhoto from '@/assets/barber-original.jpg';
 
 export const BARBER_PHOTO = barberPhoto;
 
