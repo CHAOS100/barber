@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, Scissors, XCircle, RefreshCcw, Plus, AlertTriangle, Pencil } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { localDb } from '@/lib/localData';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MOCK_APPOINTMENTS } from '../lib/mockData';
+import { useMutation } from '@tanstack/react-query';
 import GoldButton from '../components/ui/GoldButton';
 import EditAppointmentModal from '../components/booking/EditAppointmentModal';
 import { localDateToString } from '../lib/slotEngine';
+import { cancelOwnAppointment } from '@/lib/appointmentsFirestore';
+import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 
 const STATUS_LABELS = {
   pending: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
@@ -21,28 +21,15 @@ const STATUS_LABELS = {
 export default function Appointments() {
   const navigate = useNavigate();
   const { currentUser } = useCurrentUser();
-  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState('upcoming');
   const [cancelModal, setCancelModal] = useState(null);
   const [editModal, setEditModal] = useState(null);
 
-  const { data: appointments = [], isLoading } = useQuery({
-    queryKey: ['appointments', currentUser?.phone],
-    queryFn: async () => {
-      if (!currentUser) return [];
-      try {
-        return await localDb.Appointment.filter({ customer_phone: currentUser.phone }, '-date');
-      } catch {
-        return MOCK_APPOINTMENTS.filter(a => a.customer_phone === currentUser?.phone);
-      }
-    },
-    enabled: !!currentUser,
-  });
+  const { appointments, isLoading, error: appointmentsError } = useCustomerAppointmentsRealtime(Boolean(currentUser));
 
   const cancelMutation = useMutation({
-    mutationFn: (id) => localDb.Appointment.update(id, { status: 'cancelled' }),
+    mutationFn: (id) => cancelOwnAppointment(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['appointments'] });
       setCancelModal(null);
     },
   });
@@ -96,7 +83,11 @@ export default function Appointments() {
       </div>
 
       <div className="px-4 space-y-3">
-        {isLoading ? (
+        {appointmentsError ? (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm text-center">
+            לא ניתן לקרוא את התורים מ-Firestore. נסה להתחבר מחדש.
+          </div>
+        ) : isLoading ? (
           [...Array(3)].map((_, i) => (
             <div key={i} className="dark-card rounded-2xl p-4 space-y-2">
               <div className="skeleton h-5 w-1/2 rounded-xl" />

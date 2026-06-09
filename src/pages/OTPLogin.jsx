@@ -3,8 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Phone, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { loginUser } from '../lib/userStore';
-import { BARBER_PHOTO, ADMIN_EMAIL, ADMIN_PASSWORD } from '../lib/mockData';
+import { BARBER_PHOTO } from '../lib/mockData';
 import GoldButton from '../components/ui/GoldButton';
+import { signInFirebaseAdmin } from '@/lib/firebase';
 
 export default function OTPLogin() {
   const navigate = useNavigate();
@@ -49,18 +50,19 @@ export default function OTPLogin() {
   };
 
   // ─── Admin login ────────────────────────────────────────────────
-  const handleAdminLogin = () => {
+  const handleAdminLogin = async () => {
     setError('');
     if (!adminEmail || !adminPassword) { setError('נא למלא אימייל וסיסמה'); return; }
-    if (adminEmail.trim() !== ADMIN_EMAIL || adminPassword !== ADMIN_PASSWORD) {
-      setError('אימייל או סיסמה שגויים');
-      return;
-    }
     setLoading(true);
-    setTimeout(() => {
-      loginUser({ name: 'מנהל', email: adminEmail, isAdmin: true });
+    try {
+      const firebaseUser = await signInFirebaseAdmin(adminEmail.trim(), adminPassword);
+      loginUser({ name: 'מנהל', email: firebaseUser.email, uid: firebaseUser.uid, isAdmin: true });
       navigate('/admin');
-    }, 600);
+    } catch {
+      setError('התחברות Firebase נכשלה. ודא שחשבון המנהל קיים ומורשה.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const switchToAdmin = () => { setMode('admin'); setError(''); };

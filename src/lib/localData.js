@@ -11,6 +11,7 @@ import { loginUser, logoutUser } from '@/lib/userStore';
 const STORAGE_KEY = 'ost_local_database_v1';
 const PENDING_REGISTRATION_KEY = 'ost_pending_registration';
 const memoryStorage = new Map();
+const dataListeners = new Set();
 
 const storage = typeof localStorage === 'undefined'
   ? {
@@ -75,13 +76,45 @@ const loadDatabase = () => {
 
 let database = loadDatabase();
 
-const saveDatabase = () => {
+const refreshDatabase = () => {
+  try {
+    const saved = storage.getItem(STORAGE_KEY);
+    if (saved) database = JSON.parse(saved);
+  } catch {
+    // Keep the latest in-memory database if persisted data cannot be read.
+  }
+};
+
+const notifyDataListeners = (change) => {
+  dataListeners.forEach((listener) => {
+    try {
+      listener(change);
+    } catch {
+      // One listener must not prevent the rest of the app from updating.
+    }
+  });
+};
+
+const saveDatabase = (change) => {
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(database));
   } catch {
     // The app remains usable in memory when browser storage is unavailable.
   }
+  notifyDataListeners(change);
 };
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== STORAGE_KEY || !event.newValue) return;
+    try {
+      database = JSON.parse(event.newValue);
+      notifyDataListeners({ action: 'sync' });
+    } catch {
+      // Ignore malformed storage events and preserve the current database.
+    }
+  });
+}
 
 const compareValues = (left, right) => {
   if (left === right) return 0;
@@ -102,10 +135,12 @@ const sortRecords = (records, sort) => {
 
 const entityApi = (entityName) => ({
   list: async (sort, limit) => {
+    refreshDatabase();
     const records = sortRecords(database[entityName] || [], sort);
     return clone(limit ? records.slice(0, limit) : records);
   },
   filter: async (filters = {}, sort, limit) => {
+    refreshDatabase();
     const records = (database[entityName] || []).filter((record) =>
       Object.entries(filters).every(([key, value]) => record[key] === value)
     );
@@ -113,6 +148,7 @@ const entityApi = (entityName) => ({
     return clone(limit ? sorted.slice(0, limit) : sorted);
   },
   create: async (data) => {
+    refreshDatabase();
     const now = new Date().toISOString();
     const record = {
       ...clone(data),
@@ -121,20 +157,22 @@ const entityApi = (entityName) => ({
       updated_date: now,
     };
     database[entityName] = [...(database[entityName] || []), record];
-    saveDatabase();
+    saveDatabase({ action: 'create', entityName, record: clone(record) });
     return clone(record);
   },
   update: async (id, data) => {
+    refreshDatabase();
     const records = database[entityName] || [];
     const index = records.findIndex((record) => record.id === id);
     if (index === -1) throw new Error(`${entityName} record not found`);
     records[index] = { ...records[index], ...clone(data), updated_date: new Date().toISOString() };
-    saveDatabase();
+    saveDatabase({ action: 'update', entityName, record: clone(records[index]) });
     return clone(records[index]);
   },
   delete: async (id) => {
+    refreshDatabase();
     database[entityName] = (database[entityName] || []).filter((record) => record.id !== id);
-    saveDatabase();
+    saveDatabase({ action: 'delete', entityName, id });
     return { id };
   },
 });
@@ -142,6 +180,11 @@ const entityApi = (entityName) => ({
 export const localDb = /** @type {any} */ (new Proxy({}, {
   get: (_, entityName) => entityApi(entityName),
 }));
+
+export const subscribeLocalData = (listener) => {
+  dataListeners.add(listener);
+  return () => dataListeners.delete(listener);
+};
 
 export const localAuth = {
   loginViaEmailPassword: async (email, _password) => {

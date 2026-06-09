@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, TrendingUp, Users, DollarSign, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { MOCK_APPOINTMENTS, BARBER_PHOTO } from '../../lib/mockData';
+import { BARBER_PHOTO } from '../../lib/mockData';
+import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import MonthlyComparisonCard from '../../components/admin/MonthlyComparisonCard';
 import BarberBreakdownCard from '../../components/admin/BarberBreakdownCard';
@@ -39,6 +40,7 @@ const popularServices = [
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { currentUser, isAdmin } = useCurrentUser();
+  const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime(isAdmin);
 
   if (!isAdmin) {
     return (
@@ -52,8 +54,9 @@ export default function AdminDashboard() {
     );
   }
 
-  const todayAppts = MOCK_APPOINTMENTS.filter(a => a.date === localDateToString());
+  const todayAppts = appointments.filter(a => a.date === localDateToString());
   const todayRevenue = todayAppts.reduce((s, a) => s + (a.service_price || 0), 0);
+  const pendingAppts = appointments.filter(a => a.status === 'pending');
 
   const adminSections = [
     { icon: Calendar, label: 'ניהול תורים', path: '/admin/appointments', desc: `${todayAppts.length} תורים היום` },
@@ -79,12 +82,18 @@ export default function AdminDashboard() {
       </div>
 
       <div className="px-4 space-y-4">
+        {appointmentsError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+            לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+          </div>
+        )}
+
         {/* Today Stats */}
         <div className="grid grid-cols-2 gap-3">
           {[
             { icon: Calendar, label: 'תורים היום', value: todayAppts.length, color: 'text-blue-400', bg: 'bg-blue-400/20' },
             { icon: DollarSign, label: 'הכנסות היום', value: `₪${todayRevenue}`, color: 'text-primary', bg: 'bg-primary/20' },
-            { icon: Users, label: 'לקוחות חדשים', value: 3, color: 'text-green-400', bg: 'bg-green-400/20' },
+            { icon: Users, label: 'ממתינים לאישור', value: pendingAppts.length, color: 'text-green-400', bg: 'bg-green-400/20' },
             { icon: TrendingUp, label: 'חודש זה', value: '₪7,100', color: 'text-purple-400', bg: 'bg-purple-400/20' },
           ].map((stat, i) => {
             const StatIcon = stat.icon;
@@ -166,7 +175,47 @@ export default function AdminDashboard() {
               ניהול תורים <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
-          <DailyCalendarView appointments={MOCK_APPOINTMENTS} />
+          <DailyCalendarView appointments={appointments} />
+        </div>
+
+        {/* Pending Appointments */}
+        <div>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-bold">ממתינים לאישור</h3>
+            <button onClick={() => navigate('/admin/appointments')} className="text-primary text-sm flex items-center gap-1">
+              ניהול תורים <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+          {pendingAppts.length === 0 ? (
+            <div className="glass rounded-xl p-4 text-center text-muted-foreground text-sm">
+              אין תורים שממתינים לאישור
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pendingAppts.slice(0, 5).map((appt, i) => (
+                <motion.div
+                  key={appt.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="dark-card rounded-xl p-3 flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 bg-yellow-400/20 rounded-full flex items-center justify-center text-yellow-400 font-bold text-sm flex-shrink-0">
+                    {appt.customer_name?.[0] || '?'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm truncate">{appt.customer_name}</div>
+                    <div className="text-muted-foreground text-xs truncate">
+                      {appt.service_name} • {appt.date} • {appt.time}
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-1 rounded-full text-yellow-400 bg-yellow-400/20">
+                    ממתין
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Today's Appointments */}

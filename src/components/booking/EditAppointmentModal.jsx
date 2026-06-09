@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { localDb } from '@/lib/localData';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
+import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const MONTH_NAMES = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
@@ -83,9 +84,10 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration]);
 
   const updateMutation = useMutation({
-    mutationFn: () => localDb.Appointment.update(appointment.id, {
+    mutationFn: () => updateOwnAppointment(appointment.id, {
       date: selectedDateStr,
-      time: selectedTime,
+      startTime: selectedTime,
+      durationMinutes: appointment.service_duration || 30,
       status: 'pending',
     }),
     onSuccess: () => {

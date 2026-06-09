@@ -32,9 +32,6 @@ export const MOCK_SERVICES = [
   { id: "s6", name: "חבילת פרימיום",             description: "חוויה מלאה: תספורת + זקן + טיפול פנים", price: 150, duration: 80, is_active: true, category: "תורים" },
 ];
 
-export const ADMIN_EMAIL = "admin@ostbarber.com";
-export const ADMIN_PASSWORD = "Admin123!";
-
 export const MOCK_GALLERY = [
   { id: "g1", url: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=400&q=80", category: "skin_fades", is_featured: true },
   { id: "g2", url: "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&q=80", category: "haircuts", is_featured: true },
@@ -69,8 +66,6 @@ export const MOCK_NOTIFICATIONS = [
   { id: "n3", title: "תגובה לביקורת שלך 💬", message: "OST הגיב על הביקורת שלך: תודה רבה! שמח שנהנית 🙏", type: "review_reply", is_read: true, created_date: "2026-05-25T14:00:00" },
   { id: "n4", title: "מקום פנוי! 🎉", message: "מקום פנוי ל-29.05 בשעה 15:00 - לחץ לתפוס מקום", type: "waiting_list", is_read: true, created_date: "2026-05-24T10:00:00" },
 ];
-
-export const ADMIN_PHONE = "054-2244542";
 
 export const isOpenNow = () => {
   const now = new Date();

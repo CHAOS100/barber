@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { userStore, loginUser, logoutUser } from '../lib/userStore';
-import { ADMIN_PHONE, ADMIN_EMAIL } from '../lib/mockData';
 
 export function useCurrentUser() {
   const [currentUser, setCurrentUser] = useState(userStore.getState().currentUser);
@@ -11,11 +10,7 @@ export function useCurrentUser() {
     });
   }, []);
 
-  const isAdmin =
-    currentUser?.isAdmin === true ||
-    currentUser?.email === ADMIN_EMAIL ||
-    currentUser?.phone === ADMIN_PHONE ||
-    currentUser?.phone === "0542244542";
+  const isAdmin = currentUser?.isAdmin === true;
 
   return { currentUser, isAdmin, loginUser, logoutUser };
 }

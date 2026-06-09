@@ -4,8 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2 } from 'lucide-react';
 import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MOCK_APPOINTMENTS, MOCK_SERVICES } from '../../lib/mockData';
+import { MOCK_SERVICES } from '../../lib/mockData';
 import { localDateToString } from '../../lib/slotEngine';
+import {
+  createAdminAppointment,
+  deleteAppointment,
+  updateAdminAppointment,
+} from '@/lib/appointmentsFirestore';
+import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
@@ -225,14 +231,7 @@ export default function AdminAppointments() {
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
-  const { data: appointments = [] } = useQuery({
-    queryKey: ['admin_appointments'],
-    queryFn: async () => {
-      const r = await localDb.Appointment.list('-date');
-      return r.length > 0 ? r : MOCK_APPOINTMENTS;
-    },
-    placeholderData: MOCK_APPOINTMENTS,
-  });
+  const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
 
   const { data: services = MOCK_SERVICES } = useQuery({
     queryKey: ['services'],
@@ -241,7 +240,7 @@ export default function AdminAppointments() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, data }) => localDb.Appointment.update(id, data),
+    mutationFn: (/** @type {any} */ { id, data }) => updateAdminAppointment(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
@@ -250,7 +249,7 @@ export default function AdminAppointments() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => localDb.Appointment.delete(id),
+    mutationFn: (id) => deleteAppointment(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
@@ -258,7 +257,7 @@ export default function AdminAppointments() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data) => localDb.Appointment.create(data),
+    mutationFn: (data) => createAdminAppointment(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setShowNewForm(false);
@@ -321,6 +320,12 @@ export default function AdminAppointments() {
           </button>
         ))}
       </div>
+
+      {appointmentsError && (
+        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+        </div>
+      )}
 
       <div className="px-4 space-y-2 pb-6">
         {filtered.map((appt, i) => {

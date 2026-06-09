@@ -1,0 +1,91 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function ownsAppointment() {
+      return signedIn() && resource.data.customerId == request.auth.uid;
+    }
+
+    function validCustomerAppointmentCreate() {
+      return signedIn()
+        && request.resource.data.keys().hasAll([
+          'customerId',
+          'customerName',
+          'customerPhone',
+          'serviceName',
+          'serviceId',
+          'barberId',
+          'date',
+          'startTime',
+          'endTime',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'customerId',
+          'customerName',
+          'customerPhone',
+          'serviceName',
+          'serviceId',
+          'servicePrice',
+          'serviceDuration',
+          'barberId',
+          'barberName',
+          'date',
+          'startTime',
+          'endTime',
+          'status',
+          'notes',
+          'createdAt'
+        ])
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.customerId is string
+        && request.resource.data.customerName is string
+        && request.resource.data.customerPhone is string
+        && request.resource.data.serviceName is string
+        && request.resource.data.serviceId is string
+        && request.resource.data.date is string
+        && request.resource.data.startTime is string
+        && request.resource.data.endTime is string;
+    }
+
+    match /appointments/{appointmentId} {
+      allow create: if isAdmin() || validCustomerAppointmentCreate();
+      allow read: if isAdmin() || ownsAppointment();
+      allow delete: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          ownsAppointment()
+          && request.resource.data.customerId == resource.data.customerId
+          && request.resource.data.status in ['pending', 'cancelled']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'date',
+            'startTime',
+            'endTime',
+            'status',
+            'updatedAt'
+          ])
+        );
+    }
+
+    match /admins/{adminId} {
+      allow read: if signedIn() && request.auth.uid == adminId;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
-import { localDb } from '@/lib/localData';
-import { MOCK_APPOINTMENTS } from '../../lib/mockData';
 import { Scissors, RotateCcw, Clock, Calendar, ChevronDown, BellRing } from 'lucide-react';
 import WaitingListModal from '../booking/WaitingListModal';
 import { localDateToString } from '../../lib/slotEngine';
+import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 
 const STATUS_LABELS = {
   confirmed: { label: 'מאושר', color: 'text-green-400', bg: 'bg-green-400/10' },
@@ -94,12 +92,7 @@ export default function AppointmentHistory({ currentUser }) {
 
   const todayStr = localDateToString();
 
-  const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments-history', currentUser?.phone],
-    queryFn: () => localDb.Appointment.filter({ customer_phone: currentUser.phone }, '-date'),
-    enabled: !!currentUser,
-    placeholderData: MOCK_APPOINTMENTS,
-  });
+  const { appointments } = useCustomerAppointmentsRealtime(Boolean(currentUser));
 
   const upcoming = appointments.filter(a =>
     a.date >= todayStr && a.status !== 'cancelled' && a.status !== 'completed'

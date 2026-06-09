@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { localDb } from '@/lib/localData';
+import { createCustomerAppointment } from '@/lib/appointmentsFirestore';
 import { MOCK_SERVICES } from '../lib/mockData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
@@ -160,6 +161,7 @@ export default function Booking() {
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [showWaiting, setShowWaiting] = useState(false);
+  const [bookingError, setBookingError] = useState('');
 
   const { data: services = MOCK_SERVICES } = useQuery({
     queryKey: ['services'],
@@ -214,22 +216,27 @@ export default function Booking() {
   const handleConfirm = async () => {
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
     setLoading(true);
+    setBookingError('');
     try {
-      await localDb.Appointment.create({
-        customer_name: currentUser.name,
-        customer_phone: currentUser.phone || '',
-        service_id: selectedService.id,
-        service_name: selectedService.name,
-        service_price: selectedService.price,
-        service_duration: selectedService.duration,
+      await createCustomerAppointment({
+        customerName: currentUser.name,
+        customerPhone: currentUser.phone || '',
+        serviceId: selectedService.id,
+        serviceName: selectedService.name,
+        servicePrice: selectedService.price,
+        serviceDuration: selectedService.duration,
         date: selectedDateStr,
-        time: selectedTime,
-        status: 'pending',
+        startTime: selectedTime,
+        barberId: selectedBarber?.id !== 'any' ? selectedBarber.id : null,
+        barberName: selectedBarber?.id !== 'any' ? selectedBarber.name : null,
         notes,
       });
-    } catch {}
-    setLoading(false);
-    setConfirmed(true);
+      setConfirmed(true);
+    } catch {
+      setBookingError('לא הצלחנו לשמור את התור. נסו שוב.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ─── Confirmed screen ─────────────────────────────
@@ -505,6 +512,11 @@ export default function Booking() {
               {!currentUser && (
                 <div className="glass-gold rounded-2xl p-4 mb-4 text-center">
                   <p className="text-primary font-bold text-sm">יש להתחבר לפני אישור התור</p>
+                </div>
+              )}
+              {bookingError && (
+                <div className="rounded-2xl bg-red-500/10 border border-red-500/30 p-3 mb-4 text-center text-red-400 text-sm font-bold">
+                  {bookingError}
                 </div>
               )}
               <GoldButton onClick={handleConfirm} size="lg" className="w-full" disabled={loading}>
