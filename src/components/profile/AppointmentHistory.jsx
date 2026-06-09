@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { MOCK_APPOINTMENTS } from '../../lib/mockData';
 import { Scissors, RotateCcw, Clock, Calendar, ChevronDown, BellRing } from 'lucide-react';
 import WaitingListModal from '../booking/WaitingListModal';
@@ -96,7 +96,7 @@ export default function AppointmentHistory({ currentUser }) {
 
   const { data: appointments = [] } = useQuery({
     queryKey: ['appointments-history', currentUser?.phone],
-    queryFn: () => base44.entities.Appointment.filter({ customer_phone: currentUser.phone }, '-date'),
+    queryFn: () => localDb.Appointment.filter({ customer_phone: currentUser.phone }, '-date'),
     enabled: !!currentUser,
     placeholderData: MOCK_APPOINTMENTS,
   });

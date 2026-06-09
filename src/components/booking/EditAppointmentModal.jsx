@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { X, Calendar, Clock, AlertCircle, Check } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 
@@ -33,14 +33,14 @@ export default function EditAppointmentModal({ appointment, onClose }) {
 
   const { data: workingHoursRaw = DEFAULT_WORKING_HOURS } = useQuery({
     queryKey: ['workingHours'],
-    queryFn: () => base44.entities.WorkingHours.list('day_of_week'),
+    queryFn: () => localDb.WorkingHours.list('day_of_week'),
     placeholderData: DEFAULT_WORKING_HOURS,
   });
   const workingHours = workingHoursRaw.length > 0 ? workingHoursRaw : DEFAULT_WORKING_HOURS;
 
   const { data: blockedDates = [] } = useQuery({
     queryKey: ['blockedDates'],
-    queryFn: () => base44.entities.BlockedDate.list(),
+    queryFn: () => localDb.BlockedDate.list(),
     placeholderData: [],
   });
 
@@ -48,7 +48,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
 
   const { data: dayAppointments = [] } = useQuery({
     queryKey: ['appointments-day', selectedDateStr],
-    queryFn: () => base44.entities.Appointment.filter({ date: selectedDateStr }),
+    queryFn: () => localDb.Appointment.filter({ date: selectedDateStr }),
     enabled: !!selectedDateStr,
     placeholderData: [],
   });
@@ -83,7 +83,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration]);
 
   const updateMutation = useMutation({
-    mutationFn: () => base44.entities.Appointment.update(appointment.id, {
+    mutationFn: () => localDb.Appointment.update(appointment.id, {
       date: selectedDateStr,
       time: selectedTime,
       status: 'pending',

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { BellRing, Check, Phone, Calendar, Clock, Users } from 'lucide-react';
 
 export default function WaitingListCard() {
@@ -10,19 +10,19 @@ export default function WaitingListCard() {
 
   const { data: waitingList = [], isLoading } = useQuery({
     queryKey: ['waiting-list'],
-    queryFn: () => base44.entities.WaitingList.list('-created_date'),
+    queryFn: () => localDb.WaitingList.list('-created_date'),
     refetchInterval: 30000,
   });
 
   const notifyMutation = useMutation({
-    mutationFn: (id) => base44.entities.WaitingList.update(id, {
+    mutationFn: (id) => localDb.WaitingList.update(id, {
       notified_at: new Date().toISOString(),
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['waiting-list'] }),
   });
 
   const claimMutation = useMutation({
-    mutationFn: (id) => base44.entities.WaitingList.update(id, {
+    mutationFn: (id) => localDb.WaitingList.update(id, {
       is_claimed: true,
       notified_at: new Date().toISOString(),
     }),

@@ -1,12 +1,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { Check, User } from 'lucide-react';
+import { BARBER_PHOTO } from '../../lib/mockData';
 
 const MOCK_BARBERS = [
   { id: 'any', name: 'ללא העדפה', photo_url: null, specialties: ['כל השירותים'] },
-  { id: 'b1', name: 'OST', photo_url: 'https://media.base44.com/images/public/user_6a117f7117198ba9f6ef9d02/84e21045d_793158_69c0fc56e00f1.jpg', specialties: ['פייד', 'תספורת', 'זקן'] },
+  { id: 'b1', name: 'OST', photo_url: BARBER_PHOTO, specialties: ['פייד', 'תספורת', 'זקן'] },
 ];
 
 export default function BarberSelector({ selectedBarber, onSelect }) {
@@ -14,7 +15,7 @@ export default function BarberSelector({ selectedBarber, onSelect }) {
     queryKey: ['barbers'],
     queryFn: async () => {
       try {
-        const res = await base44.entities.Barber.filter({ is_active: true }, 'sort_order');
+        const res = await localDb.Barber.filter({ is_active: true }, 'sort_order');
         return res.length > 0 ? [MOCK_BARBERS[0], ...res] : MOCK_BARBERS;
       } catch {
         return MOCK_BARBERS;

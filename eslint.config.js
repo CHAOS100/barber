@@ -5,7 +5,7 @@ import pluginReactHooks from "eslint-plugin-react-hooks";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
-  { ignores: ["entities/**", "dist/**"] },
+  { ignores: ["dist/**"] },
   {
     files: [
       "src/components/**/*.{js,mjs,cjs,jsx}",

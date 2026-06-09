@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Trash2, Star, EyeOff, Eye, Upload } from 'lucide-react';
-import { base44 } from '../../api/base44Client';
+import { localDb, localFiles } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MOCK_GALLERY } from '../../lib/mockData';
 import GoldButton from '../../components/ui/GoldButton';
@@ -27,24 +27,24 @@ export default function AdminGallery() {
     queryKey: ['gallery'],
     queryFn: async () => {
       try {
-        const r = await base44.entities.GalleryPhoto.list('sort_order');
+        const r = await localDb.GalleryPhoto.list('sort_order');
         return r.length > 0 ? r : MOCK_GALLERY;
       } catch { return MOCK_GALLERY; }
     },
   });
 
   const addMutation = useMutation({
-    mutationFn: (/** @type {any} */ data) => base44.entities.GalleryPhoto.create(data),
+    mutationFn: (/** @type {any} */ data) => localDb.GalleryPhoto.create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['gallery'] }); setShowAdd(false); setNewUrl(''); },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (/** @type {any} */ id) => base44.entities.GalleryPhoto.delete(id),
+    mutationFn: (/** @type {any} */ id) => localDb.GalleryPhoto.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gallery'] }),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, field, value }) => base44.entities.GalleryPhoto.update(id, { [field]: value }),
+    mutationFn: (/** @type {any} */ { id, field, value }) => localDb.GalleryPhoto.update(id, { [field]: value }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gallery'] }),
   });
 
@@ -53,8 +53,8 @@ export default function AdminGallery() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      setNewUrl(file_url);
+      const { fileUrl } = await localFiles.upload(file);
+      setNewUrl(fileUrl);
     } catch (err) {
       console.error(err);
     }

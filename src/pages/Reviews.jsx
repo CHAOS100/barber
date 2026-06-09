@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Plus, X } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MOCK_REVIEWS, BUSINESS_INFO } from '../lib/mockData';
 import StarRating from '../components/ui/StarRating';
@@ -22,14 +22,14 @@ export default function Reviews() {
     queryKey: ['reviews'],
     queryFn: async () => {
       try {
-        const r = await base44.entities.Review.list('-created_date');
+        const r = await localDb.Review.list('-created_date');
         return r.length > 0 ? r : MOCK_REVIEWS;
       } catch { return MOCK_REVIEWS; }
     },
   });
 
   const submitMutation = useMutation({
-    mutationFn: () => base44.entities.Review.create({
+    mutationFn: () => localDb.Review.create({
       customer_name: currentUser.name,
       customer_phone: currentUser.phone,
       rating,

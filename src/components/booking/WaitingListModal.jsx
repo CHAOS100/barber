@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, BellRing, CheckCircle2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import GoldButton from '../ui/GoldButton';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
@@ -27,7 +27,7 @@ export default function WaitingListModal({ isOpen, onClose, currentUser, service
   const dates = generateDates();
 
   const mutation = useMutation({
-    mutationFn: (/** @type {any} */ data) => base44.entities.WaitingList.create(data),
+    mutationFn: (/** @type {any} */ data) => localDb.WaitingList.create(data),
     onSuccess: () => setJoined(true),
     onError: () => setJoined(true), // demo mode
   });

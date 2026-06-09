@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, Scissors, XCircle, RefreshCcw, Plus, AlertTriangle, Pencil } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { base44 } from '../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MOCK_APPOINTMENTS } from '../lib/mockData';
 import GoldButton from '../components/ui/GoldButton';
@@ -31,7 +31,7 @@ export default function Appointments() {
     queryFn: async () => {
       if (!currentUser) return [];
       try {
-        return await base44.entities.Appointment.filter({ customer_phone: currentUser.phone }, '-date');
+        return await localDb.Appointment.filter({ customer_phone: currentUser.phone }, '-date');
       } catch {
         return MOCK_APPOINTMENTS.filter(a => a.customer_phone === currentUser?.phone);
       }
@@ -40,7 +40,7 @@ export default function Appointments() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (id) => base44.entities.Appointment.update(id, { status: 'cancelled' }),
+    mutationFn: (id) => localDb.Appointment.update(id, { status: 'cancelled' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['appointments'] });
       setCancelModal(null);

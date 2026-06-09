@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Edit3, Trash2, X, Scissors } from 'lucide-react';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MOCK_SERVICES } from '../../lib/mockData';
 import GoldButton from '../../components/ui/GoldButton';
@@ -19,7 +19,7 @@ export default function AdminServices() {
     queryKey: ['services'],
     queryFn: async () => {
       try {
-        const r = await base44.entities.Service.list('sort_order');
+        const r = await localDb.Service.list('sort_order');
         return r.length > 0 ? r : MOCK_SERVICES;
       } catch { return MOCK_SERVICES; }
     },
@@ -27,8 +27,8 @@ export default function AdminServices() {
 
   const saveMutation = useMutation({
     mutationFn: (/** @type {any} */ data) => editModal?.id
-      ? base44.entities.Service.update(editModal.id, data)
-      : base44.entities.Service.create(data),
+      ? localDb.Service.update(editModal.id, data)
+      : localDb.Service.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['services'] });
       setEditModal(null);
@@ -36,12 +36,12 @@ export default function AdminServices() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (/** @type {any} */ id) => base44.entities.Service.delete(id),
+    mutationFn: (/** @type {any} */ id) => localDb.Service.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['services'] }),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, is_active }) => base44.entities.Service.update(id, { is_active }),
+    mutationFn: (/** @type {any} */ { id, is_active }) => localDb.Service.update(id, { is_active }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['services'] }),
   });
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Share2, ZoomIn } from 'lucide-react';
 import { MOCK_GALLERY } from '../lib/mockData';
-import { base44 } from '../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery } from '@tanstack/react-query';
 
 const CATEGORIES = [
@@ -20,7 +20,7 @@ export default function Gallery() {
 
   const { data: dbPhotos = [] } = useQuery({
     queryKey: ['gallery'],
-    queryFn: () => base44.entities.GalleryPhoto.list(),
+    queryFn: () => localDb.GalleryPhoto.list(),
   });
 
   const allPhotos = dbPhotos.length > 0 ? dbPhotos : MOCK_GALLERY;

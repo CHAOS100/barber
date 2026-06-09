@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2 } from 'lucide-react';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MOCK_APPOINTMENTS, MOCK_SERVICES } from '../../lib/mockData';
 import { localDateToString } from '../../lib/slotEngine';
@@ -228,7 +228,7 @@ export default function AdminAppointments() {
   const { data: appointments = [] } = useQuery({
     queryKey: ['admin_appointments'],
     queryFn: async () => {
-      const r = await base44.entities.Appointment.list('-date');
+      const r = await localDb.Appointment.list('-date');
       return r.length > 0 ? r : MOCK_APPOINTMENTS;
     },
     placeholderData: MOCK_APPOINTMENTS,
@@ -236,12 +236,12 @@ export default function AdminAppointments() {
 
   const { data: services = MOCK_SERVICES } = useQuery({
     queryKey: ['services'],
-    queryFn: () => base44.entities.Service.filter({ is_active: true }, 'sort_order'),
+    queryFn: () => localDb.Service.filter({ is_active: true }, 'sort_order'),
     placeholderData: MOCK_SERVICES,
   });
 
   const updateMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, data }) => base44.entities.Appointment.update(id, data),
+    mutationFn: (/** @type {any} */ { id, data }) => localDb.Appointment.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
@@ -250,7 +250,7 @@ export default function AdminAppointments() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Appointment.delete(id),
+    mutationFn: (id) => localDb.Appointment.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
@@ -258,7 +258,7 @@ export default function AdminAppointments() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.Appointment.create(data),
+    mutationFn: (data) => localDb.Appointment.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setShowNewForm(false);

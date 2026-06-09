@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { BUSINESS_INFO } from '../../lib/mockData';
 import GoldButton from '../../components/ui/GoldButton';
 
@@ -188,7 +188,7 @@ export default function AdminHours() {
   // Load from DB
   const { data: dbHours = [] } = useQuery({
     queryKey: ['working-hours-admin'],
-    queryFn: () => base44.entities.WorkingHours.list('day_of_week'),
+    queryFn: () => localDb.WorkingHours.list('day_of_week'),
   });
 
   useEffect(() => {
@@ -206,7 +206,7 @@ export default function AdminHours() {
       for (const day of days) {
         const existing = dbHours.find(h => h.day_of_week === day.day_of_week);
         if (existing?.id) {
-          await base44.entities.WorkingHours.update(existing.id, {
+          await localDb.WorkingHours.update(existing.id, {
             is_open: day.is_open,
             open_time: day.open_time,
             close_time: day.close_time,
@@ -214,7 +214,7 @@ export default function AdminHours() {
             slot_interval: day.slot_interval || 10,
           });
         } else {
-          await base44.entities.WorkingHours.create({
+          await localDb.WorkingHours.create({
             day_of_week: day.day_of_week,
             day_name: day.day_name,
             is_open: day.is_open,

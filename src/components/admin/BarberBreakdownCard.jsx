@@ -2,7 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Scissors, TrendingUp } from 'lucide-react';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 
 const AVATAR_COLORS = ['#D4AF37', '#C9A84C', '#F0D060', '#B8960C', '#E8C84A'];
 
@@ -14,12 +14,12 @@ export default function BarberBreakdownCard() {
 
   const { data: barbers = [] } = useQuery({
     queryKey: ['barbers-active'],
-    queryFn: () => base44.entities.Barber.filter({ is_active: true }, 'sort_order'),
+    queryFn: () => localDb.Barber.filter({ is_active: true }, 'sort_order'),
   });
 
   const { data: appointments = [] } = useQuery({
     queryKey: ['appointments-barber-breakdown'],
-    queryFn: () => base44.entities.Appointment.list('-date', 200),
+    queryFn: () => localDb.Appointment.list('-date', 200),
   });
 
   const thisMonthAppts = appointments.filter(a =>

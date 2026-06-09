@@ -1,4 +1,6 @@
-export const BARBER_PHOTO = "https://media.base44.com/images/public/user_6a117f7117198ba9f6ef9d02/84e21045d_793158_69c0fc56e00f1.jpg";
+import barberPhoto from '@/assets/hero.png';
+
+export const BARBER_PHOTO = barberPhoto;
 
 export const BUSINESS_INFO = {
   name: "OST BARBER",

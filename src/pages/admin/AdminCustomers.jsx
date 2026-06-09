@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Search, AlertTriangle, Ban, Star, Phone, ChevronLeft } from 'lucide-react';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const MOCK_CUSTOMERS = [
@@ -24,14 +24,14 @@ export default function AdminCustomers() {
     queryKey: ['customers'],
     queryFn: async () => {
       try {
-        const r = await base44.entities.CustomerProfile.list('-total_appointments');
+        const r = await localDb.CustomerProfile.list('-total_appointments');
         return r.length > 0 ? r : MOCK_CUSTOMERS;
       } catch { return MOCK_CUSTOMERS; }
     },
   });
 
   const blockMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, is_blocked }) => base44.entities.CustomerProfile.update(id, { is_blocked }),
+    mutationFn: (/** @type {any} */ { id, is_blocked }) => localDb.CustomerProfile.update(id, { is_blocked }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
   });
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Bell, Globe, ChevronLeft, Check, Phone, Mail, Save } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '../../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { loginUser } from '../../lib/userStore';
 
 const LANGUAGES = [
@@ -32,7 +32,7 @@ export default function SettingsTab({ currentUser }) {
   // Notifications (fetched from CustomerProfile if exists)
   const { data: profile } = useQuery({
     queryKey: ['customer-profile', currentUser?.phone],
-    queryFn: () => base44.entities.CustomerProfile.filter({ phone: currentUser.phone }),
+    queryFn: () => localDb.CustomerProfile.filter({ phone: currentUser.phone }),
     enabled: !!currentUser?.phone,
     select: d => d?.[0],
   });
@@ -54,10 +54,10 @@ export default function SettingsTab({ currentUser }) {
       loginUser({ ...currentUser, name, phone, email });
       // Update CustomerProfile entity if exists
       if (profile?.id) {
-        await base44.entities.CustomerProfile.update(profile.id, { name, phone });
+        await localDb.CustomerProfile.update(profile.id, { name, phone });
       } else if (currentUser?.phone) {
         // Create profile entry
-        await base44.entities.CustomerProfile.create({ name, phone, notes: email });
+        await localDb.CustomerProfile.create({ name, phone, notes: email });
       }
     },
     onSuccess: () => {
@@ -72,7 +72,7 @@ export default function SettingsTab({ currentUser }) {
     mutationFn: async (/** @type {any} */ newNotifs) => {
       const notifStr = JSON.stringify(newNotifs);
       if (profile?.id) {
-        await base44.entities.CustomerProfile.update(profile.id, { notes: notifStr });
+        await localDb.CustomerProfile.update(profile.id, { notes: notifStr });
       }
     },
   });

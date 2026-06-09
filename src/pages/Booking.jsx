@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '../api/base44Client';
+import { localDb } from '@/lib/localData';
 import { MOCK_SERVICES } from '../lib/mockData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
@@ -163,27 +163,27 @@ export default function Booking() {
 
   const { data: services = MOCK_SERVICES } = useQuery({
     queryKey: ['services'],
-    queryFn: () => base44.entities.Service.filter({ is_active: true }, 'sort_order'),
+    queryFn: () => localDb.Service.filter({ is_active: true }, 'sort_order'),
     placeholderData: MOCK_SERVICES,
   });
 
   const { data: workingHoursRaw = DEFAULT_WORKING_HOURS } = useQuery({
     queryKey: ['workingHours'],
-    queryFn: () => base44.entities.WorkingHours.list('day_of_week'),
+    queryFn: () => localDb.WorkingHours.list('day_of_week'),
     placeholderData: DEFAULT_WORKING_HOURS,
   });
   const workingHours = workingHoursRaw.length > 0 ? workingHoursRaw : DEFAULT_WORKING_HOURS;
 
   const { data: blockedDates = [] } = useQuery({
     queryKey: ['blockedDates'],
-    queryFn: () => base44.entities.BlockedDate.list(),
+    queryFn: () => localDb.BlockedDate.list(),
     placeholderData: [],
   });
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
   const { data: dayAppointments = [] } = useQuery({
     queryKey: ['appointments-day', selectedDateStr],
-    queryFn: () => base44.entities.Appointment.filter({ date: selectedDateStr }),
+    queryFn: () => localDb.Appointment.filter({ date: selectedDateStr }),
     enabled: !!selectedDateStr,
     placeholderData: [],
   });
@@ -215,7 +215,7 @@ export default function Booking() {
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
     setLoading(true);
     try {
-      await base44.entities.Appointment.create({
+      await localDb.Appointment.create({
         customer_name: currentUser.name,
         customer_phone: currentUser.phone || '',
         service_id: selectedService.id,

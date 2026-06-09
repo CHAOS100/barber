@@ -6,8 +6,10 @@ import {
   MOCK_SERVICES,
 } from '@/lib/mockData';
 import { DEFAULT_WORKING_HOURS } from '@/lib/slotEngine';
+import { loginUser, logoutUser } from '@/lib/userStore';
 
-const STORAGE_KEY = 'ost_demo_database_v1';
+const STORAGE_KEY = 'ost_local_database_v1';
+const PENDING_REGISTRATION_KEY = 'ost_pending_registration';
 const memoryStorage = new Map();
 
 const storage = typeof localStorage === 'undefined'
@@ -77,7 +79,7 @@ const saveDatabase = () => {
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(database));
   } catch {
-    // Demo mode remains usable in memory when storage is unavailable.
+    // The app remains usable in memory when browser storage is unavailable.
   }
 };
 
@@ -137,53 +139,46 @@ const entityApi = (entityName) => ({
   },
 });
 
-const entities = new Proxy({}, {
+export const localDb = /** @type {any} */ (new Proxy({}, {
   get: (_, entityName) => entityApi(entityName),
+}));
+
+export const localAuth = {
+  loginViaEmailPassword: async (email, _password) => {
+    const user = { name: email.split('@')[0], email, isAdmin: false };
+    loginUser(user);
+    return user;
+  },
+  loginWithProvider: (_provider, next = '/') => {
+    loginUser({ name: 'משתמש מקומי', email: 'local@example.com', isAdmin: false });
+    window.location.href = next;
+  },
+  register: async ({ email, password }) => {
+    storage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify({ email, password }));
+    return { ok: true };
+  },
+  verifyOtp: async ({ email, otpCode }) => {
+    if (String(otpCode).length !== 6) throw new Error('Invalid verification code');
+    const pending = JSON.parse(storage.getItem(PENDING_REGISTRATION_KEY) || '{}');
+    const user = { name: (pending.email || email).split('@')[0], email: pending.email || email, isAdmin: false };
+    loginUser(user);
+    storage.removeItem(PENDING_REGISTRATION_KEY);
+    return user;
+  },
+  resendOtp: async (_email) => ({ ok: true }),
+  resetPasswordRequest: async (_email) => ({ ok: true }),
+  resetPassword: async (_payload) => ({ ok: true }),
+  logout: () => logoutUser(),
+  redirectToLogin: () => {
+    window.location.href = '/login';
+  },
+};
+
+export const localFiles = /** @type {any} */ ({
+  upload: (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ fileUrl: reader.result });
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  }),
 });
-
-const getStoredUser = () => {
-  const raw = storage.getItem('ost_user');
-  return raw ? JSON.parse(raw) : null;
-};
-
-const setStoredUser = (user) => storage.setItem('ost_user', JSON.stringify(user));
-
-export const demoClient = {
-  entities,
-  auth: {
-    me: async () => {
-      const user = getStoredUser();
-      if (!user) throw Object.assign(new Error('Not authenticated'), { status: 401 });
-      return user;
-    },
-    loginViaEmailPassword: async (email) => {
-      const user = { name: email.split('@')[0], email, isAdmin: false };
-      setStoredUser(user);
-      return user;
-    },
-    loginWithProvider: (_provider, next = '/') => {
-      setStoredUser({ name: 'משתמש דמו', email: 'demo@example.com', isAdmin: false });
-      window.location.href = next;
-    },
-    register: async () => ({ ok: true }),
-    verifyOtp: async () => ({ access_token: 'demo-token' }),
-    resendOtp: async () => ({ ok: true }),
-    resetPasswordRequest: async () => ({ ok: true }),
-    resetPassword: async () => ({ ok: true }),
-    setToken: () => {},
-    logout: (redirectUrl) => {
-      storage.removeItem('ost_user');
-      if (redirectUrl) window.location.href = redirectUrl;
-    },
-    redirectToLogin: () => {
-      window.location.href = '/login';
-    },
-  },
-  integrations: {
-    Core: {
-      UploadFile: async ({ file }) => ({
-        file_url: URL.createObjectURL(file),
-      }),
-    },
-  },
-};
