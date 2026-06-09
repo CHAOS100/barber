@@ -1,0 +1,395 @@
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Armchair,
+  BadgeCheck,
+  ChevronLeft,
+  Clock,
+  Coffee,
+  Heart,
+  HeartPulse,
+  MessageCircle,
+  Navigation,
+  PhoneCall,
+  Share2,
+  Shield,
+  Star,
+} from 'lucide-react';
+import { BARBER_PHOTO, BUSINESS_INFO, MOCK_REVIEWS, MOCK_GALLERY, MOCK_SERVICES, isOpenNow } from '../lib/mockData';
+import StarRating from '../components/ui/StarRating';
+import GoldButton from '../components/ui/GoldButton';
+
+const COVER_IMAGE = "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=900&q=90";
+
+const AMENITIES = [
+  { Icon: Armchair, label: 'שירותים' },
+  { Icon: Coffee, label: 'מתקן שתייה' },
+  { Icon: HeartPulse, label: 'עזרה ראשונה' },
+  { Icon: Shield, label: 'מקלט / מ"מ' },
+];
+
+const MAP_SRC = "https://maps.google.com/maps?q=%D7%94%D7%A9%D7%95%D7%9E%D7%A8+55+%D7%A8%D7%90%D7%A9%D7%95%D7%9F+%D7%9C%D7%A6%D7%99%D7%95%D7%9F&output=embed&z=16";
+
+export default function Home() {
+  const navigate = useNavigate();
+  const open = isOpenNow();
+  const [activeTab, setActiveTab] = useState('info');
+  const [hoursExpanded, setHoursExpanded] = useState(false);
+  const [liked, setLiked] = useState(false);
+
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({ title: 'OST BARBER', url: window.location.href });
+    }
+  };
+
+  const todayHours = BUSINESS_INFO.hours[new Date().getDay()];
+  const todayStr = todayHours?.is_open ? `${todayHours.open}-${todayHours.close}` : 'סגור';
+
+  return (
+    <div className="min-h-screen bg-background page-transition" dir="rtl">
+      {/* Hero Cover */}
+      <div className="relative h-72 overflow-hidden">
+        <img src={COVER_IMAGE} alt="OST BARBER" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-background" />
+        <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+          <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
+            <Share2 className="w-5 h-5 text-white" />
+          </button>
+          <button onClick={() => setLiked(l => !l)} className="glass p-2.5 rounded-full press-scale">
+            <Heart className={`w-5 h-5 transition-colors ${liked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
+          </button>
+        </div>
+        {/* Category pills on image */}
+        <div className="absolute bottom-4 right-4 flex gap-2">
+          <span className="glass px-3 py-1 rounded-full text-xs font-bold text-white">ספרות</span>
+          <span className="glass px-3 py-1 rounded-full text-xs font-bold text-white">עיצוב זקן</span>
+        </div>
+        {/* Barber avatar */}
+        <div className="absolute bottom-4 left-4">
+          <img
+            src={BARBER_PHOTO}
+            alt="OST Barber"
+            className="w-14 h-14 rounded-full border-2 border-primary object-cover gold-shadow"
+          />
+        </div>
+      </div>
+
+      {/* Profile Info */}
+      <div className="px-4 pt-4">
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-black text-foreground tracking-tight">OST BARBER</h1>
+              <BadgeCheck className="w-6 h-6 text-primary fill-primary/20" />
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+              <span className="text-primary font-bold text-sm">{BUSINESS_INFO.rating}</span>
+              <span className="text-muted-foreground text-xs">({BUSINESS_INFO.reviews_count} ביקורות)</span>
+              <span className="text-muted-foreground text-xs">·</span>
+              <span className="text-muted-foreground text-xs">{BUSINESS_INFO.address}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3 my-4">
+          {/* Waze */}
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => window.open(BUSINESS_INFO.waze)}
+            className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
+          >
+            <Navigation className="w-7 h-7 text-primary" />
+            <span className="text-xs text-foreground font-medium">וייז</span>
+          </motion.button>
+
+          {/* WhatsApp */}
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => window.open(`https://wa.me/${BUSINESS_INFO.whatsapp.replace('+', '')}`)}
+            className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
+          >
+            <MessageCircle className="w-7 h-7 text-primary" />
+            <span className="text-xs text-foreground font-medium">וואטסאפ</span>
+          </motion.button>
+
+          {/* Phone */}
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => window.open(`tel:${BUSINESS_INFO.phone}`)}
+            className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
+          >
+            <PhoneCall className="w-7 h-7 text-primary" />
+            <span className="text-xs text-foreground font-medium">שיחה</span>
+          </motion.button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 glass rounded-2xl p-1 mb-5">
+          {[
+            { key: 'info', label: 'מידע כללי' },
+            { key: 'services', label: 'תורים' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                activeTab === tab.key ? 'gold-gradient text-black' : 'text-muted-foreground'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          {/* ─── INFO TAB ─── */}
+          {activeTab === 'info' && (
+            <motion.div key="info" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+
+              {/* About */}
+              <div className="mb-5">
+                <h2 className="text-base font-black mb-2">על המקום</h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!<br />
+                  *יש לבחור תור לתספורת במידה ובחרת עם גזירות.<br />
+                  *איחורים מעל 10 דקות לא יתקבלו.<br />
+                  *במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.
+                </p>
+              </div>
+
+              {/* Opening Hours */}
+              <div className="glass rounded-2xl p-4 mb-5">
+                <button
+                  className="flex items-center justify-between w-full"
+                  onClick={() => setHoursExpanded(e => !e)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-primary" />
+                    <span className={`text-sm font-bold ${open ? 'text-green-400' : 'text-red-400'}`}>
+                      {open ? 'פתוח' : 'סגור'}
+                    </span>
+                    <span className="text-muted-foreground text-sm">{todayStr}</span>
+                  </div>
+                  <span className="text-muted-foreground text-lg">{hoursExpanded ? '▲' : '▼'}</span>
+                </button>
+                <AnimatePresence>
+                  {hoursExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="pt-3 space-y-2">
+                        {BUSINESS_INFO.hours.map((h) => {
+                          const isToday = BUSINESS_INFO.hours.indexOf(h) === new Date().getDay();
+                          return (
+                            <div key={h.day} className={`flex justify-between items-center text-sm ${isToday ? 'text-primary font-bold' : ''}`}>
+                              <span className={isToday ? 'text-primary' : 'text-muted-foreground'}>{h.day}</span>
+                              <span className={h.is_open ? (isToday ? 'text-primary' : 'text-foreground') : 'text-muted-foreground/60'}>
+                                {h.is_open ? `${h.open}-${h.close}` : 'סגור'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Gallery */}
+              <div className="mb-5">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-base font-black">גלריה</h2>
+                  <Link to="/gallery" className="text-primary text-sm font-medium flex items-center gap-1">
+                    כל הגלריה <ChevronLeft className="w-4 h-4" />
+                  </Link>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {MOCK_GALLERY.slice(0, 3).map((photo, i) => (
+                    <motion.div
+                      key={photo.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.06 }}
+                      className="aspect-square rounded-xl overflow-hidden cursor-pointer press-scale"
+                      onClick={() => navigate('/gallery')}
+                    >
+                      <img src={photo.url} alt="" className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reviews */}
+              <div className="mb-5">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-base font-black">ביקורות</h2>
+                  <Link to="/reviews" className="text-primary text-sm font-medium flex items-center gap-1">
+                    כל הביקורות <ChevronLeft className="w-4 h-4" />
+                  </Link>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+                  {MOCK_REVIEWS.slice(0, 4).map((review, i) => (
+                    <motion.div
+                      key={review.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.07 }}
+                      className="dark-card rounded-2xl p-4 min-w-[220px] flex-shrink-0"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 gold-gradient rounded-full flex items-center justify-center text-black font-bold text-xs flex-shrink-0">
+                          {review.customer_name[0]}
+                        </div>
+                        <div>
+                          <div className="font-bold text-foreground text-xs">{review.customer_name}</div>
+                          <StarRating rating={review.rating} size="sm" />
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground text-xs leading-relaxed line-clamp-3">{review.comment}</p>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Team */}
+              <div className="mb-5">
+                <h2 className="text-base font-black mb-3">צוות המקום</h2>
+                <div className="dark-card rounded-2xl p-4 flex items-center gap-4">
+                  <img src={BARBER_PHOTO} alt="OST" className="w-16 h-16 rounded-full object-cover border-2 border-primary" />
+                  <div>
+                    <div className="font-bold text-foreground">עומרי סימן טוב</div>
+                    <div className="text-muted-foreground text-sm">בעלים</div>
+                    <StarRating rating={5} size="sm" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Location */}
+              <div className="mb-5">
+                <h2 className="text-base font-black mb-3">במקום</h2>
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {AMENITIES.map((a) => (
+                    <div key={a.label} className="dark-card rounded-2xl p-3 flex flex-col items-center gap-1.5">
+                      <a.Icon className="w-6 h-6 text-primary" />
+                      <span className="text-xs text-muted-foreground text-center leading-tight">{a.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-2xl overflow-hidden h-44 relative">
+                  <iframe
+                    src={MAP_SRC}
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    title="מפה"
+                  />
+                  <button
+                    onClick={() => window.open(BUSINESS_INFO.waze)}
+                    className="absolute bottom-3 left-3 glass-gold px-4 py-2 rounded-xl text-sm font-bold text-primary press-scale"
+                  >
+                    נווט עם וייז
+                  </button>
+                </div>
+              </div>
+
+            </motion.div>
+          )}
+
+          {/* ─── SERVICES TAB ─── */}
+          {activeTab === 'services' && (
+            <motion.div key="services" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+              <p className="text-muted-foreground text-sm mb-4">בחר שירות וקבע תור מיידי</p>
+
+              {/* Category: תספורות */}
+              <div className="mb-4">
+                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
+                <div className="space-y-2">
+                  {MOCK_SERVICES.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map((service, i) => (
+                    <motion.div
+                      key={service.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => navigate('/booking', { state: { service } })}
+                      className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
+                    >
+                      <div className="flex-1 text-right">
+                        <div className="font-bold text-foreground text-sm">{service.name}</div>
+                        <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
+                      </div>
+                      <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
+                      <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
+                        <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category: עיצוב זקן */}
+              <div className="mb-4">
+                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
+                {MOCK_SERVICES.filter(s => s.name === 'עיצוב זקן').map((service) => (
+                  <motion.div
+                    key={service.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => navigate('/booking', { state: { service } })}
+                    className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
+                  >
+                    <div className="flex-1 text-right">
+                      <div className="font-bold text-foreground text-sm">{service.name}</div>
+                      <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
+                    </div>
+                    <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
+                    <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
+                      <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Category: חבילות */}
+              <div className="mb-6">
+                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות פרימיום</p>
+                {MOCK_SERVICES.filter(s => s.name === 'חבילת פרימיום').map((service) => (
+                  <motion.div
+                    key={service.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => navigate('/booking', { state: { service } })}
+                    className="glass-gold rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-primary/30 transition-all"
+                  >
+                    <div className="flex-1 text-right">
+                      <div className="font-bold text-foreground text-sm flex items-center gap-1 justify-end">
+                        {service.name} <span className="text-primary text-xs">⭐</span>
+                      </div>
+                      <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
+                    </div>
+                    <div className="text-primary font-black text-sm flex-shrink-0">₪{service.price}</div>
+                    <div className="w-7 h-7 rounded-lg border-2 border-primary/40 flex items-center justify-center flex-shrink-0">
+                      <ChevronLeft className="w-4 h-4 text-primary" />
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Sticky Book Button */}
+      <div className="fixed bottom-20 left-0 right-0 z-40 px-4">
+        <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
+          הזמן עכשיו
+        </GoldButton>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,275 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '../../api/base44Client';
+import { BUSINESS_INFO } from '../../lib/mockData';
+import GoldButton from '../../components/ui/GoldButton';
+
+const DEFAULT_DAYS = BUSINESS_INFO.hours.map((h, i) => ({
+  day_of_week: i,
+  day_name: h.day,
+  is_open: h.is_open,
+  open_time: h.open || '09:00',
+  close_time: h.close || '20:00',
+  breaks: [],
+  slot_interval: 10,
+}));
+
+const TIME_OPTIONS = [];
+for (let h = 0; h < 24; h++) {
+  for (let m = 0; m < 60; m += 30) {
+    TIME_OPTIONS.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+  }
+}
+
+function TimeSelect({ value, onChange }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm text-center focus:outline-none focus:border-primary appearance-none cursor-pointer"
+    >
+      {TIME_OPTIONS.map(t => (
+        <option key={t} value={t}>{t}</option>
+      ))}
+    </select>
+  );
+}
+
+function DayCard({ day, onUpdate }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const toggleOpen = () => onUpdate({ ...day, is_open: !day.is_open });
+
+  const updateTime = (field, val) => onUpdate({ ...day, [field]: val });
+
+  const addBreak = () => onUpdate({
+    ...day,
+    breaks: [...(day.breaks || []), { start: '13:00', end: '14:00', label: 'הפסקה' }]
+  });
+
+  const removeBreak = (i) => onUpdate({
+    ...day,
+    breaks: day.breaks.filter((_, idx) => idx !== i)
+  });
+
+  const updateBreak = (i, field, val) => {
+    const updated = day.breaks.map((b, idx) => idx === i ? { ...b, [field]: val } : b);
+    onUpdate({ ...day, breaks: updated });
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`dark-card rounded-2xl overflow-hidden border ${day.is_open ? 'border-primary/10' : 'border-transparent'}`}
+    >
+      {/* Day header */}
+      <div className="flex items-center gap-3 p-4">
+        <div
+          onClick={toggleOpen}
+          className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center px-0.5 cursor-pointer flex-shrink-0 ${
+            day.is_open ? 'gold-gradient' : 'bg-secondary'
+          }`}
+        >
+          <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+            day.is_open ? 'translate-x-0' : 'translate-x-6'
+          }`} />
+        </div>
+        <span className={`font-black flex-1 ${day.is_open ? 'text-foreground' : 'text-muted-foreground'}`}>
+          {day.day_name}
+        </span>
+        {day.is_open && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            {day.open_time} – {day.close_time}
+          </span>
+        )}
+        {!day.is_open && (
+          <span className="text-xs text-red-400/70 font-bold">סגור</span>
+        )}
+        {day.is_open && (
+          <button onClick={() => setExpanded(e => !e)} className="glass p-1.5 rounded-lg mr-1">
+            {expanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
+          </button>
+        )}
+      </div>
+
+      {/* Expanded settings */}
+      <AnimatePresence>
+        {day.is_open && expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-t border-white/5"
+          >
+            <div className="p-4 pt-3 space-y-4">
+              {/* Open / Close times */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ פתיחה</label>
+                  <TimeSelect value={day.open_time} onChange={v => updateTime('open_time', v)} />
+                </div>
+                <div className="text-muted-foreground mt-5 text-lg">—</div>
+                <div className="flex-1">
+                  <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">🔒 סגירה</label>
+                  <TimeSelect value={day.close_time} onChange={v => updateTime('close_time', v)} />
+                </div>
+              </div>
+
+              {/* Slot interval */}
+              <div>
+                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⚡ מרווח בין תורים</label>
+                <div className="flex gap-2">
+                  {[10, 15, 20, 30, 45, 60].map(min => (
+                    <button
+                      key={min}
+                      onClick={() => updateTime('slot_interval', min)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                        (day.slot_interval || 10) === min ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+                      }`}
+                    >
+                      {min}′
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Breaks */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
+                    <Coffee className="w-3 h-3" /> הפסקות
+                  </label>
+                  <button
+                    onClick={addBreak}
+                    className="flex items-center gap-1 text-primary text-xs font-bold glass px-2 py-1 rounded-lg"
+                  >
+                    <Plus className="w-3 h-3" /> הוסף
+                  </button>
+                </div>
+                {(day.breaks || []).length === 0 && (
+                  <p className="text-muted-foreground/60 text-xs">אין הפסקות מוגדרות</p>
+                )}
+                {(day.breaks || []).map((brk, i) => (
+                  <div key={i} className="flex items-center gap-2 mb-2">
+                    <input
+                      value={brk.label}
+                      onChange={e => updateBreak(i, 'label', e.target.value)}
+                      placeholder="שם הפסקה"
+                      className="flex-1 bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-right focus:outline-none focus:border-primary"
+                      dir="rtl"
+                    />
+                    <TimeSelect value={brk.start} onChange={v => updateBreak(i, 'start', v)} />
+                    <span className="text-muted-foreground text-xs">—</span>
+                    <TimeSelect value={brk.end} onChange={v => updateBreak(i, 'end', v)} />
+                    <button onClick={() => removeBreak(i)} className="text-red-400 p-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+export default function AdminHours() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [days, setDays] = useState(DEFAULT_DAYS);
+  const [saved, setSaved] = useState(false);
+
+  // Load from DB
+  const { data: dbHours = [] } = useQuery({
+    queryKey: ['working-hours-admin'],
+    queryFn: () => base44.entities.WorkingHours.list('day_of_week'),
+  });
+
+  useEffect(() => {
+    if (dbHours.length > 0) {
+      // Merge DB data into state
+      setDays(DEFAULT_DAYS.map(d => {
+        const db = dbHours.find(h => h.day_of_week === d.day_of_week);
+        return db ? { ...d, ...db } : d;
+      }));
+    }
+  }, [dbHours]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      for (const day of days) {
+        const existing = dbHours.find(h => h.day_of_week === day.day_of_week);
+        if (existing?.id) {
+          await base44.entities.WorkingHours.update(existing.id, {
+            is_open: day.is_open,
+            open_time: day.open_time,
+            close_time: day.close_time,
+            breaks: day.breaks || [],
+            slot_interval: day.slot_interval || 10,
+          });
+        } else {
+          await base44.entities.WorkingHours.create({
+            day_of_week: day.day_of_week,
+            day_name: day.day_name,
+            is_open: day.is_open,
+            open_time: day.open_time,
+            close_time: day.close_time,
+            breaks: day.breaks || [],
+            slot_interval: day.slot_interval || 10,
+          });
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['working-hours-admin'] });
+      queryClient.invalidateQueries({ queryKey: ['workingHours'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    },
+  });
+
+  const updateDay = (updated) => {
+    setDays(prev => prev.map(d => d.day_of_week === updated.day_of_week ? updated : d));
+  };
+
+  const openDays = days.filter(d => d.is_open).length;
+
+  return (
+    <div className="min-h-screen bg-background page-transition" dir="rtl">
+      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+        <button onClick={() => navigate('/admin')} className="press-scale">
+          <ArrowRight className="w-6 h-6" />
+        </button>
+        <div>
+          <h1 className="font-black text-lg">שעות עבודה</h1>
+          <p className="text-muted-foreground text-xs">{openDays} ימי עסקים פעילים</p>
+        </div>
+      </div>
+
+      <div className="px-4 py-4 space-y-3">
+        <div className="glass-gold rounded-2xl p-3 flex items-center gap-2 text-xs text-muted-foreground mb-2">
+          <Clock className="w-4 h-4 text-primary flex-shrink-0" />
+          לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים
+        </div>
+
+        {days.map((day) => (
+          <DayCard key={day.day_of_week} day={day} onUpdate={updateDay} />
+        ))}
+      </div>
+
+      <div className="px-4 pb-8">
+        <GoldButton onClick={() => saveMutation.mutate()} size="lg" className="w-full" disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? 'שומר...' : saved ? '✓ נשמר בהצלחה!' : (
+            <span className="flex items-center justify-center gap-2"><Save className="w-4 h-4" /> שמור שינויים</span>
+          )}
+        </GoldButton>
+      </div>
+    </div>
+  );
+}
