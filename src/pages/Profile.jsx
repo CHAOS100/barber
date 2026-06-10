@@ -1,18 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Award, Phone, Edit3, History, Star, Heart, Settings } from 'lucide-react';
+import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Phone, Edit3, History, Star, Heart, Settings } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useQuery } from '@tanstack/react-query';
 import { MOCK_NOTIFICATIONS } from '../lib/mockData';
-import LoyaltyCard from '../components/profile/LoyaltyCard';
 import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
 import SettingsTab from '../components/profile/SettingsTab';
 
 const TABS = [
   { key: 'info', label: 'פרופיל', icon: User },
-  { key: 'loyalty', label: 'נאמנות', icon: Award },
   { key: 'history', label: 'היסטוריה', icon: History },
   { key: 'settings', label: 'הגדרות', icon: Settings },
 ];
@@ -21,6 +19,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const { currentUser, logoutUser, isAdmin } = useCurrentUser();
   const [activeTab, setActiveTab] = useState('info');
+  const [personalEditRequest, setPersonalEditRequest] = useState(0);
 
   const { data: notifications = [] } = useQuery({
     queryKey: ['notifications', currentUser?.phone],
@@ -30,9 +29,12 @@ export default function Profile() {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Mock loyalty data — in production fetch from CustomerProfile entity
-  const loyaltyPoints = currentUser?.reward_points || 125;
   const visits = currentUser?.total_appointments || 8;
+
+  const openPersonalSettings = () => {
+    setActiveTab('settings');
+    setPersonalEditRequest(request => request + 1);
+  };
 
   if (!currentUser) {
     return (
@@ -68,16 +70,21 @@ export default function Profile() {
               {currentUser.phone || currentUser.email}
             </div>
           </div>
-          <button className="glass p-2.5 rounded-xl press-scale">
-            <Edit3 className="w-4 h-4 text-primary" />
-          </button>
+          {!isAdmin && (
+            <button
+              onClick={openPersonalSettings}
+              className="glass p-2.5 rounded-xl press-scale"
+              aria-label="עריכת חשבון"
+            >
+              <Edit3 className="w-4 h-4 text-primary" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3 px-4 mb-4">
+      <div className="grid grid-cols-2 gap-3 px-4 mb-4">
         {[
-          { icon: Award, label: 'נקודות', value: loyaltyPoints, color: 'text-primary' },
           { icon: AlertTriangle, label: 'אזהרות', value: currentUser?.warning_count || 0, color: 'text-yellow-400' },
           { icon: History, label: 'ביקורים', value: visits, color: 'text-blue-400' },
         ].map((stat) => {
@@ -171,30 +178,6 @@ export default function Profile() {
           </motion.div>
         )}
 
-        {/* LOYALTY TAB */}
-        {activeTab === 'loyalty' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <LoyaltyCard points={loyaltyPoints} visits={visits} />
-            <div className="glass rounded-2xl p-4">
-              <h3 className="font-bold mb-3 text-sm">פעילות אחרונה</h3>
-              <div className="space-y-2">
-                {[
-                  { label: 'תספורת רגילה', pts: '+10', date: '29.05' },
-                  { label: 'ביקורת חמישה כוכבים', pts: '+5', date: '25.05' },
-                  { label: 'סקין פייד', pts: '+10', date: '18.05' },
-                  { label: 'חבילת פרימיום', pts: '+20', date: '10.05' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <span className="text-green-400 font-black">{item.pts}</span>
-                    <span className="text-foreground">{item.label}</span>
-                    <span className="text-muted-foreground">{item.date}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -206,7 +189,7 @@ export default function Profile() {
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <SettingsTab currentUser={currentUser} />
+            <SettingsTab currentUser={currentUser} openPersonalRequest={personalEditRequest} />
           </motion.div>
         )}
       </div>

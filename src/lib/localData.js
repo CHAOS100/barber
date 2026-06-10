@@ -32,11 +32,9 @@ const buildCustomers = () => {
       phone: appointment.customer_phone,
       total_appointments: 0,
       warning_count: 0,
-      reward_points: 0,
       is_blocked: false,
     };
     existing.total_appointments += 1;
-    existing.reward_points += 10;
     customers.set(appointment.customer_phone, existing);
   });
   return [...customers.values()];

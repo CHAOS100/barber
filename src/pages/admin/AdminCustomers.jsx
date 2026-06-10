@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Search, AlertTriangle, Ban, Star, Phone, ChevronLeft } from 'lucide-react';
+import { ArrowRight, Search, AlertTriangle, Ban, Phone, ChevronLeft } from 'lucide-react';
 import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const MOCK_CUSTOMERS = [
-  { id: 'c1', name: 'יוסי כהן', phone: '052-1234567', total_appointments: 8, warning_count: 0, reward_points: 80, is_blocked: false },
-  { id: 'c2', name: 'דוד לוי', phone: '053-2345678', total_appointments: 5, warning_count: 1, reward_points: 50, is_blocked: false },
-  { id: 'c3', name: 'משה אברהם', phone: '054-3456789', total_appointments: 12, warning_count: 0, reward_points: 120, is_blocked: false },
-  { id: 'c4', name: 'אמיר נחמני', phone: '050-4567890', total_appointments: 3, warning_count: 2, reward_points: 30, is_blocked: false },
-  { id: 'c5', name: 'רועי שפירא', phone: '058-5678901', total_appointments: 15, warning_count: 0, reward_points: 150, is_blocked: false },
-  { id: 'c6', name: 'ניר כץ', phone: '052-6789012', total_appointments: 1, warning_count: 3, reward_points: 10, is_blocked: true },
+  { id: 'c1', name: 'יוסי כהן', phone: '052-1234567', total_appointments: 8, warning_count: 0, is_blocked: false },
+  { id: 'c2', name: 'דוד לוי', phone: '053-2345678', total_appointments: 5, warning_count: 1, is_blocked: false },
+  { id: 'c3', name: 'משה אברהם', phone: '054-3456789', total_appointments: 12, warning_count: 0, is_blocked: false },
+  { id: 'c4', name: 'אמיר נחמני', phone: '050-4567890', total_appointments: 3, warning_count: 2, is_blocked: false },
+  { id: 'c5', name: 'רועי שפירא', phone: '058-5678901', total_appointments: 15, warning_count: 0, is_blocked: false },
+  { id: 'c6', name: 'ניר כץ', phone: '052-6789012', total_appointments: 1, warning_count: 3, is_blocked: true },
 ];
 
 export default function AdminCustomers() {
@@ -97,9 +97,6 @@ export default function AdminCustomers() {
               </div>
               <div className="text-right">
                 <div className="text-primary font-black text-sm">{customer.total_appointments} ביקורים</div>
-                <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                  <Star className="w-3 h-3 text-primary" /> {customer.reward_points} נקודות
-                </div>
               </div>
               <ChevronLeft className="w-4 h-4 text-muted-foreground" />
             </div>
@@ -133,7 +130,7 @@ export default function AdminCustomers() {
                   <div className="text-muted-foreground text-sm">{selectedCustomer.phone}</div>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="grid grid-cols-2 gap-2 mb-4">
                 <div className="glass rounded-xl p-3 text-center">
                   <div className="font-black text-primary">{selectedCustomer.total_appointments}</div>
                   <div className="text-muted-foreground text-xs">ביקורים</div>
@@ -143,10 +140,6 @@ export default function AdminCustomers() {
                     {selectedCustomer.warning_count}
                   </div>
                   <div className="text-muted-foreground text-xs">אזהרות</div>
-                </div>
-                <div className="glass rounded-xl p-3 text-center">
-                  <div className="font-black text-primary">{selectedCustomer.reward_points}</div>
-                  <div className="text-muted-foreground text-xs">נקודות</div>
                 </div>
               </div>
               <div className="flex gap-2">

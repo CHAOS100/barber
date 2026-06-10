@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Bell, Globe, ChevronLeft, Check, Phone, Mail, Save } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,7 @@ const NOTIFICATION_SETTINGS = [
   { key: 'promotions', label: 'מבצעים ועדכונים', desc: 'הצעות מיוחדות וחדשות' },
 ];
 
-export default function SettingsTab({ currentUser }) {
+export default function SettingsTab({ currentUser, openPersonalRequest = 0 }) {
   const queryClient = useQueryClient();
   const [section, setSection] = useState(null);
 
@@ -28,6 +28,17 @@ export default function SettingsTab({ currentUser }) {
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [email, setEmail] = useState(currentUser?.email || '');
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    if (openPersonalRequest > 0) setSection('personal');
+  }, [openPersonalRequest]);
+
+  useEffect(() => {
+    setName(currentUser?.name || '');
+    setPhone(currentUser?.phone || '');
+    setEmail(currentUser?.email || '');
+  }, [currentUser?.email, currentUser?.name, currentUser?.phone]);
 
   // Notifications (fetched from CustomerProfile if exists)
   const { data: profile } = useQuery({
@@ -50,20 +61,42 @@ export default function SettingsTab({ currentUser }) {
   // Save personal info mutation
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Update userStore (local session)
-      loginUser({ ...currentUser, name, phone, email });
-      // Update CustomerProfile entity if exists
+      const trimmedName = name.trim();
+      const trimmedPhone = phone.trim();
+      const trimmedEmail = email.trim();
+
+      if (!trimmedName) throw new Error('יש להזין שם מלא');
+
       if (profile?.id) {
-        await localDb.CustomerProfile.update(profile.id, { name, phone });
-      } else if (currentUser?.phone) {
-        // Create profile entry
-        await localDb.CustomerProfile.create({ name, phone, notes: email });
+        await localDb.CustomerProfile.update(profile.id, {
+          name: trimmedName,
+          phone: trimmedPhone,
+          email: trimmedEmail,
+        });
+      } else if (trimmedPhone) {
+        await localDb.CustomerProfile.create({
+          name: trimmedName,
+          phone: trimmedPhone,
+          email: trimmedEmail,
+        });
       }
+
+      loginUser({
+        ...currentUser,
+        name: trimmedName,
+        phone: trimmedPhone,
+        email: trimmedEmail,
+      });
     },
     onSuccess: () => {
+      setSaveError('');
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ['customer-profile'] });
       setTimeout(() => setSaved(false), 2500);
+    },
+    onError: (error) => {
+      setSaved(false);
+      setSaveError(error?.message || 'לא הצלחנו לשמור את פרטי החשבון');
     },
   });
 
@@ -142,6 +175,9 @@ export default function SettingsTab({ currentUser }) {
               <><Save className="w-4 h-4" /> שמור שינויים</>
             )}
           </motion.button>
+          {saveError && (
+            <p className="text-red-400 text-xs text-center">{saveError}</p>
+          )}
         </div>
       </motion.div>
     );
