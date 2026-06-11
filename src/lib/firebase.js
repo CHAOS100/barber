@@ -1,4 +1,4 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
+import { getApps, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
   getAuth,
@@ -9,33 +9,71 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 
+const FIREBASE_APP_NAME = 'ost-barber-web';
+
+const firebaseEnvironment = {
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const readEnvironmentValue = (name) => String(firebaseEnvironment[name] || '').trim();
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: readEnvironmentValue('VITE_FIREBASE_API_KEY'),
+  authDomain: readEnvironmentValue('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: readEnvironmentValue('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: readEnvironmentValue('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: readEnvironmentValue('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: readEnvironmentValue('VITE_FIREBASE_APP_ID'),
 };
 
-const requiredFirebaseEnvironment = {
-  VITE_FIREBASE_API_KEY: firebaseConfig.apiKey,
-  VITE_FIREBASE_AUTH_DOMAIN: firebaseConfig.authDomain,
-  VITE_FIREBASE_PROJECT_ID: firebaseConfig.projectId,
-  VITE_FIREBASE_STORAGE_BUCKET: firebaseConfig.storageBucket,
-  VITE_FIREBASE_MESSAGING_SENDER_ID: firebaseConfig.messagingSenderId,
-  VITE_FIREBASE_APP_ID: firebaseConfig.appId,
-};
-
-export const missingFirebaseEnvironmentVariables = Object.entries(requiredFirebaseEnvironment)
+export const missingFirebaseEnvironmentVariables = Object.entries(firebaseEnvironment)
   .filter(([, value]) => !String(value || '').trim())
   .map(([name]) => name);
 
-export const isFirebaseConfigured = missingFirebaseEnvironmentVariables.length === 0;
+export const invalidFirebaseEnvironmentVariables = Object.entries(firebaseEnvironment)
+  .filter(([name, value]) => String(value || '').trim() === name)
+  .map(([name]) => name);
+
+if (firebaseConfig.apiKey && !/^AIza[0-9A-Za-z_-]{35}$/.test(firebaseConfig.apiKey)) {
+  invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_API_KEY');
+}
+
+const maskApiKey = (apiKey) => {
+  if (!apiKey) return 'missing';
+  if (apiKey.length <= 8) return 'invalid';
+  return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
+};
+
+export const firebaseRuntimeConfig = Object.freeze({
+  projectId: firebaseConfig.projectId || 'missing',
+  authDomain: firebaseConfig.authDomain || 'missing',
+  appId: firebaseConfig.appId || 'missing',
+  apiKeyMasked: maskApiKey(firebaseConfig.apiKey),
+});
+
+export const isFirebaseConfigured =
+  missingFirebaseEnvironmentVariables.length === 0
+  && invalidFirebaseEnvironmentVariables.length === 0;
 export const firebaseProjectId = firebaseConfig.projectId || 'not-configured';
 
+console.info('[Firebase] Runtime configuration', firebaseRuntimeConfig);
+
+if (missingFirebaseEnvironmentVariables.length > 0 || invalidFirebaseEnvironmentVariables.length > 0) {
+  console.error('[Firebase] Invalid Vercel environment configuration', {
+    missing: missingFirebaseEnvironmentVariables,
+    invalid: invalidFirebaseEnvironmentVariables,
+    runtime: firebaseRuntimeConfig,
+  });
+}
+
+const existingFirebaseApp = getApps().find((app) => app.name === FIREBASE_APP_NAME);
 const firebaseApp = isFirebaseConfigured
-  ? (getApps().length > 0 ? getApp() : initializeApp(firebaseConfig))
+  ? (existingFirebaseApp || initializeApp(firebaseConfig, FIREBASE_APP_NAME))
   : null;
 
 export const firebaseAuth = firebaseApp ? getAuth(firebaseApp) : null;
@@ -44,9 +82,9 @@ export const firestoreDb = firebaseApp ? getFirestore(firebaseApp) : null;
 let customerAuthPromise;
 
 const firebaseConfigurationError = () => new Error(
-  `Firebase is not configured. Missing Vercel build-time environment variables: ${
-    missingFirebaseEnvironmentVariables.join(', ') || 'unknown'
-  }. Configure them in Vercel and redeploy.`,
+  `Firebase is not configured from valid Vercel build-time environment variables. Missing: ${
+    missingFirebaseEnvironmentVariables.join(', ') || 'none'
+  }. Invalid: ${invalidFirebaseEnvironmentVariables.join(', ') || 'none'}. Configure them in Vercel and redeploy.`,
 );
 
 export const requireFirebase = () => {
