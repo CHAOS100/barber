@@ -12,6 +12,7 @@ import { logoutUser, userStore } from './userStore';
 
 const FIREBASE_APP_NAME = 'ost-barber-web';
 const EXPECTED_FIREBASE_PROJECT_ID = 'ost-barber-app';
+const EXPECTED_FIREBASE_API_KEY = 'AIzaSyDYKVodoIVuB2KDLLYV5q3ihkDudOjqMm4';
 const ADMIN_COLLECTION = 'admins';
 
 const firebaseEnvironment = {
@@ -46,6 +47,10 @@ if (firebaseConfig.apiKey && !/^AIza[0-9A-Za-z_-]{35}$/.test(firebaseConfig.apiK
   invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_API_KEY');
 }
 
+if (firebaseConfig.apiKey !== EXPECTED_FIREBASE_API_KEY) {
+  invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_API_KEY');
+}
+
 const maskApiKey = (apiKey) => {
   if (!apiKey) return 'missing';
   if (apiKey.length <= 8) return 'invalid';
@@ -57,6 +62,7 @@ export const firebaseRuntimeConfig = Object.freeze({
   authDomain: firebaseConfig.authDomain || 'missing',
   appId: firebaseConfig.appId || 'missing',
   apiKeyMasked: maskApiKey(firebaseConfig.apiKey),
+  apiKeyMatchesExpected: firebaseConfig.apiKey === EXPECTED_FIREBASE_API_KEY,
 });
 
 export const isFirebaseConfigured =
