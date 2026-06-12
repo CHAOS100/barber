@@ -6,6 +6,8 @@ import { localDb } from '@/lib/localData';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
+import { getBookingSettings } from '@/lib/businessFirestore';
+import { useAppointmentBlocksRealtime } from '@/hooks/useBookingData';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const MONTH_NAMES = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
@@ -47,17 +49,16 @@ export default function EditAppointmentModal({ appointment, onClose }) {
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
 
-  const { data: dayAppointments = [] } = useQuery({
-    queryKey: ['appointments-day', selectedDateStr],
-    queryFn: () => localDb.Appointment.filter({ date: selectedDateStr }),
-    enabled: !!selectedDateStr,
-    placeholderData: [],
+  const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
+  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
+    queryKey: ['booking-settings'],
+    queryFn: getBookingSettings,
   });
 
   // Exclude the current appointment from the occupied slots so it doesn't block itself
   const otherAppointments = useMemo(
-    () => dayAppointments.filter(a => a.id !== appointment.id),
-    [dayAppointments, appointment.id]
+    () => appointmentBlocks.filter(a => a.id !== appointment.id && a.barberId === appointment.barber_id),
+    [appointmentBlocks, appointment.id, appointment.barber_id]
   );
 
   const availableDates = useMemo(() => generateDates(workingHours), [workingHours]);
@@ -79,9 +80,9 @@ export default function EditAppointmentModal({ appointment, onClose }) {
       workingHours: wh,
       blockedTimes: [],
       slotInterval: 10,
-      bufferMinutes: 0,
+      bufferMinutes: bookingSettings.appointmentBufferMinutes,
     });
-  }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration]);
+  }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration, bookingSettings]);
 
   const updateMutation = useMutation({
     mutationFn: () => updateOwnAppointment(appointment.id, {
@@ -210,6 +211,13 @@ export default function EditAppointmentModal({ appointment, onClose }) {
                   {updateMutation.isPending ? 'מעדכן...' : `אשר — ${selectedDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })} בשעה ${selectedTime}`}
                 </GoldButton>
               </motion.div>
+            )}
+            {updateMutation.error && (
+              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                {/** @type {any} */ (updateMutation.error).code === 'functions/already-exists'
+                  ? 'השעה נתפסה כרגע. יש לבחור שעה אחרת.'
+                  : 'עדכון התור נכשל.'}
+              </div>
             )}
           </>
         )}

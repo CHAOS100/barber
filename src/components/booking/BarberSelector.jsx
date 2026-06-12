@@ -1,29 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
-import { localDb } from '@/lib/localData';
 import { Check, User } from 'lucide-react';
-import { BARBER_PHOTO } from '../../lib/mockData';
 
-const MOCK_BARBERS = [
-  { id: 'any', name: 'ללא העדפה', photo_url: null, specialties: ['כל השירותים'] },
-  { id: 'b1', name: 'OST', photo_url: BARBER_PHOTO, specialties: ['פייד', 'תספורת', 'זקן'] },
-];
-
-export default function BarberSelector({ selectedBarber, onSelect }) {
-  const { data: barbers = MOCK_BARBERS } = useQuery({
-    queryKey: ['barbers'],
-    queryFn: async () => {
-      try {
-        const res = await localDb.Barber.filter({ is_active: true }, 'sort_order');
-        return res.length > 0 ? [MOCK_BARBERS[0], ...res] : MOCK_BARBERS;
-      } catch {
-        return MOCK_BARBERS;
-      }
-    },
-    placeholderData: MOCK_BARBERS,
-  });
-
+export default function BarberSelector({ barbers, selectedBarber, onSelect }) {
   return (
     <div>
       <h3 className="font-bold mb-3 text-sm text-muted-foreground">בחר ספר</h3>

@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { localDb } from '@/lib/localData';
 import { createCustomerAppointment } from '@/lib/appointmentsFirestore';
-import { MOCK_SERVICES } from '../lib/mockData';
+import { getBookingSettings, listActiveServices } from '@/lib/businessFirestore';
+import { useActiveBarbersRealtime, useAppointmentBlocksRealtime } from '@/hooks/useBookingData';
+import { localDb } from '@/lib/localData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
 import BarberSelector from '../components/booking/BarberSelector';
@@ -153,7 +154,7 @@ export default function Booking() {
 
   const [step, setStep] = useState(location.state?.service ? 2 : 1);
   const [selectedService, setSelectedService] = useState(location.state?.service || null);
-  const [selectedBarber, setSelectedBarber] = useState({ id: 'any', name: 'ללא העדפה' });
+  const [selectedBarber, setSelectedBarber] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTimeGroup, setSelectedTimeGroup] = useState(null);
@@ -163,10 +164,14 @@ export default function Booking() {
   const [showWaiting, setShowWaiting] = useState(false);
   const [bookingError, setBookingError] = useState('');
 
-  const { data: services = MOCK_SERVICES } = useQuery({
+  const { data: services = [] } = useQuery({
     queryKey: ['services'],
-    queryFn: () => localDb.Service.filter({ is_active: true }, 'sort_order'),
-    placeholderData: MOCK_SERVICES,
+    queryFn: listActiveServices,
+  });
+  const { data: barbers } = useActiveBarbersRealtime();
+  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
+    queryKey: ['booking-settings'],
+    queryFn: getBookingSettings,
   });
 
   const { data: workingHoursRaw = DEFAULT_WORKING_HOURS } = useQuery({
@@ -183,12 +188,27 @@ export default function Booking() {
   });
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
-  const { data: dayAppointments = [] } = useQuery({
-    queryKey: ['appointments-day', selectedDateStr],
-    queryFn: () => localDb.Appointment.filter({ date: selectedDateStr }),
-    enabled: !!selectedDateStr,
-    placeholderData: [],
-  });
+  const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
+
+  useEffect(() => {
+    if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
+      setSelectedBarber(barbers[0]);
+    } else if (selectedBarber && !barbers.some((barber) => barber.id === selectedBarber.id)) {
+      setSelectedBarber(null);
+    }
+  }, [barbers, selectedBarber]);
+
+  useEffect(() => {
+    if (!selectedService || services.length === 0) return;
+    const currentService = services.find(service => service.id === selectedService.id);
+    if (currentService) {
+      if (currentService !== selectedService) setSelectedService(currentService);
+      return;
+    }
+    setSelectedService(null);
+    setSelectedTime(null);
+    setStep(1);
+  }, [services, selectedService]);
 
   const isDateBlocked = useMemo(() => {
     if (!selectedDate) return false;
@@ -203,13 +223,13 @@ export default function Booking() {
     return getAvailableSlots({
       date: ds,
       serviceDuration: selectedService.duration,
-      appointments: dayAppointments,
+      appointments: appointmentBlocks.filter(block => block.barberId === selectedBarber?.id),
       workingHours: wh,
       blockedTimes: [],
       slotInterval: 10,
-      bufferMinutes: 0,
+      bufferMinutes: bookingSettings.appointmentBufferMinutes,
     });
-  }, [selectedDate, selectedService, dayAppointments, workingHours, isDateBlocked]);
+  }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings]);
 
   const slotGroups = useMemo(() => groupSlots(availableSlots), [availableSlots]);
 
@@ -227,13 +247,15 @@ export default function Booking() {
         serviceDuration: selectedService.duration,
         date: selectedDateStr,
         startTime: selectedTime,
-        barberId: selectedBarber?.id !== 'any' ? selectedBarber.id : null,
-        barberName: selectedBarber?.id !== 'any' ? selectedBarber.name : null,
+        barberId: selectedBarber.id,
+        barberName: selectedBarber.name,
         notes,
       });
       setConfirmed(true);
-    } catch {
-      setBookingError('לא הצלחנו לשמור את התור. נסו שוב.');
+    } catch (error) {
+      setBookingError(error?.code === 'functions/already-exists'
+        ? 'השעה נתפסה כרגע. יש לבחור שעה אחרת.'
+        : 'לא הצלחנו לשמור את התור. נסו שוב.');
     } finally {
       setLoading(false);
     }
@@ -262,7 +284,7 @@ export default function Booking() {
           <div className="glass rounded-2xl p-5 text-right mb-6 space-y-3">
             {[
               { label: 'שירות', value: selectedService.name },
-              { label: 'ספר', value: selectedBarber?.id !== 'any' ? selectedBarber.name : 'כל ספר' },
+              { label: 'ספר', value: selectedBarber?.name },
               { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL') },
               { label: 'שעה', value: selectedTime },
               { label: 'מחיר', value: `₪${selectedService.price}`, highlight: true },
@@ -280,7 +302,7 @@ export default function Booking() {
     );
   }
 
-  const serviceList = (services.length > 0 ? services : MOCK_SERVICES).filter(s => s.is_active !== false);
+  const serviceList = services.filter(s => s.is_active !== false);
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -318,9 +340,16 @@ export default function Booking() {
               <p className="text-muted-foreground text-sm mb-5">שלב 1 מתוך 3</p>
 
               {/* Barber */}
-              <div className="glass rounded-2xl p-4 mb-5">
-                <BarberSelector selectedBarber={selectedBarber} onSelect={setSelectedBarber} />
-              </div>
+              {barbers.length > 1 && (
+                <div className="glass rounded-2xl p-4 mb-5">
+                  <BarberSelector barbers={barbers} selectedBarber={selectedBarber} onSelect={setSelectedBarber} />
+                </div>
+              )}
+              {barbers.length === 0 && (
+                <div className="glass rounded-2xl p-4 mb-5 text-center text-sm text-muted-foreground">
+                  אין כרגע ספר פעיל שניתן להזמין אליו תור.
+                </div>
+              )}
 
               {/* Services by category */}
               <div className="mb-4">
@@ -351,7 +380,13 @@ export default function Booking() {
                 </div>
               </div>
 
-              {selectedService && (
+              {serviceList.length === 0 && (
+                <div className="glass rounded-2xl p-4 mb-5 text-center text-sm text-muted-foreground">
+                  אין כרגע שירותים פעילים להזמנה.
+                </div>
+              )}
+
+              {selectedService && selectedBarber && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                   <GoldButton onClick={() => setStep(2)} size="lg" className="w-full">המשך לבחירת יום</GoldButton>
                 </motion.div>
@@ -483,7 +518,7 @@ export default function Booking() {
               <div className="glass rounded-2xl p-5 mb-5 space-y-4">
                 {[
                   { label: 'שירות', value: selectedService?.name },
-                  { label: 'ספר', value: selectedBarber?.id !== 'any' ? selectedBarber.name : 'כל ספר' },
+                  { label: 'ספר', value: selectedBarber?.name },
                   { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL', { weekday:'long', year:'numeric', month:'long', day:'numeric' }) },
                   { label: 'שעה', value: selectedTime },
                   { label: 'משך', value: `${selectedService?.duration} דקות` },

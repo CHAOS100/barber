@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Edit3, Trash2, X, Scissors } from 'lucide-react';
-import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MOCK_SERVICES } from '../../lib/mockData';
+import { deleteService, listAllServices, saveService } from '@/lib/businessFirestore';
 import GoldButton from '../../components/ui/GoldButton';
 
 const emptyService = { name: '', description: '', price: '', duration: '', is_active: true, category: '' };
@@ -16,33 +15,33 @@ export default function AdminServices() {
   const [form, setForm] = useState(emptyService);
 
   const { data: services = [] } = useQuery({
-    queryKey: ['services'],
-    queryFn: async () => {
-      try {
-        const r = await localDb.Service.list('sort_order');
-        return r.length > 0 ? r : MOCK_SERVICES;
-      } catch { return MOCK_SERVICES; }
-    },
+    queryKey: ['admin-services'],
+    queryFn: listAllServices,
   });
 
   const saveMutation = useMutation({
-    mutationFn: (/** @type {any} */ data) => editModal?.id
-      ? localDb.Service.update(editModal.id, data)
-      : localDb.Service.create(data),
+    mutationFn: (/** @type {any} */ data) => saveService(editModal?.id, data),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-services'] });
       qc.invalidateQueries({ queryKey: ['services'] });
       setEditModal(null);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (/** @type {any} */ id) => localDb.Service.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['services'] }),
+    mutationFn: deleteService,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-services'] });
+      qc.invalidateQueries({ queryKey: ['services'] });
+    },
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, is_active }) => localDb.Service.update(id, { is_active }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['services'] }),
+    mutationFn: (/** @type {any} */ { id, is_active }) => saveService(id, { ...services.find(s => s.id === id), is_active }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-services'] });
+      qc.invalidateQueries({ queryKey: ['services'] });
+    },
   });
 
   const openEdit = (service = null) => {

@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Store, Phone, MapPin } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/mockData';
+import { getBookingSettings, saveBookingSettings } from '@/lib/businessFirestore';
 import GoldButton from '../../components/ui/GoldButton';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [info, setInfo] = useState({ ...BUSINESS_INFO });
   const [saved, setSaved] = useState(false);
+  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
+    queryKey: ['booking-settings'],
+    queryFn: getBookingSettings,
+  });
+  const [bufferMinutes, setBufferMinutes] = useState(null);
+  const displayedBuffer = bufferMinutes ?? bookingSettings.appointmentBufferMinutes;
+  const saveSettings = useMutation({
+    mutationFn: () => saveBookingSettings({ appointmentBufferMinutes: displayedBuffer }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['booking-settings'] }),
+  });
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    await saveSettings.mutateAsync();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -63,7 +77,33 @@ export default function AdminSettings() {
           </div>
         </div>
 
-        <GoldButton onClick={handleSave} size="lg" className="w-full">
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold">מרווח בין תורים</h3>
+          <p className="text-xs text-muted-foreground">המרווח מתווסף אחרי כל תור של אותו ספר ומשפיע מיד על הזמינות.</p>
+          <div className="flex gap-2">
+            {[0, 10, 15, 30, 60].map(value => (
+              <button
+                key={value}
+                onClick={() => setBufferMinutes(value)}
+                className={`flex-1 py-2 rounded-xl text-sm font-bold ${displayedBuffer === value ? 'gold-gradient text-black' : 'glass text-muted-foreground'}`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+          <label className="block text-xs text-muted-foreground">
+            ערך מותאם אישית בדקות
+            <input
+              type="number"
+              min="0"
+              value={displayedBuffer}
+              onChange={e => setBufferMinutes(Math.max(0, Number(e.target.value)))}
+              className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+            />
+          </label>
+        </div>
+
+        <GoldButton onClick={handleSave} disabled={saveSettings.isPending} size="lg" className="w-full">
           {saved ? '✓ נשמר!' : 'שמור שינויים'}
         </GoldButton>
       </div>

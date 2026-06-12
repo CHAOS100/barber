@@ -2,12 +2,15 @@ import { getApps, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
   getAuth,
+  RecaptchaVerifier,
   setPersistence,
   signInAnonymously,
+  signInWithPhoneNumber,
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { logoutUser, userStore } from './userStore';
 
 const FIREBASE_APP_NAME = 'ost-barber-web';
@@ -87,8 +90,12 @@ const firebaseApp = isFirebaseConfigured
 
 export const firebaseAuth = firebaseApp ? getAuth(firebaseApp) : null;
 export const firestoreDb = firebaseApp ? getFirestore(firebaseApp) : null;
+export const firebaseFunctions = firebaseApp ? getFunctions(firebaseApp) : null;
+export const isDevDemoOtpEnabled =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEV_DEMO_OTP === 'true';
 
 let customerAuthPromise;
+let phoneRecaptchaVerifier;
 
 const firebaseConfigurationError = () => new Error(
   `Firebase is not configured from valid Vercel build-time environment variables. Missing: ${
@@ -107,10 +114,115 @@ export const getFirestoreDb = () => {
   return firestoreDb;
 };
 
-const prepareFirebaseAuth = async () => {
+export const getFirebaseFunctions = () => {
+  requireFirebase();
+  return firebaseFunctions;
+};
+
+export const prepareFirebaseAuth = async () => {
   requireFirebase();
   await setPersistence(firebaseAuth, browserLocalPersistence);
   await firebaseAuth.authStateReady();
+};
+
+export const normalizeIsraeliPhoneNumber = (phoneNumber) => {
+  const normalized = String(phoneNumber || '').replace(/[^\d+]/g, '');
+
+  if (/^05\d{8}$/.test(normalized)) {
+    return `+972${normalized.slice(1)}`;
+  }
+
+  if (/^9725\d{8}$/.test(normalized)) {
+    return `+${normalized}`;
+  }
+
+  if (/^\+9725\d{8}$/.test(normalized)) {
+    return normalized;
+  }
+
+  throw Object.assign(
+    new Error('Israeli mobile phone number is invalid.'),
+    { code: 'auth/invalid-phone-number' },
+  );
+};
+
+export const resetFirebasePhoneRecaptcha = () => {
+  phoneRecaptchaVerifier?.clear();
+  phoneRecaptchaVerifier = null;
+};
+
+export const startFirebasePhoneVerification = async (phoneNumber, containerId) => {
+  await prepareFirebaseAuth();
+  const normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
+
+  resetFirebasePhoneRecaptcha();
+  phoneRecaptchaVerifier = new RecaptchaVerifier(firebaseAuth, containerId, {
+    size: 'invisible',
+  });
+
+  try {
+    const confirmationResult = await signInWithPhoneNumber(
+      firebaseAuth,
+      normalizedPhoneNumber,
+      phoneRecaptchaVerifier,
+    );
+    return { confirmationResult, phoneNumber: normalizedPhoneNumber };
+  } catch (error) {
+    resetFirebasePhoneRecaptcha();
+    throw error;
+  }
+};
+
+export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
+  if (!confirmationResult) {
+    throw Object.assign(
+      new Error('Phone verification session is missing.'),
+      { code: 'auth/missing-verification-id' },
+    );
+  }
+
+  const credential = await confirmationResult.confirm(String(code || '').trim());
+  customerAuthPromise = null;
+  resetFirebasePhoneRecaptcha();
+  return credential.user;
+};
+
+export const signInDevDemoCustomer = async () => {
+  if (!isDevDemoOtpEnabled) {
+    throw Object.assign(
+      new Error('Local development OTP is disabled.'),
+      { code: 'auth/operation-not-allowed' },
+    );
+  }
+
+  await prepareFirebaseAuth();
+  if (firebaseAuth.currentUser && !firebaseAuth.currentUser.isAnonymous) {
+    await signOut(firebaseAuth);
+  }
+  if (!firebaseAuth.currentUser) {
+    await signInAnonymously(firebaseAuth);
+  }
+  customerAuthPromise = null;
+  return firebaseAuth.currentUser;
+};
+
+export const getPhoneAuthErrorMessage = (error) => {
+  const messages = {
+    'auth/captcha-check-failed': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
+    'auth/code-expired': 'קוד האימות פג תוקף. יש לבקש קוד חדש.',
+    'auth/invalid-app-credential': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
+    'auth/invalid-phone-number': 'יש להזין מספר טלפון ישראלי תקין.',
+    'auth/invalid-verification-code': 'קוד האימות שגוי. יש לנסות שוב.',
+    'auth/missing-phone-number': 'יש להזין מספר טלפון.',
+    'auth/missing-verification-code': 'יש להזין את קוד האימות שנשלח.',
+    'auth/missing-verification-id': 'בקשת האימות פגה. יש לבקש קוד חדש.',
+    'auth/operation-not-allowed': 'התחברות באמצעות טלפון אינה מופעלת ב-Firebase.',
+    'auth/quota-exceeded': 'מכסת הודעות ה-SMS הסתיימה. יש לנסות מאוחר יותר.',
+    'auth/too-many-requests': 'בוצעו יותר מדי ניסיונות. יש להמתין ולנסות שוב.',
+    'auth/unauthorized-domain': 'כתובת האתר אינה מורשית להתחברות ב-Firebase.',
+  };
+
+  return messages[error?.code] || 'שליחת קוד האימות נכשלה. יש לנסות שוב.';
 };
 
 const unauthorizedAdminError = (reason) => {
@@ -235,21 +347,26 @@ export const ensureFirebaseCustomer = async () => {
   if (!customerAuthPromise) {
     customerAuthPromise = (async () => {
       await prepareFirebaseAuth();
+      const user = firebaseAuth.currentUser;
+      const isAllowedDevCustomer = isDevDemoOtpEnabled && user?.isAnonymous;
 
-      if (firebaseAuth.currentUser && !firebaseAuth.currentUser.isAnonymous) {
-        await signOut(firebaseAuth);
-      }
-
-      if (!firebaseAuth.currentUser) {
-        await signInAnonymously(firebaseAuth);
+      if (!user || (!user.phoneNumber && !isAllowedDevCustomer)) {
+        if (userStore.getState().currentUser?.isAdmin !== true) {
+          logoutUser();
+        }
+        throw Object.assign(
+          new Error('Customer must authenticate with Firebase Phone Auth.'),
+          { code: 'customer/not-authenticated' },
+        );
       }
 
       console.info('[Firebase] Customer authenticated', {
         projectId: firebaseProjectId,
-        isAnonymous: firebaseAuth.currentUser.isAnonymous,
+        uid: user.uid,
+        provider: isAllowedDevCustomer ? 'local-development' : 'phone',
       });
 
-      return firebaseAuth.currentUser;
+      return user;
     })().finally(() => {
       customerAuthPromise = null;
     });

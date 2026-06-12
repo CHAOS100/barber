@@ -11,7 +11,10 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "admin:provision": "node scripts/provision-admin.mjs",
-    "test:firestore-rules": "firebase emulators:exec --only firestore --project ost-barber-app \"node --test tests/firestore.rules.test.mjs\""
+    "booking:seed": "node scripts/seed-booking-data.mjs",
+    "test:firestore-rules": "firebase emulators:exec --only firestore --project ost-barber-app \"node --test tests/firestore.rules.test.mjs\"",
+    "test:notification-jobs": "npm --prefix functions test",
+    "test:scheduling": "node --test tests/slotEngine.test.mjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",

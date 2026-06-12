@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Users, DollarSign, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings } from 'lucide-react';
+import { Calendar, TrendingUp, Users, DollarSign, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { BARBER_PHOTO } from '../../lib/mockData';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -11,6 +11,7 @@ import BarberBreakdownCard from '../../components/admin/BarberBreakdownCard';
 import DailyCalendarView from '../../components/admin/DailyCalendarView';
 import WaitingListCard from '../../components/admin/WaitingListCard';
 import { localDateToString } from '../../lib/slotEngine';
+import { updateAdminAppointment } from '@/lib/appointmentsFirestore';
 
 const weeklyData = [
   { day: 'א', appointments: 6, revenue: 420 },
@@ -41,6 +42,18 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { currentUser, isAdmin } = useCurrentUser();
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime(isAdmin);
+  const [moveError, setMoveError] = React.useState('');
+
+  const moveAppointment = async (appointment, startTime) => {
+    setMoveError('');
+    try {
+      await updateAdminAppointment(appointment.id, { startTime });
+    } catch (error) {
+      setMoveError(error?.code === 'functions/already-exists'
+        ? 'לא ניתן להזיז את התור: השעה החדשה חופפת לתור אחר.'
+        : 'הזזת התור נכשלה.');
+    }
+  };
 
   if (!isAdmin) {
     return (
@@ -61,6 +74,7 @@ export default function AdminDashboard() {
   const adminSections = [
     { icon: Calendar, label: 'ניהול תורים', path: '/admin/appointments', desc: `${todayAppts.length} תורים היום` },
     { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: '6 שירותים פעילים' },
+    { icon: UserRoundCog, label: 'ספרים / צוות', path: '/admin/barbers', desc: 'הוספה וניהול ספרים' },
     { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: '115+ לקוחות' },
     { icon: BarChart3, label: 'אנליטיקה', path: '/admin/analytics', desc: 'דוחות מפורטים' },
     { icon: Clock, label: 'שעות עבודה', path: '/admin/hours', desc: 'ניהול לוח זמנים' },
@@ -85,6 +99,11 @@ export default function AdminDashboard() {
         {appointmentsError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
             לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+          </div>
+        )}
+        {moveError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+            {moveError}
           </div>
         )}
 
@@ -165,7 +184,7 @@ export default function AdminDashboard() {
         <WaitingListCard />
 
         {/* Barber Breakdown */}
-        <BarberBreakdownCard />
+        <BarberBreakdownCard appointments={appointments} />
 
         {/* Daily Calendar View */}
         <div>
@@ -175,7 +194,7 @@ export default function AdminDashboard() {
               ניהול תורים <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
-          <DailyCalendarView appointments={appointments} />
+          <DailyCalendarView appointments={appointments} onMove={moveAppointment} />
         </div>
 
         {/* Pending Appointments */}

@@ -6,13 +6,12 @@ const HOURS = Array.from({ length: 12 }, (_, i) => `${9 + i}:00`);
 const STATUS_COLORS = {
   confirmed: 'bg-green-500/20 border-green-500/40 text-green-300',
   pending: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
-  completed: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
+  completed: 'bg-primary/20 border-primary/40 text-primary',
   cancelled: 'bg-red-500/20 border-red-500/40 text-red-300',
 };
 
-export default function DailyCalendarView({ appointments = [] }) {
+export default function DailyCalendarView({ appointments = [], onMove }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [dragging, setDragging] = useState(null);
 
   const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
   const dayAppts = appointments.filter(a => a.date === dateStr);
@@ -70,8 +69,13 @@ export default function DailyCalendarView({ appointments = [] }) {
                 whileHover={{ scale: 1.01 }}
                 drag="y"
                 dragConstraints={{ top: 0, bottom: HOURS.length * 56 - height }}
-                onDragStart={() => setDragging(appt.id)}
-                onDragEnd={() => setDragging(null)}
+                onDragEnd={(_, info) => {
+                  const [hours, minutes] = appt.time.split(':').map(Number);
+                  const movedMinutes = Math.round((((hours * 60) + minutes) + (info.offset.y * 60 / 56)) / 10) * 10;
+                  const clamped = Math.max(9 * 60, Math.min((21 * 60) - (appt.service_duration || 30), movedMinutes));
+                  const nextTime = `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+                  if (nextTime !== appt.time) onMove?.(appt, nextTime);
+                }}
               >
                 <div className="flex items-start gap-1">
                   <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0 mt-0.5" />

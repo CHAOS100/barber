@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 import {
   Armchair,
   BadgeCheck,
@@ -16,7 +17,8 @@ import {
   Shield,
   Star,
 } from 'lucide-react';
-import { BARBER_PHOTO, BUSINESS_INFO, MOCK_REVIEWS, MOCK_GALLERY, MOCK_SERVICES, isOpenNow } from '../lib/mockData';
+import { BARBER_PHOTO, BUSINESS_INFO, MOCK_REVIEWS, MOCK_GALLERY, isOpenNow } from '../lib/mockData';
+import { listActiveServices } from '@/lib/businessFirestore';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 
@@ -37,6 +39,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('info');
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
+  const { data: services = [] } = useQuery({ queryKey: ['services'], queryFn: listActiveServices });
 
   const handleShare = () => {
     if (navigator.share) {
@@ -310,7 +313,7 @@ export default function Home() {
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
                 <div className="space-y-2">
-                  {MOCK_SERVICES.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map((service, i) => (
+                  {services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map((service, i) => (
                     <motion.div
                       key={service.id}
                       initial={{ opacity: 0, y: 8 }}
@@ -335,7 +338,7 @@ export default function Home() {
               {/* Category: עיצוב זקן */}
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
-                {MOCK_SERVICES.filter(s => s.name === 'עיצוב זקן').map((service) => (
+                {services.filter(s => s.name === 'עיצוב זקן').map((service) => (
                   <motion.div
                     key={service.id}
                     initial={{ opacity: 0, y: 8 }}
@@ -358,7 +361,7 @@ export default function Home() {
               {/* Category: חבילות */}
               <div className="mb-6">
                 <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות פרימיום</p>
-                {MOCK_SERVICES.filter(s => s.name === 'חבילת פרימיום').map((service) => (
+                {services.filter(s => s.name === 'חבילת פרימיום').map((service) => (
                   <motion.div
                     key={service.id}
                     initial={{ opacity: 0, y: 8 }}

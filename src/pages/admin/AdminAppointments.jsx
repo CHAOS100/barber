@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2 } from 'lucide-react';
-import { localDb } from '@/lib/localData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MOCK_SERVICES } from '../../lib/mockData';
+import { listAllBarbers, listAllServices } from '@/lib/businessFirestore';
 import { localDateToString } from '../../lib/slotEngine';
 import {
   createAdminAppointment,
@@ -16,7 +15,7 @@ import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
   confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20',   dot: 'bg-green-400' },
-  completed: { label: 'הושלם', color: 'text-blue-400 bg-blue-400/20',     dot: 'bg-blue-400' },
+  completed: { label: 'הושלם', color: 'text-primary bg-primary/20',       dot: 'bg-primary' },
   cancelled: { label: 'בוטל',  color: 'text-red-400 bg-red-400/20',       dot: 'bg-red-400' },
   no_show:   { label: 'לא הגיע', color: 'text-orange-400 bg-orange-400/20', dot: 'bg-orange-400' },
 };
@@ -29,16 +28,20 @@ for (let h = 6; h < 24; h++) {
   }
 }
 
-function EditAppointmentSheet({ appt, services, onSave, onClose, isSaving }) {
+function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSaving, error }) {
   const [form, setForm] = useState({
     customer_name: appt.customer_name || '',
     customer_phone: appt.customer_phone || '',
     service_name: appt.service_name || '',
+    service_id: appt.service_id || '',
     service_price: appt.service_price || 0,
     service_duration: appt.service_duration || 30,
     date: appt.date || '',
     time: appt.time || '',
     status: appt.status || 'pending',
+    barber_id: appt.barber_id || '',
+    barber_name: appt.barber_name || '',
+    paid: appt.paid === true,
     notes: appt.notes || '',
     admin_notes: appt.admin_notes || '',
   });
@@ -48,6 +51,7 @@ function EditAppointmentSheet({ appt, services, onSave, onClose, isSaving }) {
     setForm(f => ({
       ...f,
       service_name: name,
+      service_id: svc?.id || f.service_id,
       service_price: svc?.price || f.service_price,
       service_duration: svc?.duration || f.service_duration,
     }));
@@ -137,6 +141,23 @@ function EditAppointmentSheet({ appt, services, onSave, onClose, isSaving }) {
             </div>
           </div>
 
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">ספר</label>
+            <select
+              value={form.barber_id}
+              onChange={e => {
+                const barber = barbers.find(item => item.id === e.target.value);
+                setForm(f => ({ ...f, barber_id: barber?.id || '', barber_name: barber?.name || '' }));
+              }}
+              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="">בחר ספר</option>
+              {barbers.filter(barber => !barber.archived).map(barber => (
+                <option key={barber.id} value={barber.id}>{barber.name}{!barber.is_active ? ' (לא פעיל)' : ''}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Date */}
           <div>
             <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">תאריך</label>
@@ -181,6 +202,17 @@ function EditAppointmentSheet({ appt, services, onSave, onClose, isSaving }) {
           </div>
 
           {/* Notes */}
+          <label className="flex items-center justify-between glass rounded-xl px-3 py-2.5">
+            <span className="text-sm font-bold">שולם</span>
+            <input
+              type="checkbox"
+              checked={form.paid}
+              onChange={e => setForm(f => ({ ...f, paid: e.target.checked }))}
+              className="accent-primary w-5 h-5"
+            />
+          </label>
+
+          {/* Notes */}
           <div>
             <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">הערות לקוח</label>
             <textarea
@@ -204,6 +236,12 @@ function EditAppointmentSheet({ appt, services, onSave, onClose, isSaving }) {
             />
           </div>
         </div>
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+            {error.code === 'functions/already-exists' ? 'התור חופף לתור קיים של אותו ספר.' : 'שמירת התור נכשלה.'}
+          </div>
+        )}
 
         <div className="mt-5 flex gap-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass text-muted-foreground font-bold text-sm">
@@ -233,10 +271,13 @@ export default function AdminAppointments() {
 
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
 
-  const { data: services = MOCK_SERVICES } = useQuery({
-    queryKey: ['services'],
-    queryFn: () => localDb.Service.filter({ is_active: true }, 'sort_order'),
-    placeholderData: MOCK_SERVICES,
+  const { data: services = [] } = useQuery({
+    queryKey: ['admin-services'],
+    queryFn: listAllServices,
+  });
+  const { data: barbers = [] } = useQuery({
+    queryKey: ['admin-barbers'],
+    queryFn: listAllBarbers,
   });
 
   const updateMutation = useMutation({
@@ -263,6 +304,7 @@ export default function AdminAppointments() {
       setShowNewForm(false);
     },
   });
+  const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
   const filtered = filter === 'all' ? appointments : appointments.filter(a => a.status === filter);
 
@@ -271,11 +313,15 @@ export default function AdminAppointments() {
     customer_name: '',
     customer_phone: '',
     service_name: services[0]?.name || '',
+    service_id: services[0]?.id || '',
     service_price: services[0]?.price || 0,
     service_duration: services[0]?.duration || 30,
     date: localDateToString(),
     time: '10:00',
     status: 'confirmed',
+    barber_id: barbers.find(barber => barber.is_active && !barber.archived)?.id || '',
+    barber_name: barbers.find(barber => barber.is_active && !barber.archived)?.name || '',
+    paid: false,
     notes: '',
     admin_notes: '',
   };
@@ -324,6 +370,13 @@ export default function AdminAppointments() {
       {appointmentsError && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
           לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+        </div>
+      )}
+      {mutationError && (
+        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          {/** @type {any} */ (mutationError).code === 'functions/already-exists'
+            ? 'הפעולה נחסמה כי התור חופף לתור קיים של אותו ספר.'
+            : 'הפעולה נכשלה. יש לוודא שנבחרו ספר ושירות תקינים ולנסות שוב.'}
         </div>
       )}
 
@@ -378,6 +431,9 @@ export default function AdminAppointments() {
                   )}
                 </div>
               )}
+              <div className="mt-1 text-xs text-muted-foreground">
+                {appt.barber_name || 'ללא ספר'} • {appt.service_duration || 30} דקות • {appt.paid ? 'שולם' : 'לא שולם'}
+              </div>
 
               {/* Quick action buttons */}
               <div className="flex gap-1.5 mt-3">
@@ -408,9 +464,17 @@ export default function AdminAppointments() {
                 {appt.status === 'confirmed' && (
                   <button
                     onClick={() => updateMutation.mutate({ id: appt.id, data: { status: 'completed' } })}
-                    className="flex-1 py-1.5 rounded-xl bg-blue-500/15 text-blue-400 text-xs font-bold flex items-center justify-center gap-1"
+                    className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1"
                   >
                     <Check className="w-3 h-3" /> הושלם
+                  </button>
+                )}
+                {!appt.paid && (
+                  <button
+                    onClick={() => updateMutation.mutate({ id: appt.id, data: { paid: true } })}
+                    className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold"
+                  >
+                    סמן שולם
                   </button>
                 )}
                 <button
@@ -430,19 +494,23 @@ export default function AdminAppointments() {
         {editAppt && (
           <EditAppointmentSheet
             appt={editAppt}
-            services={services.length > 0 ? services : MOCK_SERVICES}
+            services={services}
+            barbers={barbers}
             onSave={handleSave}
             onClose={() => setEditAppt(null)}
             isSaving={updateMutation.isPending}
+            error={updateMutation.error}
           />
         )}
         {showNewForm && (
           <EditAppointmentSheet
             appt={BLANK_APPT}
-            services={services.length > 0 ? services : MOCK_SERVICES}
+            services={services}
+            barbers={barbers}
             onSave={handleSave}
             onClose={() => setShowNewForm(false)}
             isSaving={createMutation.isPending}
+            error={createMutation.error}
           />
         )}
       </AnimatePresence>

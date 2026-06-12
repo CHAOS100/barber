@@ -29,6 +29,7 @@ import AdminCustomers from './pages/admin/AdminCustomers';
 import AdminHours from './pages/admin/AdminHours';
 import AdminGallery from './pages/admin/AdminGallery';
 import AdminSettings from './pages/admin/AdminSettings';
+import AdminBarbers from './pages/admin/AdminBarbers';
 
 // Layout
 import AppLayout from './components/layout/AppLayout';
@@ -65,6 +66,7 @@ function App() {
                 <Route path="/admin/hours" element={<AdminHours />} />
                 <Route path="/admin/gallery" element={<AdminGallery />} />
                 <Route path="/admin/settings" element={<AdminSettings />} />
+                <Route path="/admin/barbers" element={<AdminBarbers />} />
               </Route>
             </Route>
             <Route path="*" element={<PageNotFound />} />

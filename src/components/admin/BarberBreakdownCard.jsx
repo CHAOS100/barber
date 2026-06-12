@@ -2,11 +2,11 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Scissors, TrendingUp } from 'lucide-react';
-import { localDb } from '@/lib/localData';
+import { listAllBarbers } from '@/lib/businessFirestore';
 
 const AVATAR_COLORS = ['#D4AF37', '#C9A84C', '#F0D060', '#B8960C', '#E8C84A'];
 
-export default function BarberBreakdownCard() {
+export default function BarberBreakdownCard({ appointments = [] }) {
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -14,12 +14,7 @@ export default function BarberBreakdownCard() {
 
   const { data: barbers = [] } = useQuery({
     queryKey: ['barbers-active'],
-    queryFn: () => localDb.Barber.filter({ is_active: true }, 'sort_order'),
-  });
-
-  const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments-barber-breakdown'],
-    queryFn: () => localDb.Appointment.list('-date', 200),
+    queryFn: listAllBarbers,
   });
 
   const thisMonthAppts = appointments.filter(a =>
@@ -48,7 +43,7 @@ export default function BarberBreakdownCard() {
   const allNames = Array.from(new Set([...Object.keys(thisStats), ...Object.keys(lastStats)]));
 
   // Also add active barbers with no appointments yet
-  barbers.forEach(b => { if (!allNames.includes(b.name)) allNames.push(b.name); });
+  barbers.filter(b => b.is_active && !b.archived).forEach(b => { if (!allNames.includes(b.name)) allNames.push(b.name); });
 
   const rows = allNames.map((name, i) => {
     const cur = thisStats[name] || { count: 0, revenue: 0 };

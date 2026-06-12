@@ -1,30 +1,14 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   ensureFirebaseAdmin,
   ensureFirebaseCustomer,
   firebaseProjectId,
+  getFirebaseFunctions,
   getFirestoreDb,
 } from '@/lib/firebase';
 
 const appointmentsCollection = () => collection(getFirestoreDb(), 'appointments');
-
-const addMinutes = (startTime, durationMinutes) => {
-  const [hours, minutes] = String(startTime || '00:00').split(':').map(Number);
-  const totalMinutes = (hours * 60) + minutes + Number(durationMinutes || 30);
-  const endHours = Math.floor(totalMinutes / 60) % 24;
-  const endMinutes = totalMinutes % 60;
-  return `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
-};
 
 const bySchedule = (left, right) =>
   `${left.date || ''} ${left.startTime || ''}`.localeCompare(`${right.date || ''} ${right.startTime || ''}`);
@@ -48,27 +32,10 @@ const mapAppointment = (snapshot) => {
   };
 };
 
-const normalizeAppointment = (input, customerId) => {
-  const startTime = input.startTime || input.time;
-  const serviceDuration = Number(input.serviceDuration || input.service_duration || 30);
-
-  return {
-    customerId,
-    customerName: input.customerName || input.customer_name || '',
-    customerPhone: input.customerPhone || input.customer_phone || '',
-    serviceName: input.serviceName || input.service_name || '',
-    serviceId: input.serviceId || input.service_id || '',
-    barberId: input.barberId || input.barber_id || null,
-    barberName: input.barberName || input.barber_name || null,
-    date: input.date,
-    startTime,
-    endTime: input.endTime || addMinutes(startTime, serviceDuration),
-    status: 'pending',
-    createdAt: serverTimestamp(),
-    servicePrice: Number(input.servicePrice || input.service_price || 0),
-    serviceDuration,
-    notes: input.notes || '',
-  };
+const callAppointmentFunction = async (name, data) => {
+  const callable = httpsCallable(getFirebaseFunctions(), name);
+  const result = await callable(data);
+  return /** @type {{ id: string }} */ (result.data);
 };
 
 export const createCustomerAppointment = async (input) => {
@@ -80,19 +47,18 @@ export const createCustomerAppointment = async (input) => {
   });
 
   try {
-    const user = await ensureFirebaseCustomer();
-    const payload = normalizeAppointment(input, user.uid);
-    const appointment = await addDoc(appointmentsCollection(), payload);
+    await ensureFirebaseCustomer();
+    const appointment = await callAppointmentFunction('createCustomerAppointment', input);
 
     console.info('[Firestore] Customer appointment created', {
       projectId: firebaseProjectId,
       appointmentId: appointment.id,
-      date: payload.date,
-      startTime: payload.startTime,
-      status: payload.status,
+      date: input.date,
+      startTime: input.startTime || input.time,
+      status: 'pending',
     });
 
-    return { id: appointment.id, ...payload };
+    return { id: appointment.id, ...input, status: 'pending' };
   } catch (error) {
     console.error('[Firestore] Customer appointment write failed', {
       projectId: firebaseProjectId,
@@ -105,22 +71,20 @@ export const createCustomerAppointment = async (input) => {
 
 export const createAdminAppointment = async (input) => {
   const user = await ensureFirebaseAdmin();
-  const payload = normalizeAppointment(input, input.customerId || user.uid);
-  const appointment = await addDoc(appointmentsCollection(), payload);
+  const appointment = await callAppointmentFunction('createAdminAppointment', input);
 
   console.info('[Firestore] Admin appointment created', {
     projectId: firebaseProjectId,
     appointmentId: appointment.id,
     adminUid: user.uid,
-    status: payload.status,
+    status: input.status || 'pending',
   });
 
-  return { id: appointment.id, ...payload };
+  return { id: appointment.id, ...input };
 };
 
 const normalizeChanges = (changes) => {
   const normalized = /** @type {Record<string, any>} */ ({});
-  const durationMinutes = changes.durationMinutes || changes.serviceDuration || changes.service_duration || 30;
   const aliases = {
     customer_name: 'customerName',
     customer_phone: 'customerPhone',
@@ -139,21 +103,15 @@ const normalizeChanges = (changes) => {
     normalized[aliases[key] || key] = value;
   });
 
-  if (normalized.startTime) {
-    normalized.endTime = addMinutes(normalized.startTime, durationMinutes);
-  }
-
-  normalized.updatedAt = serverTimestamp();
   return normalized;
-};
-
-const updateAppointment = async (appointmentId, changes) => {
-  await updateDoc(doc(getFirestoreDb(), 'appointments', appointmentId), normalizeChanges(changes));
 };
 
 export const updateOwnAppointment = async (appointmentId, changes) => {
   await ensureFirebaseCustomer();
-  await updateAppointment(appointmentId, changes);
+  await callAppointmentFunction('updateOwnAppointment', {
+    appointmentId,
+    changes: normalizeChanges(changes),
+  });
 };
 
 export const updateAdminAppointment = async (appointmentId, changes) => {
@@ -165,7 +123,10 @@ export const updateAdminAppointment = async (appointmentId, changes) => {
   });
 
   try {
-    await updateAppointment(appointmentId, changes);
+    await callAppointmentFunction('updateAdminAppointment', {
+      appointmentId,
+      changes: normalizeChanges(changes),
+    });
     console.info('[Firestore] Admin appointment updated', {
       projectId: firebaseProjectId,
       appointmentId,
@@ -187,7 +148,7 @@ export const cancelOwnAppointment = (appointmentId) =>
 
 export const deleteAppointment = async (appointmentId) => {
   await ensureFirebaseAdmin();
-  await deleteDoc(doc(getFirestoreDb(), 'appointments', appointmentId));
+  await callAppointmentFunction('deleteAdminAppointment', { appointmentId });
 };
 
 const logListenerError = (audience, stage, error) => {

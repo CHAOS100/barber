@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Phone, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { loginUser } from '../lib/userStore';
 import { BARBER_PHOTO } from '../lib/mockData';
 import GoldButton from '../components/ui/GoldButton';
-import { signInFirebaseAdmin } from '@/lib/firebase';
+import {
+  confirmFirebasePhoneCode,
+  getPhoneAuthErrorMessage,
+  isDevDemoOtpEnabled,
+  normalizeIsraeliPhoneNumber,
+  resetFirebasePhoneRecaptcha,
+  signInDevDemoCustomer,
+  signInFirebaseAdmin,
+  startFirebasePhoneVerification,
+} from '@/lib/firebase';
 
 export default function OTPLogin() {
   const navigate = useNavigate();
@@ -18,9 +27,11 @@ export default function OTPLogin() {
   // Customer OTP flow
   const [step, setStep] = useState('phone'); // phone | otp
   const [phone, setPhone] = useState('');
+  const [normalizedPhone, setNormalizedPhone] = useState('');
   const [name, setName] = useState('');
   const [otp, setOtp] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [devOtp, setDevOtp] = useState('');
+  const confirmationResultRef = useRef(null);
 
   // Admin login
   const [adminEmail, setAdminEmail] = useState('');
@@ -29,24 +40,74 @@ export default function OTPLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => () => resetFirebasePhoneRecaptcha(), []);
+
   // ─── Customer OTP ──────────────────────────────────────────────
-  const handleSendOTP = () => {
-    if (!phone || phone.length < 9) { setError('נא להזין מספר טלפון תקין'); return; }
-    if (!name) { setError('נא להזין שם'); return; }
+  const handleSendOTP = async () => {
+    if (!name.trim()) { setError('נא להזין שם'); return; }
     setLoading(true);
     setError('');
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    setGeneratedOtp(code);
-    setTimeout(() => { setLoading(false); setStep('otp'); }, 800);
+
+    try {
+      const customerPhone = normalizeIsraeliPhoneNumber(phone);
+      setNormalizedPhone(customerPhone);
+
+      if (isDevDemoOtpEnabled) {
+        setDevOtp(String(Math.floor(100000 + Math.random() * 900000)));
+        confirmationResultRef.current = null;
+      } else {
+        const result = await startFirebasePhoneVerification(phone, 'customer-phone-recaptcha');
+        confirmationResultRef.current = result.confirmationResult;
+        setDevOtp('');
+      }
+
+      setOtp('');
+      setStep('otp');
+    } catch (phoneAuthError) {
+      console.error('[Firebase] Customer SMS verification failed', {
+        code: phoneAuthError?.code || 'unknown',
+        message: phoneAuthError?.message || 'Unknown Firebase error',
+      });
+      setError(getPhoneAuthErrorMessage(phoneAuthError));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyOTP = () => {
-    if (otp !== generatedOtp) { setError('קוד שגוי, נסה שוב'); return; }
+  const handleVerifyOTP = async () => {
+    if (otp.length !== 6) { setError('יש להזין קוד אימות בן 6 ספרות'); return; }
     setLoading(true);
-    setTimeout(() => {
-      loginUser({ name, phone, isAdmin: false });
+
+    try {
+      let firebaseUser;
+      if (isDevDemoOtpEnabled) {
+        if (otp !== devOtp) {
+          throw Object.assign(new Error('Invalid local development code.'), {
+            code: 'auth/invalid-verification-code',
+          });
+        }
+        firebaseUser = await signInDevDemoCustomer();
+      } else {
+        firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
+      }
+
+      loginUser({
+        name: name.trim(),
+        phone: normalizedPhone,
+        uid: firebaseUser.uid,
+        isAdmin: false,
+        authProvider: isDevDemoOtpEnabled ? 'local-development' : 'phone',
+      });
       navigate(nextPath);
-    }, 600);
+    } catch (phoneAuthError) {
+      console.error('[Firebase] Customer phone code verification failed', {
+        code: phoneAuthError?.code || 'unknown',
+        message: phoneAuthError?.message || 'Unknown Firebase error',
+      });
+      setError(getPhoneAuthErrorMessage(phoneAuthError));
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ─── Admin login ────────────────────────────────────────────────
@@ -81,8 +142,16 @@ export default function OTPLogin() {
     }
   };
 
-  const switchToAdmin = () => { setMode('admin'); setError(''); };
-  const switchToCustomer = () => { setMode('customer'); setError(''); setStep('phone'); };
+  const switchToAdmin = () => {
+    resetFirebasePhoneRecaptcha();
+    setMode('admin');
+    setError('');
+  };
+  const switchToCustomer = () => {
+    setMode('customer');
+    setError('');
+    setStep('phone');
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col" dir="rtl">
@@ -200,6 +269,7 @@ export default function OTPLogin() {
                 <GoldButton onClick={handleSendOTP} size="lg" className="w-full" disabled={loading}>
                   {loading ? 'שולח...' : 'שלח קוד אימות'}
                 </GoldButton>
+                <div id="customer-phone-recaptcha" />
 
                 {/* Admin link */}
                 <div className="text-center pt-2">
@@ -224,27 +294,34 @@ export default function OTPLogin() {
               >
                 <div className="text-center">
                   <ShieldCheck className="w-12 h-12 text-primary mx-auto mb-2" />
-                  <p className="text-muted-foreground text-sm">קוד נשלח ל-{phone}</p>
-                  <div className="glass-gold rounded-2xl p-4 mt-3">
-                    <p className="text-xs text-muted-foreground">קוד לפיתוח (DEMO)</p>
-                    <p className="text-4xl font-black gold-text tracking-widest">{generatedOtp}</p>
-                  </div>
+                  <p className="text-muted-foreground text-sm">קוד אימות נשלח ב-SMS</p>
+                  <p className="text-muted-foreground/70 text-xs mt-1" dir="ltr">{normalizedPhone}</p>
+                  {isDevDemoOtpEnabled && devOtp && (
+                    <div className="glass-gold rounded-2xl p-4 mt-3">
+                      <p className="text-xs text-muted-foreground">קוד פיתוח מקומי</p>
+                      <p className="text-4xl font-black gold-text tracking-widest">{devOtp}</p>
+                    </div>
+                  )}
                 </div>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="הזן קוד 4 ספרות"
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="הזן קוד 6 ספרות"
                   className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-center text-2xl font-bold tracking-widest placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                  maxLength={4}
+                  maxLength={6}
                 />
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
                 <GoldButton onClick={handleVerifyOTP} size="lg" className="w-full" disabled={loading}>
                   {loading ? 'מאמת...' : 'אמת קוד'}
                 </GoldButton>
                 <button
-                  onClick={() => setStep('phone')}
+                  onClick={() => {
+                    resetFirebasePhoneRecaptcha();
+                    confirmationResultRef.current = null;
+                    setStep('phone');
+                  }}
                   className="flex items-center gap-1 text-muted-foreground text-sm mx-auto"
                 >
                   <ArrowRight className="w-4 h-4" /> חזרה

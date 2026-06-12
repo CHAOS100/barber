@@ -13,6 +13,36 @@ export function minutesToTime(minutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+export const BLOCKING_APPOINTMENT_STATUSES = new Set(['pending', 'approved', 'confirmed']);
+
+export function getAppointmentInterval(appointment) {
+  const startTime = appointment.startTime || appointment.time;
+  if (!startTime) return null;
+
+  const start = timeToMinutes(startTime);
+  const duration = Number(appointment.serviceDuration || appointment.service_duration || 30);
+  const end = appointment.endTime ? timeToMinutes(appointment.endTime) : start + duration;
+  return { start, end };
+}
+
+export function appointmentsOverlap(candidate, existing, bufferMinutes = 0) {
+  const next = getAppointmentInterval(candidate);
+  const current = getAppointmentInterval(existing);
+  if (!next || !current) return false;
+
+  const buffer = Math.max(0, Number(bufferMinutes) || 0);
+  return !(next.start >= current.end + buffer || next.end + buffer <= current.start);
+}
+
+export function findAppointmentConflict(candidate, appointments = [], bufferMinutes = 0, excludeId = null) {
+  return appointments.find((appointment) => (
+    appointment.id !== excludeId
+    && BLOCKING_APPOINTMENT_STATUSES.has(appointment.status)
+    && (!candidate.barberId || !appointment.barberId || appointment.barberId === candidate.barberId)
+    && appointmentsOverlap(candidate, appointment, bufferMinutes)
+  )) || null;
+}
+
 export function localDateToString(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -32,20 +62,18 @@ export function getAvailableSlots({
   const closeMin = timeToMinutes(workingHours.close_time);
 
   const occupied = appointments
-    .filter(a => a.status !== 'cancelled' && a.status !== 'no_show')
-    .map(a => {
-      const start = timeToMinutes(a.time);
-      const dur = a.service_duration || 30;
-      return { start, end: start + dur + bufferMinutes };
-    });
+    .filter(a => BLOCKING_APPOINTMENT_STATUSES.has(a.status))
+    .map(getAppointmentInterval)
+    .filter(Boolean)
+    .map(interval => ({ ...interval, buffer: bufferMinutes }));
 
   (workingHours.breaks || []).forEach(b => {
-    occupied.push({ start: timeToMinutes(b.start), end: timeToMinutes(b.end) });
+    occupied.push({ start: timeToMinutes(b.start), end: timeToMinutes(b.end), buffer: 0 });
   });
 
   blockedTimes.forEach(t => {
     const start = timeToMinutes(t);
-    occupied.push({ start, end: start + slotInterval });
+    occupied.push({ start, end: start + slotInterval, buffer: 0 });
   });
 
   const nowDate = new Date();
@@ -57,7 +85,12 @@ export function getAvailableSlots({
   for (let start = openMin; start + serviceDuration <= closeMin; start += slotInterval) {
     if (isToday && start < nowMinutes) continue;
     const end = start + serviceDuration;
-    const overlaps = occupied.some(occ => start < occ.end && end > occ.start);
+    const overlaps = occupied.some(occ =>
+      appointmentsOverlap(
+        { startTime: minutesToTime(start), endTime: minutesToTime(end) },
+        { startTime: minutesToTime(occ.start), endTime: minutesToTime(occ.end) },
+        occ.buffer,
+      ));
     if (!overlaps) slots.push(minutesToTime(start));
   }
   return slots;
