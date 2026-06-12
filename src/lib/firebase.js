@@ -7,9 +7,12 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, getFirestore } from 'firebase/firestore';
+import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import { logoutUser, userStore } from './userStore';
 
 const FIREBASE_APP_NAME = 'ost-barber-web';
+const EXPECTED_FIREBASE_PROJECT_ID = 'ost-barber-app';
+const ADMIN_COLLECTION = 'admins';
 
 const firebaseEnvironment = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -104,31 +107,119 @@ const prepareFirebaseAuth = async () => {
   await firebaseAuth.authStateReady();
 };
 
-const unauthorizedAdminError = () => {
+const unauthorizedAdminError = (reason) => {
   return Object.assign(
     new Error('This Firebase user is not an active OST Barber admin.'),
-    { code: 'admin/not-authorized' },
+    { code: 'admin/not-authorized', reason },
   );
 };
 
+const clearStaleLocalAdminSession = (reason) => {
+  const localUser = userStore.getState().currentUser;
+  if (localUser?.isAdmin !== true) return;
+
+  console.warn('[Firebase] Clearing stale local admin session', {
+    reason,
+    localAdminUid: localUser.uid || null,
+    firebaseCurrentUserUid: firebaseAuth?.currentUser?.uid || null,
+  });
+  logoutUser();
+};
+
+const getAdminRejectionReason = (adminSnapshot, adminProfile) => {
+  if (!adminSnapshot.exists()) return 'admin-document-missing';
+  if (typeof adminProfile?.role !== 'string') return 'admin-role-is-not-a-string';
+  if (adminProfile.role !== 'admin') return 'admin-role-is-not-admin';
+  if (typeof adminProfile?.active !== 'boolean') return 'admin-active-is-not-a-boolean';
+  if (adminProfile.active !== true) return 'admin-is-not-active';
+  return null;
+};
+
 const validateAdminDocument = async (user) => {
+  const currentUserUid = firebaseAuth.currentUser?.uid || null;
+  const adminDocPath = `${ADMIN_COLLECTION}/${user.uid}`;
+  const authProjectId = firebaseAuth.app.options.projectId || null;
+  const firestoreProjectId = getFirestoreDb().app.options.projectId || null;
+
+  console.info('[Firebase] Admin authorization check', {
+    currentUserUid,
+    requestedUserUid: user.uid,
+    adminDocPath,
+    authProjectId,
+    firestoreProjectId,
+  });
+
+  if (currentUserUid !== user.uid) {
+    const reason = 'firebase-current-user-uid-mismatch';
+    console.error('[Firebase] Admin authorization denied', {
+      reason,
+      currentUserUid,
+      requestedUserUid: user.uid,
+      adminDocPath,
+    });
+    clearStaleLocalAdminSession(reason);
+    await signOut(firebaseAuth);
+    throw unauthorizedAdminError(reason);
+  }
+
+  if (
+    authProjectId !== EXPECTED_FIREBASE_PROJECT_ID
+    || firestoreProjectId !== EXPECTED_FIREBASE_PROJECT_ID
+  ) {
+    const reason = 'firebase-project-mismatch';
+    console.error('[Firebase] Admin authorization denied', {
+      reason,
+      expectedProjectId: EXPECTED_FIREBASE_PROJECT_ID,
+      authProjectId,
+      firestoreProjectId,
+      currentUserUid,
+      adminDocPath,
+    });
+    clearStaleLocalAdminSession(reason);
+    await signOut(firebaseAuth);
+    throw unauthorizedAdminError(reason);
+  }
+
   let adminSnapshot;
 
   try {
-    adminSnapshot = await getDoc(doc(getFirestoreDb(), 'admins', user.uid));
+    // Force an authoritative server read so a stale browser cache cannot decide admin access.
+    adminSnapshot = await getDocFromServer(doc(getFirestoreDb(), ADMIN_COLLECTION, user.uid));
   } catch (error) {
+    console.error('[Firebase] Admin document read failed', {
+      reason: 'admin-document-read-failed',
+      currentUserUid,
+      adminDocPath,
+      projectId: firestoreProjectId,
+      code: error?.code || 'unknown',
+      message: error?.message || 'Unknown Firestore error',
+    });
+    clearStaleLocalAdminSession('admin-document-read-failed');
     await signOut(firebaseAuth);
     throw error;
   }
 
   const adminProfile = adminSnapshot.exists() ? adminSnapshot.data() : null;
-  if (adminProfile?.role !== 'admin' || adminProfile?.active !== true) {
+  console.info('[Firebase] Admin authorization document received', {
+    currentUserUid,
+    adminDocPath,
+    adminDocExists: adminSnapshot.exists(),
+    adminDocData: adminProfile,
+  });
+
+  const rejectionReason = getAdminRejectionReason(adminSnapshot, adminProfile);
+  if (rejectionReason) {
     console.error('[Firebase] Admin authorization denied', {
-      projectId: firebaseProjectId,
-      reason: adminSnapshot.exists() ? 'inactive-or-invalid-role' : 'admin-document-missing',
+      reason: rejectionReason,
+      projectId: firestoreProjectId,
+      currentUserUid,
+      adminDocPath,
+      adminDocExists: adminSnapshot.exists(),
+      adminDocData: adminProfile,
     });
+    clearStaleLocalAdminSession(rejectionReason);
     await signOut(firebaseAuth);
-    throw unauthorizedAdminError();
+    throw unauthorizedAdminError(rejectionReason);
   }
 
   return adminProfile;
@@ -165,7 +256,17 @@ export const ensureFirebaseAdmin = async () => {
   await prepareFirebaseAuth();
 
   if (!firebaseAuth.currentUser || firebaseAuth.currentUser.isAnonymous) {
-    throw unauthorizedAdminError();
+    const reason = !firebaseAuth.currentUser
+      ? 'firebase-current-user-missing'
+      : 'firebase-current-user-is-anonymous';
+    console.error('[Firebase] Admin authorization denied', {
+      reason,
+      projectId: firebaseProjectId,
+      currentUserUid: firebaseAuth.currentUser?.uid || null,
+      localAdminUid: userStore.getState().currentUser?.uid || null,
+    });
+    clearStaleLocalAdminSession(reason);
+    throw unauthorizedAdminError(reason);
   }
 
   await validateAdminDocument(firebaseAuth.currentUser);
