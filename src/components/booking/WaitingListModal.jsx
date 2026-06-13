@@ -51,7 +51,7 @@ export default function WaitingListModal({ isOpen, onClose, currentUser, service
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
+          className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
           onClick={onClose}
         >
           <motion.div
@@ -59,7 +59,7 @@ export default function WaitingListModal({ isOpen, onClose, currentUser, service
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="dark-card rounded-3xl p-6 w-full max-w-sm"
+            className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             {joined ? (

@@ -12,6 +12,7 @@ import DailyCalendarView from '../../components/admin/DailyCalendarView';
 import WaitingListCard from '../../components/admin/WaitingListCard';
 import { localDateToString } from '../../lib/slotEngine';
 import { updateAdminAppointment } from '@/lib/appointmentsFirestore';
+import { toast } from '@/components/ui/use-toast';
 
 const weeklyData = [
   { day: 'א', appointments: 6, revenue: 420 },
@@ -48,10 +49,12 @@ export default function AdminDashboard() {
     setMoveError('');
     try {
       await updateAdminAppointment(appointment.id, { startTime });
+      toast({ title: 'התור הוזז', description: `השעה החדשה: ${startTime}` });
     } catch (error) {
       setMoveError(error?.code === 'functions/already-exists'
         ? 'לא ניתן להזיז את התור: השעה החדשה חופפת לתור אחר.'
         : 'הזזת התור נכשלה.');
+      toast({ variant: 'destructive', title: 'הזזת התור נכשלה', description: error?.message });
     }
   };
 

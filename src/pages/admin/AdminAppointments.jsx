@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listAllBarbers, listAllServices } from '@/lib/businessFirestore';
+import { useMutation } from '@tanstack/react-query';
 import { localDateToString } from '../../lib/slotEngine';
 import {
   createAdminAppointment,
@@ -11,6 +10,8 @@ import {
   updateAdminAppointment,
 } from '@/lib/appointmentsFirestore';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
+import { toast } from '@/components/ui/use-toast';
+import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
@@ -62,7 +63,7 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-4"
+      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-4"
       onClick={onClose}
     >
       <motion.div
@@ -70,7 +71,7 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="dark-card rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto"
+        className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -263,46 +264,41 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
 
 export default function AdminAppointments() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [filter, setFilter] = useState('all');
   const [selectedAppt, setSelectedAppt] = useState(null);
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
-
-  const { data: services = [] } = useQuery({
-    queryKey: ['admin-services'],
-    queryFn: listAllServices,
-  });
-  const { data: barbers = [] } = useQuery({
-    queryKey: ['admin-barbers'],
-    queryFn: listAllBarbers,
-  });
+  const { data: services, error: servicesError } = useAllServicesRealtime();
+  const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
   const updateMutation = useMutation({
     mutationFn: (/** @type {any} */ { id, data }) => updateAdminAppointment(id, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
       setEditAppt(null);
+      toast({ title: 'התור עודכן', description: 'השינוי נשמר ומופיע בזמן אמת.' });
     },
+    onError: (error) => toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: error?.message }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteAppointment(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setSelectedAppt(null);
+      toast({ title: 'התור נמחק', description: 'הזמן התפנה להזמנה מחדש.' });
     },
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת התור נכשלה', description: error?.message }),
   });
 
   const createMutation = useMutation({
     mutationFn: (data) => createAdminAppointment(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin_appointments'] });
       setShowNewForm(false);
+      toast({ title: 'התור נוסף', description: 'התור נשמר ב-Firestore.' });
     },
+    onError: (error) => toast({ variant: 'destructive', title: 'יצירת התור נכשלה', description: error?.message }),
   });
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
@@ -370,6 +366,11 @@ export default function AdminAppointments() {
       {appointmentsError && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
           לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+        </div>
+      )}
+      {(servicesError || barbersError) && (
+        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          טעינת השירותים או הספרים מ-Firestore נכשלה. יש לרענן ולנסות שוב.
         </div>
       )}
       {mutationError && (

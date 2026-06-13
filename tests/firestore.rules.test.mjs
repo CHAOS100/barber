@@ -8,6 +8,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -107,6 +108,26 @@ before(async () => {
       active: true,
       duration: 30,
     });
+    await setDoc(doc(firestore, 'users', 'customer-a'), {
+      uid: 'customer-a',
+      phoneNumber: '+972500000000',
+      firstName: 'Test',
+      lastName: 'Customer',
+      role: 'customer',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastLoginAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'users', 'customer-b'), {
+      uid: 'customer-b',
+      phoneNumber: '+972511111111',
+      firstName: 'Other',
+      lastName: 'Customer',
+      role: 'customer',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastLoginAt: new Date(),
+    });
   });
 });
 
@@ -159,6 +180,56 @@ test('availability blocks are public but inactive barbers are hidden from custom
   await assertFails(getDoc(doc(firestore, 'barbers', 'inactive-barber')));
 });
 
+test('active admin can create, update, and delete services', async () => {
+  const firestore = testEnvironment.authenticatedContext('active-admin').firestore();
+  const serviceRef = doc(firestore, 'services', 'admin-created-service');
+
+  await assertSucceeds(setDoc(serviceRef, {
+    name: 'Admin Haircut',
+    description: '',
+    category: 'haircut',
+    price: 80,
+    duration: 30,
+    active: true,
+    sortOrder: 10,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(serviceRef, { duration: 40, updatedAt: serverTimestamp() }));
+  await assertSucceeds(deleteDoc(serviceRef));
+});
+
+test('active admin can save booking settings and public users can read them', async () => {
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  const settingsRef = doc(adminDb, 'settings', 'booking');
+  await assertSucceeds(setDoc(settingsRef, {
+    appointmentBufferMinutes: 10,
+    slotInterval: 10,
+    workingHours: [],
+    updatedAt: serverTimestamp(),
+  }));
+
+  const publicDb = testEnvironment.unauthenticatedContext().firestore();
+  const snapshot = await assertSucceeds(getDoc(doc(publicDb, 'settings', 'booking')));
+  assert.equal(snapshot.data().appointmentBufferMinutes, 10);
+});
+
+test('active admin can save public business settings', async () => {
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  const settingsRef = doc(adminDb, 'settings', 'business');
+  await assertSucceeds(setDoc(settingsRef, {
+    name: 'OST Barber',
+    phone: '0500000000',
+    address: 'Israel',
+    description: '',
+    updatedAt: serverTimestamp(),
+  }));
+
+  const publicDb = testEnvironment.unauthenticatedContext().firestore();
+  const snapshot = await assertSucceeds(getDoc(doc(publicDb, 'settings', 'business')));
+  assert.equal(snapshot.data().name, 'OST Barber');
+});
+
 test('customers cannot create or read notification jobs', async () => {
   const firestore = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
   const notificationJobRef = doc(firestore, 'notificationJobs', 'customer-created-job');
@@ -202,5 +273,86 @@ test('active admins can read notification jobs but cannot create them from the c
     createdAt: serverTimestamp(),
     sentAt: null,
     error: null,
+  }));
+});
+
+test('phone customer can read only users/{auth.uid}', async () => {
+  const firestore = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+  const snapshot = await assertSucceeds(getDoc(doc(firestore, 'users', 'customer-a')));
+  assert.equal(snapshot.data().phoneNumber, '+972500000000');
+  await assertFails(getDoc(doc(firestore, 'users', 'customer-b')));
+});
+
+test('phone customer can create only their own correctly bound user document', async () => {
+  const newCustomerToken = {
+    firebase: { sign_in_provider: 'phone' },
+    phone_number: '+972522222222',
+  };
+  const firestore = testEnvironment.authenticatedContext('new-customer', newCustomerToken).firestore();
+
+  await assertSucceeds(setDoc(doc(firestore, 'users', 'new-customer'), {
+    uid: 'new-customer',
+    phoneNumber: '+972522222222',
+    firstName: 'New',
+    lastName: 'Customer',
+    role: 'customer',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    lastLoginAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(firestore, 'users', 'different-uid'), {
+    uid: 'different-uid',
+    phoneNumber: '+972522222222',
+    firstName: 'Wrong',
+    lastName: 'Document',
+    role: 'customer',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    lastLoginAt: serverTimestamp(),
+  }));
+});
+
+test('customer can update preferences but cannot update name, phoneNumber, or role', async () => {
+  const firestore = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+
+  await assertSucceeds(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    language: 'he',
+    notificationPreferences: { reminder24h: true },
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-b'), {
+    language: 'he',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    firstName: 'Changed',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    phoneNumber: '+972533333333',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    role: 'admin',
+    updatedAt: serverTimestamp(),
+  }));
+});
+
+test('active admin can read users and edit names but cannot change phoneNumber or role', async () => {
+  const firestore = testEnvironment.authenticatedContext('active-admin').firestore();
+  const snapshot = await assertSucceeds(getDocs(collection(firestore, 'users')));
+  assert.ok(snapshot.size >= 2);
+  await assertSucceeds(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    firstName: 'Admin',
+    lastName: 'Changed',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    phoneNumber: '+972544444444',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    role: 'admin',
+    updatedAt: serverTimestamp(),
   }));
 });

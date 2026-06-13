@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { localDb } from '@/lib/localData';
+import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO } from '../../lib/mockData';
 import GoldButton from '../../components/ui/GoldButton';
+import { saveBookingSettings } from '@/lib/businessFirestore';
+import { useBookingSettingsRealtime } from '@/hooks/useBookingData';
+import { toast } from '@/components/ui/use-toast';
 
 const DEFAULT_DAYS = BUSINESS_INFO.hours.map((h, i) => ({
   day_of_week: i,
@@ -14,7 +16,6 @@ const DEFAULT_DAYS = BUSINESS_INFO.hours.map((h, i) => ({
   open_time: h.open || '09:00',
   close_time: h.close || '20:00',
   breaks: [],
-  slot_interval: 10,
 }));
 
 const TIME_OPTIONS = [];
@@ -119,24 +120,6 @@ function DayCard({ day, onUpdate }) {
                 </div>
               </div>
 
-              {/* Slot interval */}
-              <div>
-                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⚡ מרווח בין תורים</label>
-                <div className="flex gap-2">
-                  {[10, 15, 20, 30, 45, 60].map(min => (
-                    <button
-                      key={min}
-                      onClick={() => updateTime('slot_interval', min)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-                        (day.slot_interval || 10) === min ? 'gold-gradient text-black' : 'glass text-muted-foreground'
-                      }`}
-                    >
-                      {min}′
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Breaks */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -181,57 +164,35 @@ function DayCard({ day, onUpdate }) {
 
 export default function AdminHours() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [days, setDays] = useState(DEFAULT_DAYS);
-  const [saved, setSaved] = useState(false);
-
-  // Load from DB
-  const { data: dbHours = [] } = useQuery({
-    queryKey: ['working-hours-admin'],
-    queryFn: () => localDb.WorkingHours.list('day_of_week'),
-  });
+  const [appointmentBufferMinutes, setAppointmentBufferMinutes] = useState(0);
+  const [slotInterval, setSlotInterval] = useState(10);
+  const { settings, error: settingsError } = useBookingSettingsRealtime();
 
   useEffect(() => {
-    if (dbHours.length > 0) {
-      // Merge DB data into state
-      setDays(DEFAULT_DAYS.map(d => {
-        const db = dbHours.find(h => h.day_of_week === d.day_of_week);
-        return db ? { ...d, ...db } : d;
-      }));
-    }
-  }, [dbHours]);
+    if (!settings) return;
+    setDays(DEFAULT_DAYS.map(day => ({
+      ...day,
+      ...(settings.workingHours.find(item => item.day_of_week === day.day_of_week) || {}),
+    })));
+    setAppointmentBufferMinutes(settings.appointmentBufferMinutes);
+    setSlotInterval(settings.slotInterval);
+  }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      for (const day of days) {
-        const existing = dbHours.find(h => h.day_of_week === day.day_of_week);
-        if (existing?.id) {
-          await localDb.WorkingHours.update(existing.id, {
-            is_open: day.is_open,
-            open_time: day.open_time,
-            close_time: day.close_time,
-            breaks: day.breaks || [],
-            slot_interval: day.slot_interval || 10,
-          });
-        } else {
-          await localDb.WorkingHours.create({
-            day_of_week: day.day_of_week,
-            day_name: day.day_name,
-            is_open: day.is_open,
-            open_time: day.open_time,
-            close_time: day.close_time,
-            breaks: day.breaks || [],
-            slot_interval: day.slot_interval || 10,
-          });
-        }
-      }
-    },
+    mutationFn: () => saveBookingSettings({
+      workingHours: days,
+      appointmentBufferMinutes,
+      slotInterval,
+    }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['working-hours-admin'] });
-      queryClient.invalidateQueries({ queryKey: ['workingHours'] });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      toast({ title: 'נשמר בהצלחה', description: 'ימי העבודה והזמינות עודכנו בזמן אמת.' });
     },
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'שמירת שעות העבודה נכשלה',
+      description: error?.message || 'יש לנסות שוב.',
+    }),
   });
 
   const updateDay = (updated) => {
@@ -258,6 +219,39 @@ export default function AdminHours() {
           לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים
         </div>
 
+        {settingsError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+            טעינת הגדרות שעות העבודה מ-Firestore נכשלה.
+          </div>
+        )}
+
+        <div className="glass rounded-2xl p-4 space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold mb-2 block">מרווח בין תורים בדקות</label>
+            <input
+              type="number"
+              min="0"
+              value={appointmentBufferMinutes}
+              onChange={e => setAppointmentBufferMinutes(Math.max(0, Number(e.target.value)))}
+              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center focus:outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold mb-2 block">קפיצת שעות זמינות בדקות</label>
+            <div className="grid grid-cols-5 gap-2">
+              {[5, 10, 15, 20, 30].map(value => (
+                <button
+                  key={value}
+                  onClick={() => setSlotInterval(value)}
+                  className={`py-2 rounded-xl text-xs font-bold ${slotInterval === value ? 'gold-gradient text-black' : 'glass text-muted-foreground'}`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {days.map((day) => (
           <DayCard key={day.day_of_week} day={day} onUpdate={updateDay} />
         ))}
@@ -265,7 +259,7 @@ export default function AdminHours() {
 
       <div className="px-4 pb-8">
         <GoldButton onClick={() => saveMutation.mutate()} size="lg" className="w-full" disabled={saveMutation.isPending}>
-          {saveMutation.isPending ? 'שומר...' : saved ? '✓ נשמר בהצלחה!' : (
+          {saveMutation.isPending ? 'שומר...' : (
             <span className="flex items-center justify-center gap-2"><Save className="w-4 h-4" /> שמור שינויים</span>
           )}
         </GoldButton>

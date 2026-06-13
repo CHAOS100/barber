@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
 import {
   Armchair,
   BadgeCheck,
@@ -18,7 +17,7 @@ import {
   Star,
 } from 'lucide-react';
 import { BARBER_PHOTO, BUSINESS_INFO, MOCK_REVIEWS, MOCK_GALLERY, isOpenNow } from '../lib/mockData';
-import { listActiveServices } from '@/lib/businessFirestore';
+import { useActiveServicesRealtime } from '@/hooks/useBookingData';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 
@@ -39,7 +38,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('info');
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
-  const { data: services = [] } = useQuery({ queryKey: ['services'], queryFn: listActiveServices });
+  const { data: services } = useActiveServicesRealtime();
 
   const handleShare = () => {
     if (navigator.share) {
@@ -388,7 +387,7 @@ export default function Home() {
       </div>
 
       {/* Sticky Book Button */}
-      <div className="fixed bottom-20 left-0 right-0 z-40 px-4">
+      <div className="mobile-fixed-cta fixed bottom-20 left-0 right-0 z-40 px-4">
         <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
           הזמן עכשיו
         </GoldButton>

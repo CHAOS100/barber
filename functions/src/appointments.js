@@ -90,16 +90,28 @@ export const createCustomerAppointment = onCall(async (request) => {
   await db().runTransaction(async (transaction) => {
     const serviceSnapshot = await transaction.get(db().doc(`services/${requested.serviceId}`));
     const barberSnapshot = await transaction.get(db().doc(`barbers/${requested.barberId}`));
+    const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
     const service = serviceSnapshot.data();
     const barber = barberSnapshot.data();
+    const customer = customerSnapshot.data();
     if (!serviceSnapshot.exists || service?.active !== true) {
       throw new HttpsError('failed-precondition', 'The selected service is not active.');
     }
     if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) {
       throw new HttpsError('failed-precondition', 'The selected barber is not active.');
     }
+    if (
+      !customerSnapshot.exists
+      || customer?.role !== 'customer'
+      || customer?.uid !== auth.uid
+      || customer?.phoneNumber !== auth.token.phone_number
+    ) {
+      throw new HttpsError('failed-precondition', 'A valid customer profile is required.');
+    }
     const appointment = normalizeAppointment({
       ...requested,
+      customerName: `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
+      customerPhone: customer.phoneNumber,
       serviceName: service.name,
       servicePrice: service.price,
       serviceDuration: service.duration,

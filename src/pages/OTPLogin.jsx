@@ -8,13 +8,17 @@ import GoldButton from '../components/ui/GoldButton';
 import {
   confirmFirebasePhoneCode,
   getPhoneAuthErrorMessage,
-  isDevDemoOtpEnabled,
   normalizeIsraeliPhoneNumber,
   resetFirebasePhoneRecaptcha,
-  signInDevDemoCustomer,
   signInFirebaseAdmin,
   startFirebasePhoneVerification,
 } from '@/lib/firebase';
+import {
+  completeExistingCustomerLogin,
+  createCustomerProfile,
+  customerProfileToSession,
+  findAuthenticatedUserProfile,
+} from '@/lib/customerProfilesFirestore';
 
 export default function OTPLogin() {
   const navigate = useNavigate();
@@ -25,12 +29,12 @@ export default function OTPLogin() {
   const [mode, setMode] = useState(location.state?.admin ? 'admin' : 'customer');
 
   // Customer OTP flow
-  const [step, setStep] = useState('phone'); // phone | otp
+  const [step, setStep] = useState('phone'); // phone | otp | registration
   const [phone, setPhone] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState('');
-  const [name, setName] = useState('');
   const [otp, setOtp] = useState('');
-  const [devOtp, setDevOtp] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const confirmationResultRef = useRef(null);
 
   // Admin login
@@ -44,7 +48,6 @@ export default function OTPLogin() {
 
   // ─── Customer OTP ──────────────────────────────────────────────
   const handleSendOTP = async () => {
-    if (!name.trim()) { setError('נא להזין שם'); return; }
     setLoading(true);
     setError('');
 
@@ -52,14 +55,10 @@ export default function OTPLogin() {
       const customerPhone = normalizeIsraeliPhoneNumber(phone);
       setNormalizedPhone(customerPhone);
 
-      if (isDevDemoOtpEnabled) {
-        setDevOtp(String(Math.floor(100000 + Math.random() * 900000)));
-        confirmationResultRef.current = null;
-      } else {
-        const result = await startFirebasePhoneVerification(phone, 'customer-phone-recaptcha');
-        confirmationResultRef.current = result.confirmationResult;
-        setDevOtp('');
-      }
+      console.info('[Firebase Phone Auth] starting customer SMS flow');
+      const result = await startFirebasePhoneVerification(phone, 'customer-phone-send-button');
+      confirmationResultRef.current = result.confirmationResult;
+      console.info('[Customer Auth] OTP sent', { phoneNumberPresent: Boolean(result.phoneNumber) });
 
       setOtp('');
       setStep('otp');
@@ -77,34 +76,69 @@ export default function OTPLogin() {
   const handleVerifyOTP = async () => {
     if (otp.length !== 6) { setError('יש להזין קוד אימות בן 6 ספרות'); return; }
     setLoading(true);
+    setError('');
 
     try {
-      let firebaseUser;
-      if (isDevDemoOtpEnabled) {
-        if (otp !== devOtp) {
-          throw Object.assign(new Error('Invalid local development code.'), {
-            code: 'auth/invalid-verification-code',
-          });
-        }
-        firebaseUser = await signInDevDemoCustomer();
-      } else {
-        firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
+      const firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
+      console.info('[Customer Auth] OTP confirmed', { uid: firebaseUser.uid });
+
+      const existingProfile = await findAuthenticatedUserProfile();
+      if (!existingProfile) {
+        setStep('registration');
+        setError('');
+        return;
       }
 
-      loginUser({
-        name: name.trim(),
-        phone: normalizedPhone,
-        uid: firebaseUser.uid,
-        isAdmin: false,
-        authProvider: isDevDemoOtpEnabled ? 'local-development' : 'phone',
-      });
+      const profile = await completeExistingCustomerLogin();
+      if (!profile) {
+        setStep('registration');
+        setError('');
+        return;
+      }
+
+      loginUser(customerProfileToSession(profile));
       navigate(nextPath);
     } catch (phoneAuthError) {
       console.error('[Firebase] Customer phone code verification failed', {
         code: phoneAuthError?.code || 'unknown',
         message: phoneAuthError?.message || 'Unknown Firebase error',
       });
-      setError(getPhoneAuthErrorMessage(phoneAuthError));
+      const code = String(phoneAuthError?.code || '');
+      setError(
+        code.startsWith('customer/') || code.startsWith('functions/')
+          ? 'אימות המספר הצליח, אך טעינת פרופיל הלקוח נכשלה. יש לפנות למנהל המערכת.'
+          : getPhoneAuthErrorMessage(phoneAuthError),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteRegistration = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      setError('יש להזין שם פרטי ושם משפחה');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const profile = await createCustomerProfile({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      });
+      loginUser(customerProfileToSession(profile));
+      navigate(nextPath);
+    } catch (registrationError) {
+      console.error('[Customer Auth] registration failed', {
+        code: registrationError?.code || 'unknown',
+        message: registrationError?.message || 'Unknown registration error',
+      });
+      setError(
+        registrationError?.code === 'functions/already-exists'
+          ? 'כבר קיים חשבון עבור מספר הטלפון הזה. יש לחזור ולהתחבר מחדש.'
+          : 'יצירת החשבון נכשלה. יש לנסות שוב.',
+      );
     } finally {
       setLoading(false);
     }
@@ -151,6 +185,8 @@ export default function OTPLogin() {
     setMode('customer');
     setError('');
     setStep('phone');
+    setFirstName('');
+    setLastName('');
   };
 
   return (
@@ -241,17 +277,6 @@ export default function OTPLogin() {
                 className="space-y-4"
               >
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground mb-2 block">שם מלא</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="ישראל ישראלי"
-                    className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                    dir="rtl"
-                  />
-                </div>
-                <div>
                   <label className="text-sm font-medium text-muted-foreground mb-2 block">מספר טלפון</label>
                   <div className="relative">
                     <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
@@ -266,10 +291,9 @@ export default function OTPLogin() {
                   </div>
                 </div>
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
-                <GoldButton onClick={handleSendOTP} size="lg" className="w-full" disabled={loading}>
+                <GoldButton id="customer-phone-send-button" onClick={handleSendOTP} size="lg" className="w-full" disabled={loading}>
                   {loading ? 'שולח...' : 'שלח קוד אימות'}
                 </GoldButton>
-                <div id="customer-phone-recaptcha" />
 
                 {/* Admin link */}
                 <div className="text-center pt-2">
@@ -296,12 +320,6 @@ export default function OTPLogin() {
                   <ShieldCheck className="w-12 h-12 text-primary mx-auto mb-2" />
                   <p className="text-muted-foreground text-sm">קוד אימות נשלח ב-SMS</p>
                   <p className="text-muted-foreground/70 text-xs mt-1" dir="ltr">{normalizedPhone}</p>
-                  {isDevDemoOtpEnabled && devOtp && (
-                    <div className="glass-gold rounded-2xl p-4 mt-3">
-                      <p className="text-xs text-muted-foreground">קוד פיתוח מקומי</p>
-                      <p className="text-4xl font-black gold-text tracking-widest">{devOtp}</p>
-                    </div>
-                  )}
                 </div>
                 <input
                   type="text"
@@ -326,6 +344,52 @@ export default function OTPLogin() {
                 >
                   <ArrowRight className="w-4 h-4" /> חזרה
                 </button>
+              </motion.div>
+            )}
+
+            {/* ─── CUSTOMER: FIRST REGISTRATION ─── */}
+            {mode === 'customer' && step === 'registration' && (
+              <motion.div
+                key="registration"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="text-center mb-2">
+                  <ShieldCheck className="w-12 h-12 text-primary mx-auto mb-2" />
+                  <h2 className="font-black text-lg">השלמת הרשמה</h2>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    זו הכניסה הראשונה שלך. הפרטים יישמרו לחשבון המאומת.
+                  </p>
+                  <p className="text-muted-foreground/70 text-xs mt-1" dir="ltr">{normalizedPhone}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-2 block">שם פרטי</label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={event => setFirstName(event.target.value)}
+                    autoComplete="given-name"
+                    className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-right focus:outline-none focus:border-primary transition-colors"
+                    dir="rtl"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-2 block">שם משפחה</label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={event => setLastName(event.target.value)}
+                    autoComplete="family-name"
+                    className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-right focus:outline-none focus:border-primary transition-colors"
+                    dir="rtl"
+                  />
+                </div>
+                {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                <GoldButton onClick={handleCompleteRegistration} size="lg" className="w-full" disabled={loading}>
+                  {loading ? 'יוצר חשבון...' : 'השלם הרשמה'}
+                </GoldButton>
               </motion.div>
             )}
 

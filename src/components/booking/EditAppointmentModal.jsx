@@ -6,8 +6,7 @@ import { localDb } from '@/lib/localData';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
-import { getBookingSettings } from '@/lib/businessFirestore';
-import { useAppointmentBlocksRealtime } from '@/hooks/useBookingData';
+import { useAppointmentBlocksRealtime, useBookingSettingsRealtime } from '@/hooks/useBookingData';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const MONTH_NAMES = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
@@ -34,12 +33,8 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   const [selectedTime, setSelectedTime] = useState(null);
   const [done, setDone] = useState(false);
 
-  const { data: workingHoursRaw = DEFAULT_WORKING_HOURS } = useQuery({
-    queryKey: ['workingHours'],
-    queryFn: () => localDb.WorkingHours.list('day_of_week'),
-    placeholderData: DEFAULT_WORKING_HOURS,
-  });
-  const workingHours = workingHoursRaw.length > 0 ? workingHoursRaw : DEFAULT_WORKING_HOURS;
+  const { settings: bookingSettings } = useBookingSettingsRealtime();
+  const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
   const { data: blockedDates = [] } = useQuery({
     queryKey: ['blockedDates'],
@@ -50,10 +45,6 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
 
   const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
-  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
-    queryKey: ['booking-settings'],
-    queryFn: getBookingSettings,
-  });
 
   // Exclude the current appointment from the occupied slots so it doesn't block itself
   const otherAppointments = useMemo(
@@ -79,8 +70,8 @@ export default function EditAppointmentModal({ appointment, onClose }) {
       appointments: otherAppointments,
       workingHours: wh,
       blockedTimes: [],
-      slotInterval: 10,
-      bufferMinutes: bookingSettings.appointmentBufferMinutes,
+      slotInterval: bookingSettings?.slotInterval || 10,
+      bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
     });
   }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration, bookingSettings]);
 

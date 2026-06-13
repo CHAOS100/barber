@@ -35,3 +35,5 @@ dist-ssr
 *service-account*.json
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
+
+.vercel

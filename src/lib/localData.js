@@ -1,15 +1,12 @@
 import {
   BARBER_PHOTO,
-  MOCK_APPOINTMENTS,
   MOCK_GALLERY,
   MOCK_REVIEWS,
   MOCK_SERVICES,
 } from '@/lib/mockData';
 import { DEFAULT_WORKING_HOURS } from '@/lib/slotEngine';
-import { loginUser, logoutUser } from '@/lib/userStore';
 
 const STORAGE_KEY = 'ost_local_database_v1';
-const PENDING_REGISTRATION_KEY = 'ost_pending_registration';
 const memoryStorage = new Map();
 const dataListeners = new Set();
 
@@ -23,25 +20,14 @@ const storage = typeof localStorage === 'undefined'
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-const buildCustomers = () => {
-  const customers = new Map();
-  MOCK_APPOINTMENTS.forEach((appointment) => {
-    const existing = customers.get(appointment.customer_phone) || {
-      id: `customer-${appointment.customer_phone}`,
-      name: appointment.customer_name,
-      phone: appointment.customer_phone,
-      total_appointments: 0,
-      warning_count: 0,
-      is_blocked: false,
-    };
-    existing.total_appointments += 1;
-    customers.set(appointment.customer_phone, existing);
-  });
-  return [...customers.values()];
+const removeLegacyCustomerIdentity = (data) => {
+  const sanitized = { ...(data || {}) };
+  delete sanitized.CustomerProfile;
+  delete sanitized.Appointment;
+  return sanitized;
 };
 
 const createInitialDatabase = () => ({
-  Appointment: clone(MOCK_APPOINTMENTS),
   Barber: [
     {
       id: 'b1',
@@ -53,7 +39,6 @@ const createInitialDatabase = () => ({
     },
   ],
   BlockedDate: [],
-  CustomerProfile: buildCustomers(),
   GalleryPhoto: clone(MOCK_GALLERY),
   Notification: [],
   Review: clone(MOCK_REVIEWS),
@@ -66,7 +51,10 @@ const createInitialDatabase = () => ({
 const loadDatabase = () => {
   try {
     const saved = storage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : createInitialDatabase();
+    if (!saved) return createInitialDatabase();
+    const sanitized = removeLegacyCustomerIdentity(JSON.parse(saved));
+    storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    return sanitized;
   } catch {
     return createInitialDatabase();
   }
@@ -77,7 +65,7 @@ let database = loadDatabase();
 const refreshDatabase = () => {
   try {
     const saved = storage.getItem(STORAGE_KEY);
-    if (saved) database = JSON.parse(saved);
+    if (saved) database = removeLegacyCustomerIdentity(JSON.parse(saved));
   } catch {
     // Keep the latest in-memory database if persisted data cannot be read.
   }
@@ -106,7 +94,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key !== STORAGE_KEY || !event.newValue) return;
     try {
-      database = JSON.parse(event.newValue);
+      database = removeLegacyCustomerIdentity(JSON.parse(event.newValue));
       notifyDataListeners({ action: 'sync' });
     } catch {
       // Ignore malformed storage events and preserve the current database.
@@ -182,37 +170,6 @@ export const localDb = /** @type {any} */ (new Proxy({}, {
 export const subscribeLocalData = (listener) => {
   dataListeners.add(listener);
   return () => dataListeners.delete(listener);
-};
-
-export const localAuth = {
-  loginViaEmailPassword: async (email, _password) => {
-    const user = { name: email.split('@')[0], email, isAdmin: false };
-    loginUser(user);
-    return user;
-  },
-  loginWithProvider: (_provider, next = '/') => {
-    loginUser({ name: 'משתמש מקומי', email: 'local@example.com', isAdmin: false });
-    window.location.href = next;
-  },
-  register: async ({ email, password }) => {
-    storage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify({ email, password }));
-    return { ok: true };
-  },
-  verifyOtp: async ({ email, otpCode }) => {
-    if (String(otpCode).length !== 6) throw new Error('Invalid verification code');
-    const pending = JSON.parse(storage.getItem(PENDING_REGISTRATION_KEY) || '{}');
-    const user = { name: (pending.email || email).split('@')[0], email: pending.email || email, isAdmin: false };
-    loginUser(user);
-    storage.removeItem(PENDING_REGISTRATION_KEY);
-    return user;
-  },
-  resendOtp: async (_email) => ({ ok: true }),
-  resetPasswordRequest: async (_email) => ({ ok: true }),
-  resetPassword: async (_payload) => ({ ok: true }),
-  logout: () => logoutUser(),
-  redirectToLogin: () => {
-    window.location.href = '/login';
-  },
 };
 
 export const localFiles = /** @type {any} */ ({

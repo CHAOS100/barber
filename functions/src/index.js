@@ -20,6 +20,10 @@ export {
   updateAdminAppointment,
   updateOwnAppointment,
 } from './appointments.js';
+export {
+  completeCustomerLogin,
+  registerCustomerProfile,
+} from './customerProfiles.js';
 
 initializeApp();
 

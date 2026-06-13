@@ -1,32 +1,39 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Store, Phone, MapPin } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/mockData';
-import { getBookingSettings, saveBookingSettings } from '@/lib/businessFirestore';
+import { saveBookingSettings, saveBusinessSettings } from '@/lib/businessFirestore';
+import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
+import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [info, setInfo] = useState({ ...BUSINESS_INFO });
-  const [saved, setSaved] = useState(false);
-  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
-    queryKey: ['booking-settings'],
-    queryFn: getBookingSettings,
-  });
+  const { settings: bookingSettings } = useBookingSettingsRealtime();
+  const { settings: businessSettings } = useBusinessSettingsRealtime();
   const [bufferMinutes, setBufferMinutes] = useState(null);
-  const displayedBuffer = bufferMinutes ?? bookingSettings.appointmentBufferMinutes;
+  const displayedBuffer = bufferMinutes ?? bookingSettings?.appointmentBufferMinutes ?? 0;
+
+  useEffect(() => {
+    if (businessSettings) setInfo(previous => ({ ...previous, ...businessSettings }));
+  }, [businessSettings]);
+
   const saveSettings = useMutation({
-    mutationFn: () => saveBookingSettings({ appointmentBufferMinutes: displayedBuffer }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['booking-settings'] }),
+    mutationFn: () => Promise.all([
+      saveBookingSettings({ appointmentBufferMinutes: displayedBuffer }),
+      saveBusinessSettings(info),
+    ]),
+    onSuccess: () => toast({ title: 'ההגדרות נשמרו', description: 'המידע העסקי והמרווח בין התורים עודכנו.' }),
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'שמירת ההגדרות נכשלה',
+      description: error?.message || 'יש לנסות שוב.',
+    }),
   });
 
-  const handleSave = async () => {
-    await saveSettings.mutateAsync();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  const handleSave = () => saveSettings.mutate();
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -104,7 +111,7 @@ export default function AdminSettings() {
         </div>
 
         <GoldButton onClick={handleSave} disabled={saveSettings.isPending} size="lg" className="w-full">
-          {saved ? '✓ נשמר!' : 'שמור שינויים'}
+          {saveSettings.isPending ? 'שומר...' : 'שמור שינויים'}
         </GoldButton>
       </div>
     </div>

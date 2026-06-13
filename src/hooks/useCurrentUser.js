@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { userStore, loginUser, logoutUser } from '../lib/userStore';
+import { userStore, loginUser } from '../lib/userStore';
+import { signOutFirebaseSession } from '../lib/firebase';
 
 export function useCurrentUser() {
   const [currentUser, setCurrentUser] = useState(userStore.getState().currentUser);
@@ -12,5 +13,5 @@ export function useCurrentUser() {
 
   const isAdmin = currentUser?.isAdmin === true;
 
-  return { currentUser, isAdmin, loginUser, logoutUser };
+  return { currentUser, isAdmin, loginUser, logoutUser: signOutFirebaseSession };
 }

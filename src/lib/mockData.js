@@ -51,15 +51,6 @@ export const MOCK_REVIEWS = [
   { id: "r5", customer_name: "רועי שפירא", rating: 5, comment: "הכי יפה שתספרתי! הסקין פייד יצא מושלם לחלוטין", service_name: "סקין פייד", created_date: "2026-05-08" },
 ];
 
-export const MOCK_APPOINTMENTS = [
-  { id: "a1", customer_name: "יוסי כהן", customer_phone: "052-1234567", service_name: "סקין פייד", service_price: 80, date: "2026-05-29", time: "10:00", status: "confirmed" },
-  { id: "a2", customer_name: "דוד לוי", customer_phone: "053-2345678", service_name: "תספורת + זקן", service_price: 90, date: "2026-05-29", time: "11:00", status: "confirmed" },
-  { id: "a3", customer_name: "משה אברהם", customer_phone: "054-3456789", service_name: "תספורת רגילה", service_price: 60, date: "2026-05-29", time: "12:00", status: "pending" },
-  { id: "a4", customer_name: "אמיר נחמני", customer_phone: "050-4567890", service_name: "חבילת פרימיום", service_price: 150, date: "2026-05-29", time: "14:00", status: "confirmed" },
-  { id: "a5", customer_name: "רועי שפירא", customer_phone: "058-5678901", service_name: "עיצוב זקן", service_price: 50, date: "2026-05-30", time: "09:00", status: "confirmed" },
-  { id: "a6", customer_name: "ניר כץ", customer_phone: "052-6789012", service_name: "סקין פייד", service_price: 80, date: "2026-05-30", time: "10:30", status: "confirmed" },
-];
-
 export const MOCK_NOTIFICATIONS = [
   { id: "n1", title: "תור אושר ✅", message: "התור שלך ל-סקין פייד ב-29.05 בשעה 10:00 אושר", type: "booking_confirmed", is_read: false, created_date: "2026-05-29T08:00:00" },
   { id: "n2", title: "תזכורת לתור 📅", message: "מחר יש לך תור בשעה 11:00 לתספורת + זקן", type: "booking_reminder", is_read: false, created_date: "2026-05-28T18:00:00" },

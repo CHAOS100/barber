@@ -6,6 +6,8 @@
 
 @layer base {
   :root {
+    --app-viewport-height: 100dvh;
+    --keyboard-height: 0px;
     --background: 0 0% 4%;
     --foreground: 0 0% 98%;
     --card: 0 0% 7%;
@@ -45,6 +47,40 @@
   html {
     direction: rtl;
   }
+
+  html,
+  body,
+  #root {
+    min-height: var(--app-viewport-height);
+  }
+
+  input,
+  textarea,
+  select {
+    scroll-margin-top: 20vh;
+    scroll-margin-bottom: 35vh;
+  }
+}
+
+.min-h-screen {
+  min-height: var(--app-viewport-height);
+}
+
+.keyboard-safe-modal {
+  max-height: calc(var(--app-viewport-height) - 24px);
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.keyboard-open .keyboard-safe-overlay {
+  align-items: flex-start;
+  overflow-y: auto;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: 12px;
+}
+
+.keyboard-open .mobile-fixed-cta,
+.keyboard-open .mobile-bottom-nav {
+  display: none;
 }
 
 .gold-gradient {

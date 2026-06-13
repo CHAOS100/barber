@@ -105,10 +105,8 @@ firebase deploy --only firestore:rules --project ost-barber-app   PASS
 
 ## Remaining Architecture Notes
 
-- Customer identity currently uses Firebase anonymous auth because the existing
-  OTP flow is only a local demo. Anonymous auth persists in the same browser,
-  but a customer will not see the same appointments on another device. Replace
-  the demo OTP flow with Firebase Phone Auth for cross-device customer identity.
+- Customer identity uses Firebase Phone Authentication for cross-device customer
+  history. The app never generates or displays verification codes.
 - Slot availability still reads the old local appointment cache. Preventing
   cross-device double booking securely requires a server transaction or a
   separate availability model that does not expose other customers' data.

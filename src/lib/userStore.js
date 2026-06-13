@@ -1,12 +1,23 @@
-// Simple store for current user session (OTP-based login)
+// Simple store for the authenticated Firebase user session.
+const ADMIN_STORAGE_KEY = 'ost_admin_session';
+const LEGACY_USER_STORAGE_KEY = 'ost_user';
 let listeners = [];
 let state = {
   currentUser: null,
 };
 
 try {
-  const stored = localStorage.getItem('ost_user');
-  if (stored) state.currentUser = JSON.parse(stored);
+  localStorage.removeItem(LEGACY_USER_STORAGE_KEY);
+  const stored = localStorage.getItem(ADMIN_STORAGE_KEY);
+  if (stored) {
+    const user = JSON.parse(stored);
+    const isValidAdmin = user?.isAdmin === true && Boolean(user.uid);
+    if (isValidAdmin) {
+      state.currentUser = user;
+    } else {
+      localStorage.removeItem(ADMIN_STORAGE_KEY);
+    }
+  }
 } catch {}
 
 export const userStore = {
@@ -23,10 +34,16 @@ export const userStore = {
 
 export const loginUser = (user) => {
   userStore.setState({ currentUser: user });
-  try { localStorage.setItem('ost_user', JSON.stringify(user)); } catch {}
+  try {
+    if (user?.isAdmin === true) {
+      localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(ADMIN_STORAGE_KEY);
+    }
+  } catch {}
 };
 
 export const logoutUser = () => {
   userStore.setState({ currentUser: null });
-  try { localStorage.removeItem('ost_user'); } catch {}
+  try { localStorage.removeItem(ADMIN_STORAGE_KEY); } catch {}
 };

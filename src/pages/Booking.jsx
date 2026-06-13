@@ -4,8 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createCustomerAppointment } from '@/lib/appointmentsFirestore';
-import { getBookingSettings, listActiveServices } from '@/lib/businessFirestore';
-import { useActiveBarbersRealtime, useAppointmentBlocksRealtime } from '@/hooks/useBookingData';
+import {
+  useActiveBarbersRealtime,
+  useActiveServicesRealtime,
+  useAppointmentBlocksRealtime,
+  useBookingSettingsRealtime,
+} from '@/hooks/useBookingData';
 import { localDb } from '@/lib/localData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
@@ -164,22 +168,10 @@ export default function Booking() {
   const [showWaiting, setShowWaiting] = useState(false);
   const [bookingError, setBookingError] = useState('');
 
-  const { data: services = [] } = useQuery({
-    queryKey: ['services'],
-    queryFn: listActiveServices,
-  });
+  const { data: services } = useActiveServicesRealtime();
   const { data: barbers } = useActiveBarbersRealtime();
-  const { data: bookingSettings = { appointmentBufferMinutes: 0 } } = useQuery({
-    queryKey: ['booking-settings'],
-    queryFn: getBookingSettings,
-  });
-
-  const { data: workingHoursRaw = DEFAULT_WORKING_HOURS } = useQuery({
-    queryKey: ['workingHours'],
-    queryFn: () => localDb.WorkingHours.list('day_of_week'),
-    placeholderData: DEFAULT_WORKING_HOURS,
-  });
-  const workingHours = workingHoursRaw.length > 0 ? workingHoursRaw : DEFAULT_WORKING_HOURS;
+  const { settings: bookingSettings } = useBookingSettingsRealtime();
+  const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
   const { data: blockedDates = [] } = useQuery({
     queryKey: ['blockedDates'],
@@ -226,8 +218,8 @@ export default function Booking() {
       appointments: appointmentBlocks.filter(block => block.barberId === selectedBarber?.id),
       workingHours: wh,
       blockedTimes: [],
-      slotInterval: 10,
-      bufferMinutes: bookingSettings.appointmentBufferMinutes,
+      slotInterval: bookingSettings?.slotInterval || 10,
+      bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
     });
   }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings]);
 
@@ -239,8 +231,6 @@ export default function Booking() {
     setBookingError('');
     try {
       await createCustomerAppointment({
-        customerName: currentUser.name,
-        customerPhone: currentUser.phone || '',
         serviceId: selectedService.id,
         serviceName: selectedService.name,
         servicePrice: selectedService.price,

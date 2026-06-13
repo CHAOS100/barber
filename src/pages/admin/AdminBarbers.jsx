@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { ArrowRight, Archive, Edit3, Plus, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   archiveBarber,
   deleteBarber,
-  listAllBarbers,
   saveBarber,
 } from '@/lib/businessFirestore';
 import GoldButton from '@/components/ui/GoldButton';
+import { toast } from '@/components/ui/use-toast';
+import { useAllBarbersRealtime } from '@/hooks/useBookingData';
 
 const emptyBarber = {
   name: '',
@@ -22,21 +23,32 @@ const emptyBarber = {
 
 export default function AdminBarbers() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyBarber);
-  const { data: barbers = [] } = useQuery({ queryKey: ['admin-barbers'], queryFn: listAllBarbers });
+  const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-barbers'] });
   const saveMutation = useMutation({
     mutationFn: () => saveBarber(editing?.id, form),
     onSuccess: () => {
-      refresh();
       setEditing(null);
+      toast({ title: editing?.id ? 'הספר עודכן' : 'הספר נוסף', description: 'רשימת הצוות עודכנה ב-Firestore.' });
     },
+    onError: (error) => toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: error?.message }),
   });
-  const archiveMutation = useMutation({ mutationFn: archiveBarber, onSuccess: refresh });
-  const deleteMutation = useMutation({ mutationFn: deleteBarber, onSuccess: refresh });
+  const archiveMutation = useMutation({
+    mutationFn: archiveBarber,
+    onSuccess: () => {
+      toast({ title: 'הספר הועבר לארכיון' });
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'העברה לארכיון נכשלה', description: error?.message }),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteBarber,
+    onSuccess: () => {
+      toast({ title: 'הספר נמחק' });
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: error?.message }),
+  });
 
   const openEditor = (barber = null) => {
     setForm(barber ? {
@@ -60,6 +72,11 @@ export default function AdminBarbers() {
       </div>
 
       <div className="px-4 py-4 space-y-3">
+        {barbersError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+            טעינת רשימת הספרים מ-Firestore נכשלה: {barbersError.message}
+          </div>
+        )}
         {barbers.map((barber) => (
           <div key={barber.id} className={`dark-card rounded-2xl p-4 flex items-center gap-3 ${barber.archived ? 'opacity-40' : ''}`}>
             {barber.photo_url ? (
@@ -97,14 +114,14 @@ export default function AdminBarbers() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
             onClick={() => setEditing(null)}
           >
             <motion.div
               initial={{ y: 300 }}
               animate={{ y: 0 }}
               exit={{ y: 300 }}
-              className="dark-card rounded-3xl p-5 w-full max-w-sm"
+              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
               onClick={event => event.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">

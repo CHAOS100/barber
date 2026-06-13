@@ -10,9 +10,10 @@ Before deploying:
 1. Open Firebase Console for `ost-barber-app`.
 2. Go to **Authentication > Sign-in method**.
 3. Enable **Phone**.
-4. Go to **Authentication > Settings > Authorized domains**.
-5. Add the production Vercel domain and any custom production domain.
-6. Keep all six existing `VITE_FIREBASE_*` variables configured in Vercel.
+4. Go to **Authentication > Settings > SMS region policy** and allow **Israel (IL)**.
+5. Go to **Authentication > Settings > Authorized domains**.
+6. Add the production Vercel domain and any custom production domain.
+7. Keep all six existing `VITE_FIREBASE_*` variables configured in Vercel.
 
 Israeli mobile numbers are normalized as follows:
 
@@ -20,17 +21,13 @@ Israeli mobile numbers are normalized as follows:
 - `9725XXXXXXXX` becomes `+9725XXXXXXXX`
 - `+9725XXXXXXXX` remains unchanged
 
-Production never generates or displays an OTP. A local-only development flow can be
-enabled explicitly with:
+The application never generates or displays an OTP. Development and production both
+use Firebase Phone Authentication. Use Firebase Console fictional phone numbers when
+testing without sending a real SMS.
 
-```bash
-VITE_ENABLE_DEV_DEMO_OTP=true
-```
-
-Do not configure `VITE_ENABLE_DEV_DEMO_OTP` in Vercel. The flag also requires Vite
-development mode, so it cannot activate in a production build. Production Firestore
-rules require the `phone` sign-in provider; the local demo flag does not bypass
-production security rules.
+Firebase Authentication test phone numbers never send a real SMS. To verify real delivery,
+use a phone number that is not configured under **Authentication > Sign-in method > Phone >
+Phone numbers for testing**.
 
 ## Notification Jobs
 

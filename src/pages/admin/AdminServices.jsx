@@ -2,51 +2,72 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Edit3, Trash2, X, Scissors } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteService, listAllServices, saveService } from '@/lib/businessFirestore';
+import { useMutation } from '@tanstack/react-query';
+import { deleteService, saveService } from '@/lib/businessFirestore';
 import GoldButton from '../../components/ui/GoldButton';
+import { useAllServicesRealtime } from '@/hooks/useBookingData';
+import { toast } from '@/components/ui/use-toast';
 
 const emptyService = { name: '', description: '', price: '', duration: '', is_active: true, category: '' };
 
 export default function AdminServices() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [editModal, setEditModal] = useState(null);
   const [form, setForm] = useState(emptyService);
+  const [validationError, setValidationError] = useState('');
 
-  const { data: services = [] } = useQuery({
-    queryKey: ['admin-services'],
-    queryFn: listAllServices,
-  });
+  const { data: services, error: servicesError } = useAllServicesRealtime();
 
   const saveMutation = useMutation({
     mutationFn: (/** @type {any} */ data) => saveService(editModal?.id, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-services'] });
-      qc.invalidateQueries({ queryKey: ['services'] });
+    onSuccess: (_, variables) => {
+      toast({
+        title: editModal?.id ? 'השירות עודכן' : 'השירות נוסף',
+        description: `${variables.name} נשמר ב-Firestore.`,
+      });
       setEditModal(null);
     },
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'שמירת השירות נכשלה',
+      description: error?.message || 'יש לנסות שוב.',
+    }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteService,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-services'] });
-      qc.invalidateQueries({ queryKey: ['services'] });
-    },
+    onSuccess: () => toast({ title: 'השירות נמחק', description: 'הרשימה עודכנה בזמן אמת.' }),
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת השירות נכשלה', description: error?.message }),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (/** @type {any} */ { id, is_active }) => saveService(id, { ...services.find(s => s.id === id), is_active }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-services'] });
-      qc.invalidateQueries({ queryKey: ['services'] });
-    },
+    onSuccess: () => toast({ title: 'סטטוס השירות עודכן' }),
+    onError: (error) => toast({ variant: 'destructive', title: 'עדכון השירות נכשל', description: error?.message }),
   });
 
   const openEdit = (service = null) => {
     setForm(service || emptyService);
+    setValidationError('');
+    saveMutation.reset();
     setEditModal(service || { isNew: true });
+  };
+
+  const handleSave = () => {
+    if (!String(form.name || '').trim()) {
+      setValidationError('שם השירות הוא שדה חובה.');
+      return;
+    }
+    if (!Number(form.price) || Number(form.price) <= 0) {
+      setValidationError('מחיר השירות הוא שדה חובה וחייב להיות גדול מאפס.');
+      return;
+    }
+    if (!Number(form.duration) || Number(form.duration) <= 0) {
+      setValidationError('משך השירות הוא שדה חובה וחייב להיות גדול מאפס.');
+      return;
+    }
+    setValidationError('');
+    saveMutation.mutate({ ...form, price: Number(form.price), duration: Number(form.duration) });
   };
 
   return (
@@ -62,6 +83,11 @@ export default function AdminServices() {
       </div>
 
       <div className="px-4 py-4 space-y-3">
+        {servicesError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+            טעינת השירותים מ-Firestore נכשלה: {servicesError.message}
+          </div>
+        )}
         {services.map((service, i) => (
           <motion.div
             key={service.id || i}
@@ -95,7 +121,7 @@ export default function AdminServices() {
                 >
                   <div className={`w-4 h-4 rounded-full border-2 ${service.is_active ? 'border-green-400 bg-green-400' : 'border-muted'}`} />
                 </button>
-                <button onClick={() => deleteMutation.mutate(service.id)} className="glass p-2 rounded-lg">
+                <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="glass p-2 rounded-lg">
                   <Trash2 className="w-4 h-4 text-red-400" />
                 </button>
               </div>
@@ -111,14 +137,14 @@ export default function AdminServices() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
             onClick={() => setEditModal(null)}
           >
             <motion.div
               initial={{ y: 300 }}
               animate={{ y: 0 }}
               exit={{ y: 300 }}
-              className="dark-card rounded-3xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
@@ -157,12 +183,18 @@ export default function AdminServices() {
                   </button>
                 </div>
               </div>
+              {(validationError || saveMutation.error) && (
+                <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                  {validationError || saveMutation.error?.message}
+                </div>
+              )}
               <GoldButton
-                onClick={() => saveMutation.mutate({ ...form, price: Number(form.price), duration: Number(form.duration) })}
+                onClick={handleSave}
+                disabled={saveMutation.isPending}
                 size="lg"
                 className="w-full mt-4"
               >
-                {editModal.isNew ? 'צור שירות' : 'שמור שינויים'}
+                {saveMutation.isPending ? 'שומר...' : editModal.isNew ? 'צור שירות' : 'שמור שינויים'}
               </GoldButton>
             </motion.div>
           </motion.div>

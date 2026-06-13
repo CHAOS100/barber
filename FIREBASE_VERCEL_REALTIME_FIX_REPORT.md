@@ -155,10 +155,8 @@ Firebase project, `ost-barber-app`, and use their native Firebase configuration
 files. They can share the same Firestore collections, rules, and appointment
 status model with the Vercel web app.
 
-Customer authentication remains anonymous for this release. Appointment
-history therefore follows the anonymous Firebase identity on the same
-browser/device. Replace the demo OTP flow with Firebase Phone Auth before
-requiring cross-device customer history.
+Customer authentication uses Firebase Phone Authentication, so appointment history
+can follow the same verified phone user across devices.
 
 Slot availability still reads local/mock appointment data. Preventing
 cross-device double booking requires a separate Firestore-backed availability
