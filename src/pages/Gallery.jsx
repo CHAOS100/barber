@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Share2, ZoomIn } from 'lucide-react';
-import { MOCK_GALLERY } from '../lib/mockData';
-import { localDb } from '@/lib/localData';
-import { useQuery } from '@tanstack/react-query';
+import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 
 const CATEGORIES = [
   { key: 'all', label: 'הכל' },
@@ -18,12 +16,7 @@ export default function Gallery() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedIndex, setSelectedIndex] = useState(null);
 
-  const { data: dbPhotos = [] } = useQuery({
-    queryKey: ['gallery'],
-    queryFn: () => localDb.GalleryPhoto.list(),
-  });
-
-  const allPhotos = dbPhotos.length > 0 ? dbPhotos : MOCK_GALLERY;
+  const { photos: allPhotos, error } = usePublishedGalleryRealtime();
   const filtered = activeCategory === 'all'
     ? allPhotos.filter(p => !p.is_hidden)
     : allPhotos.filter(p => p.category === activeCategory && !p.is_hidden);
@@ -65,6 +58,10 @@ export default function Gallery() {
 
       {/* Grid */}
       <div className="px-4">
+        {error && <div className="mb-3 text-red-400 text-sm">טעינת הגלריה מ-Firestore נכשלה.</div>}
+        {filtered.length === 0 && (
+          <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">עדיין אין תמונות בגלריה.</div>
+        )}
         <motion.div layout className="grid grid-cols-2 md:grid-cols-3 gap-2">
           <AnimatePresence>
             {filtered.map((photo, index) => (

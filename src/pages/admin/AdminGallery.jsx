@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Plus, Trash2, Star, EyeOff, Eye, Upload } from 'lucide-react';
-import { localDb, localFiles } from '@/lib/localData';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MOCK_GALLERY } from '../../lib/mockData';
+import { ArrowRight, Plus, Trash2, Star, EyeOff, Eye } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import {
+  createGalleryPhoto,
+  deleteGalleryPhoto,
+  updateGalleryPhoto,
+} from '@/lib/galleryFirestore';
+import { useAdminGalleryRealtime } from '@/hooks/useGalleryRealtime';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 
 const CATEGORIES = [
@@ -17,49 +23,33 @@ const CATEGORIES = [
 
 export default function AdminGallery() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  const { isAdmin } = useCurrentUser();
   const [showAdd, setShowAdd] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newCategory, setNewCategory] = useState('haircuts');
-  const [uploading, setUploading] = useState(false);
-
-  const { data: photos = [] } = useQuery({
-    queryKey: ['gallery'],
-    queryFn: async () => {
-      try {
-        const r = await localDb.GalleryPhoto.list('sort_order');
-        return r.length > 0 ? r : MOCK_GALLERY;
-      } catch { return MOCK_GALLERY; }
-    },
-  });
+  const { photos, error } = useAdminGalleryRealtime(isAdmin);
 
   const addMutation = useMutation({
-    mutationFn: (/** @type {any} */ data) => localDb.GalleryPhoto.create(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['gallery'] }); setShowAdd(false); setNewUrl(''); },
+    mutationFn: createGalleryPhoto,
+    onSuccess: () => {
+      toast({ title: 'התמונה נוספה ל-Firestore' });
+      setShowAdd(false);
+      setNewUrl('');
+    },
+    onError: (mutationError) => toast({ variant: 'destructive', title: 'הוספת התמונה נכשלה', description: mutationError?.message }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (/** @type {any} */ id) => localDb.GalleryPhoto.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['gallery'] }),
+    mutationFn: deleteGalleryPhoto,
+    onSuccess: () => toast({ title: 'התמונה נמחקה' }),
+    onError: (mutationError) => toast({ variant: 'destructive', title: 'מחיקת התמונה נכשלה', description: mutationError?.message }),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, field, value }) => localDb.GalleryPhoto.update(id, { [field]: value }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['gallery'] }),
+    mutationFn: (/** @type {any} */ { id, changes }) => updateGalleryPhoto(id, changes),
+    onSuccess: () => toast({ title: 'התמונה עודכנה' }),
+    onError: (mutationError) => toast({ variant: 'destructive', title: 'עדכון התמונה נכשל', description: mutationError?.message }),
   });
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const { fileUrl } = await localFiles.upload(file);
-      setNewUrl(fileUrl);
-    } catch (err) {
-      console.error(err);
-    }
-    setUploading(false);
-  };
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -74,6 +64,8 @@ export default function AdminGallery() {
       </div>
 
       <div className="px-4 py-4">
+        {error && <div className="mb-3 text-red-400 text-sm">טעינת הגלריה מ-Firestore נכשלה.</div>}
+        {photos.length === 0 && <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">אין תמונות בגלריה.</div>}
         <div className="grid grid-cols-2 gap-3">
           {photos.map((photo, i) => (
             <motion.div
@@ -88,13 +80,13 @@ export default function AdminGallery() {
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  onClick={() => toggleMutation.mutate({ id: photo.id, field: 'is_featured', value: !photo.is_featured })}
+                  onClick={() => toggleMutation.mutate({ id: photo.id, changes: { featured: !photo.is_featured } })}
                   className={`p-1.5 rounded-lg ${photo.is_featured ? 'bg-primary text-black' : 'glass'}`}
                 >
                   <Star className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={() => toggleMutation.mutate({ id: photo.id, field: 'is_hidden', value: !photo.is_hidden })}
+                  onClick={() => toggleMutation.mutate({ id: photo.id, changes: { hidden: !photo.is_hidden } })}
                   className="glass p-1.5 rounded-lg"
                 >
                   {photo.is_hidden ? <Eye className="w-3.5 h-3.5 text-green-400" /> : <EyeOff className="w-3.5 h-3.5 text-yellow-400" />}
@@ -134,15 +126,7 @@ export default function AdminGallery() {
               <h3 className="font-black text-lg mb-4">הוסף תמונה</h3>
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">העלה תמונה</label>
-                  <label className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl py-6 cursor-pointer hover:border-primary transition-colors">
-                    <Upload className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-muted-foreground text-sm">{uploading ? 'מעלה...' : 'לחץ לבחירת קובץ'}</span>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                  </label>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">או הכנס URL</label>
+                  <label className="text-xs text-muted-foreground mb-1 block">כתובת תמונה (URL)</label>
                   <input
                     value={newUrl}
                     onChange={e => setNewUrl(e.target.value)}
@@ -169,7 +153,7 @@ export default function AdminGallery() {
                 </div>
               </div>
               <GoldButton
-                onClick={() => addMutation.mutate({ url: newUrl, category: newCategory, is_featured: false, is_hidden: false })}
+                onClick={() => addMutation.mutate({ url: newUrl, category: newCategory })}
                 size="lg"
                 className="w-full mt-4"
                 disabled={!newUrl}

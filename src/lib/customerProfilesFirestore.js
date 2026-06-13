@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   onSnapshot,
@@ -21,9 +22,10 @@ const mapProfile = (snapshot) => {
     ...data,
     name: `${data.firstName || ''} ${data.lastName || ''}`.trim(),
     phone: data.phoneNumber || '',
-    is_blocked: data.isBlocked === true,
+    is_blocked: data.blocked === true || data.isBlocked === true,
+    blocked_reason: data.blockedReason || '',
     warning_count: Number(data.warningCount || 0),
-    total_appointments: Number(data.totalAppointments || 0),
+    total_appointments: Number(data.visitsCount || 0),
   };
 };
 
@@ -37,11 +39,19 @@ export const customerProfileToSession = (profile) => ({
   role: profile.role || 'customer',
   notificationPreferences: profile.notificationPreferences || {},
   language: profile.language || 'he',
-  isBlocked: profile.isBlocked === true,
+  blocked: profile.blocked === true || profile.isBlocked === true,
+  blockedReason: profile.blockedReason || '',
   warningCount: Number(profile.warningCount || 0),
-  is_blocked: profile.isBlocked === true,
+  visitsCount: Number(profile.visitsCount || 0),
+  completedAppointments: Number(profile.completedAppointments || 0),
+  cancelledAppointments: Number(profile.cancelledAppointments || 0),
+  noShowCount: Number(profile.noShowCount || 0),
+  totalSpent: Number(profile.totalSpent || 0),
+  reviewsCount: Number(profile.reviewsCount || 0),
+  is_blocked: profile.blocked === true || profile.isBlocked === true,
+  blocked_reason: profile.blockedReason || '',
   warning_count: Number(profile.warningCount || 0),
-  total_appointments: Number(profile.totalAppointments || 0),
+  total_appointments: Number(profile.visitsCount || 0),
   isAdmin: false,
   authProvider: 'phone',
 });
@@ -176,7 +186,14 @@ export const updateCustomerByAdmin = async (userId, changes) => {
   const payload = /** @type {Record<string, any>} */ ({ updatedAt: serverTimestamp() });
   if (changes.firstName !== undefined) payload.firstName = String(changes.firstName || '').trim();
   if (changes.lastName !== undefined) payload.lastName = String(changes.lastName || '').trim();
-  if (changes.isBlocked !== undefined) payload.isBlocked = changes.isBlocked === true;
+  if (changes.blocked !== undefined) {
+    payload.blocked = changes.blocked === true;
+    payload.blockedReason = changes.blocked === true
+      ? String(changes.blockedReason || 'נחסם על ידי מנהל').trim()
+      : '';
+    payload.blockedAt = changes.blocked === true ? serverTimestamp() : null;
+    payload.isBlocked = deleteField();
+  }
   if (changes.warningCount !== undefined) payload.warningCount = Math.max(0, Number(changes.warningCount || 0));
   await updateDoc(doc(getFirestoreDb(), 'users', userId), payload);
 };

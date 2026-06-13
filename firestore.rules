@@ -78,6 +78,15 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.phoneNumber == request.auth.token.phone_number
         && request.resource.data.role == 'customer'
+        && request.resource.data.visitsCount == 0
+        && request.resource.data.completedAppointments == 0
+        && request.resource.data.cancelledAppointments == 0
+        && request.resource.data.noShowCount == 0
+        && request.resource.data.totalSpent == 0
+        && request.resource.data.reviewsCount == 0
+        && request.resource.data.blocked == false
+        && request.resource.data.blockedReason == ''
+        && request.resource.data.blockedAt == null
         && hasValidCustomerNames(request.resource.data)
         && request.resource.data.keys().hasAll([
           'uid',
@@ -85,6 +94,15 @@ service cloud.firestore {
           'firstName',
           'lastName',
           'role',
+          'visitsCount',
+          'completedAppointments',
+          'cancelledAppointments',
+          'noShowCount',
+          'totalSpent',
+          'reviewsCount',
+          'blocked',
+          'blockedReason',
+          'blockedAt',
           'createdAt',
           'updatedAt'
         ])
@@ -94,6 +112,15 @@ service cloud.firestore {
           'firstName',
           'lastName',
           'role',
+          'visitsCount',
+          'completedAppointments',
+          'cancelledAppointments',
+          'noShowCount',
+          'totalSpent',
+          'reviewsCount',
+          'blocked',
+          'blockedReason',
+          'blockedAt',
           'createdAt',
           'updatedAt',
           'lastLoginAt'
@@ -111,6 +138,9 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'firstName',
             'lastName',
+            'blocked',
+            'blockedReason',
+            'blockedAt',
             'isBlocked',
             'warningCount',
             'updatedAt'
@@ -119,6 +149,22 @@ service cloud.firestore {
         );
 
       allow delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if isAdmin()
+        || resource.data.status == 'published'
+        || (isPhoneCustomer() && resource.data.customerId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /gallery/{photoId} {
+      allow read: if isAdmin() || resource.data.hidden == false;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /customerBookingLocks/{customerId} {
+      allow read, write: if false;
     }
 
     match /notificationJobs/{jobId} {

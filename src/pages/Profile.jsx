@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Phone, Edit3, History, Star, Heart, Settings } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { useQuery } from '@tanstack/react-query';
-import { MOCK_NOTIFICATIONS } from '../lib/mockData';
 import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
 import SettingsTab from '../components/profile/SettingsTab';
@@ -21,15 +19,8 @@ export default function Profile() {
   const [activeTab, setActiveTab] = useState('info');
   const [personalEditRequest, setPersonalEditRequest] = useState(0);
 
-  const { data: notifications = [] } = useQuery({
-    queryKey: ['notifications', currentUser?.phone],
-    queryFn: () => MOCK_NOTIFICATIONS,
-    enabled: !!currentUser,
-  });
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  const visits = currentUser?.total_appointments || 8;
+  const unreadCount = 0;
+  const visits = currentUser?.visitsCount ?? currentUser?.total_appointments ?? 0;
 
   const openPersonalSettings = () => {
     setActiveTab('settings');

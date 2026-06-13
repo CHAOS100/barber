@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { X, Calendar, Clock, AlertCircle, Check } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { localDb } from '@/lib/localData';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
@@ -36,11 +35,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
-  const { data: blockedDates = [] } = useQuery({
-    queryKey: ['blockedDates'],
-    queryFn: () => localDb.BlockedDate.list(),
-    placeholderData: [],
-  });
+  const blockedDates = [];
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
 

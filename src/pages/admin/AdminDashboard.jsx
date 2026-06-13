@@ -1,49 +1,36 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Users, DollarSign, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { BARBER_PHOTO } from '../../lib/mockData';
+import { BARBER_PHOTO } from '../../lib/businessConfig';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import MonthlyComparisonCard from '../../components/admin/MonthlyComparisonCard';
 import BarberBreakdownCard from '../../components/admin/BarberBreakdownCard';
 import DailyCalendarView from '../../components/admin/DailyCalendarView';
-import WaitingListCard from '../../components/admin/WaitingListCard';
 import { localDateToString } from '../../lib/slotEngine';
 import { updateAdminAppointment } from '@/lib/appointmentsFirestore';
 import { toast } from '@/components/ui/use-toast';
-
-const weeklyData = [
-  { day: 'א', appointments: 6, revenue: 420 },
-  { day: 'ב', appointments: 8, revenue: 560 },
-  { day: 'ג', appointments: 5, revenue: 350 },
-  { day: 'ד', appointments: 9, revenue: 630 },
-  { day: 'ה', appointments: 12, revenue: 840 },
-  { day: 'ו', appointments: 7, revenue: 490 },
-];
-
-const monthlyRevenue = [
-  { month: 'ינו', revenue: 4200 },
-  { month: 'פבר', revenue: 5100 },
-  { month: 'מרץ', revenue: 4800 },
-  { month: 'אפר', revenue: 6200 },
-  { month: 'מאי', revenue: 5800 },
-  { month: 'יוני', revenue: 7100 },
-];
-
-const popularServices = [
-  { name: 'סקין פייד', count: 45, color: '#D4AF37' },
-  { name: 'תספורת + זקן', count: 32, color: '#C9A84C' },
-  { name: 'חבילת פרימיום', count: 18, color: '#F0D060' },
-  { name: 'עיצוב זקן', count: 25, color: '#B8960C' },
-];
+import { useAllServicesRealtime } from '@/hooks/useBookingData';
+import { useAdminReviewsRealtime } from '@/hooks/useReviewsRealtime';
+import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
+import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from '@/lib/dashboardStats';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { currentUser, isAdmin } = useCurrentUser();
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime(isAdmin);
+  const { data: services } = useAllServicesRealtime();
+  const { reviews } = useAdminReviewsRealtime(isAdmin);
+  const { customers } = useCustomerProfilesRealtime(isAdmin);
   const [moveError, setMoveError] = React.useState('');
+  const stats = React.useMemo(
+    () => calculateAdminStats(appointments, customers, services, reviews),
+    [appointments, customers, services, reviews],
+  );
+  const weeklyData = React.useMemo(() => buildWeeklyAppointments(appointments), [appointments]);
+  const popularServices = React.useMemo(() => buildServiceUsage(appointments), [appointments]);
 
   const moveAppointment = async (appointment, startTime) => {
     setMoveError('');
@@ -71,14 +58,14 @@ export default function AdminDashboard() {
   }
 
   const todayAppts = appointments.filter(a => a.date === localDateToString());
-  const todayRevenue = todayAppts.reduce((s, a) => s + (a.service_price || 0), 0);
   const pendingAppts = appointments.filter(a => a.status === 'pending');
 
   const adminSections = [
     { icon: Calendar, label: 'ניהול תורים', path: '/admin/appointments', desc: `${todayAppts.length} תורים היום` },
-    { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: '6 שירותים פעילים' },
+    { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: `${services.length} שירותים` },
     { icon: UserRoundCog, label: 'ספרים / צוות', path: '/admin/barbers', desc: 'הוספה וניהול ספרים' },
-    { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: '115+ לקוחות' },
+    { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: `${customers.length} לקוחות` },
+    { icon: Star, label: 'ביקורות', path: '/reviews', desc: `${reviews.length} ביקורות` },
     { icon: BarChart3, label: 'אנליטיקה', path: '/admin/analytics', desc: 'דוחות מפורטים' },
     { icon: Clock, label: 'שעות עבודה', path: '/admin/hours', desc: 'ניהול לוח זמנים' },
     { icon: Settings, label: 'הגדרות', path: '/admin/settings', desc: 'הגדרות עסק' },
@@ -113,10 +100,14 @@ export default function AdminDashboard() {
         {/* Today Stats */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { icon: Calendar, label: 'תורים היום', value: todayAppts.length, color: 'text-blue-400', bg: 'bg-blue-400/20' },
-            { icon: DollarSign, label: 'הכנסות היום', value: `₪${todayRevenue}`, color: 'text-primary', bg: 'bg-primary/20' },
-            { icon: Users, label: 'ממתינים לאישור', value: pendingAppts.length, color: 'text-green-400', bg: 'bg-green-400/20' },
-            { icon: TrendingUp, label: 'חודש זה', value: '₪7,100', color: 'text-purple-400', bg: 'bg-purple-400/20' },
+            { icon: Calendar, label: 'תורים היום', value: stats.todayAppointments, color: 'text-blue-400', bg: 'bg-blue-400/20' },
+            { icon: Wallet, label: 'הכנסות היום', value: `₪${stats.todayRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
+            { icon: Users, label: 'ממתינים לאישור', value: stats.pendingAppointments, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
+            { icon: TrendingUp, label: 'הכנסות החודש', value: `₪${stats.monthRevenue.toLocaleString()}`, color: 'text-purple-400', bg: 'bg-purple-400/20' },
+            { icon: Calendar, label: 'מאושרים', value: stats.approvedAppointments, color: 'text-green-400', bg: 'bg-green-400/20' },
+            { icon: Calendar, label: 'הושלמו', value: stats.completedAppointments, color: 'text-primary', bg: 'bg-primary/20' },
+            { icon: Calendar, label: 'בוטלו', value: stats.cancelledAppointments, color: 'text-red-400', bg: 'bg-red-400/20' },
+            { icon: AlertTriangle, label: 'לא הגיעו', value: stats.noShowAppointments, color: 'text-orange-400', bg: 'bg-orange-400/20' },
           ].map((stat, i) => {
             const StatIcon = stat.icon;
             return (
@@ -138,7 +129,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Monthly Comparison */}
-        <MonthlyComparisonCard />
+        <MonthlyComparisonCard appointments={appointments} />
 
         {/* Weekly Chart */}
         <div className="glass rounded-2xl p-4">
@@ -160,7 +151,9 @@ export default function AdminDashboard() {
         <div className="glass rounded-2xl p-4">
           <h3 className="font-bold mb-3">שירותים פופולריים</h3>
           <div className="space-y-3">
-            {popularServices.map((service) => {
+            {popularServices.length === 0 ? (
+              <div className="text-center text-muted-foreground text-sm py-4">אין עדיין נתוני שימוש בשירותים</div>
+            ) : popularServices.map((service) => {
               const maxCount = Math.max(...popularServices.map(s => s.count));
               const pct = (service.count / maxCount) * 100;
               return (
@@ -182,9 +175,6 @@ export default function AdminDashboard() {
             })}
           </div>
         </div>
-
-        {/* Waiting List */}
-        <WaitingListCard />
 
         {/* Barber Breakdown */}
         <BarberBreakdownCard appointments={appointments} />

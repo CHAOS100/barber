@@ -1,16 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, TrendingDown, Calendar, DollarSign } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, Wallet } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
-
-const thisMonthData = [
-  { day: '1', rev: 350 }, { day: '5', rev: 520 }, { day: '10', rev: 680 },
-  { day: '15', rev: 890 }, { day: '20', rev: 1100 }, { day: '25', rev: 1380 },
-  { day: '29', rev: 1600 },
-];
-
-const THIS_MONTH = { revenue: 7100, appointments: 94 };
-const LAST_MONTH = { revenue: 5800, appointments: 78 };
+import { buildMonthlyStats } from '@/lib/dashboardStats';
 
 function GrowthBadge({ current, previous, prefix = '' }) {
   const pct = previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
@@ -24,7 +16,17 @@ function GrowthBadge({ current, previous, prefix = '' }) {
   );
 }
 
-export default function MonthlyComparisonCard() {
+export default function MonthlyComparisonCard({ appointments = [] }) {
+  const monthly = buildMonthlyStats(appointments, new Date(), 2);
+  const lastMonth = monthly[0] || { key: '', revenue: 0, appointments: 0 };
+  const thisMonth = monthly[1] || { key: '', revenue: 0, appointments: 0 };
+  const thisMonthData = appointments
+    .filter((item) => String(item.date || '').startsWith(thisMonth.key))
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)))
+    .map((item) => ({
+      day: String(item.date || '').slice(-2),
+      rev: item.paid === true ? Number(item.servicePrice ?? item.service_price ?? 0) : 0,
+    }));
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -60,13 +62,13 @@ export default function MonthlyComparisonCard() {
         {/* Revenue */}
         <div className="dark-card rounded-xl p-3">
           <div className="flex items-center gap-1.5 mb-1">
-            <DollarSign className="w-3.5 h-3.5 text-primary" />
+            <Wallet className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs text-muted-foreground">הכנסות</span>
           </div>
-          <div className="text-xl font-black text-primary">₪{THIS_MONTH.revenue.toLocaleString()}</div>
+          <div className="text-xl font-black text-primary">₪{thisMonth.revenue.toLocaleString()}</div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground">vs ₪{LAST_MONTH.revenue.toLocaleString()}</span>
-            <GrowthBadge current={THIS_MONTH.revenue} previous={LAST_MONTH.revenue} />
+            <span className="text-xs text-muted-foreground">vs ₪{lastMonth.revenue.toLocaleString()}</span>
+            <GrowthBadge current={thisMonth.revenue} previous={lastMonth.revenue} />
           </div>
         </div>
         {/* Appointments */}
@@ -75,10 +77,10 @@ export default function MonthlyComparisonCard() {
             <Calendar className="w-3.5 h-3.5 text-blue-400" />
             <span className="text-xs text-muted-foreground">תורים</span>
           </div>
-          <div className="text-xl font-black text-blue-400">{THIS_MONTH.appointments}</div>
+          <div className="text-xl font-black text-blue-400">{thisMonth.appointments}</div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground">vs {LAST_MONTH.appointments}</span>
-            <GrowthBadge current={THIS_MONTH.appointments} previous={LAST_MONTH.appointments} />
+            <span className="text-xs text-muted-foreground">vs {lastMonth.appointments}</span>
+            <GrowthBadge current={thisMonth.appointments} previous={lastMonth.appointments} />
           </div>
         </div>
       </div>

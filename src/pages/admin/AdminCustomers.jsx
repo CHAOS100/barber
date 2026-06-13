@@ -17,6 +17,7 @@ export default function AdminCustomers() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [blockedReason, setBlockedReason] = useState('');
 
   useEffect(() => subscribeToAllCustomerProfiles(setCustomers, setLoadError), []);
 
@@ -41,6 +42,7 @@ export default function AdminCustomers() {
     setSelectedCustomer(customer);
     setFirstName(customer.firstName || '');
     setLastName(customer.lastName || '');
+    setBlockedReason(customer.blocked_reason || '');
   };
 
   return (
@@ -153,7 +155,10 @@ export default function AdminCustomers() {
                 <button
                   onClick={() => updateMutation.mutate({
                     id: selectedCustomer.id,
-                    changes: { isBlocked: !selectedCustomer.is_blocked },
+                    changes: {
+                      blocked: !selectedCustomer.is_blocked,
+                      blockedReason: blockedReason || 'נחסם על ידי מנהל',
+                    },
                   })}
                   className={`w-full py-3 rounded-xl font-bold text-sm ${
                     selectedCustomer.is_blocked ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
@@ -161,6 +166,17 @@ export default function AdminCustomers() {
                 >
                   {selectedCustomer.is_blocked ? 'בטל חסימה' : 'חסום לקוח'}
                 </button>
+                {!selectedCustomer.is_blocked && (
+                  <label className="block text-xs text-muted-foreground">
+                    סיבת חסימה
+                    <input
+                      value={blockedReason}
+                      onChange={event => setBlockedReason(event.target.value)}
+                      placeholder="סיבת החסימה"
+                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                )}
                 <button
                   onClick={() => updateMutation.mutate({
                     id: selectedCustomer.id,

@@ -16,8 +16,10 @@ import {
   Shield,
   Star,
 } from 'lucide-react';
-import { BARBER_PHOTO, BUSINESS_INFO, MOCK_REVIEWS, MOCK_GALLERY, isOpenNow } from '../lib/mockData';
+import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
 import { useActiveServicesRealtime } from '@/hooks/useBookingData';
+import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
+import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 
@@ -39,6 +41,11 @@ export default function Home() {
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
   const { data: services } = useActiveServicesRealtime();
+  const { reviews } = usePublishedReviewsRealtime();
+  const { photos } = usePublishedGalleryRealtime();
+  const averageRating = reviews.length
+    ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
+    : 0;
 
   const handleShare = () => {
     if (navigator.share) {
@@ -88,8 +95,8 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span className="text-primary font-bold text-sm">{BUSINESS_INFO.rating}</span>
-              <span className="text-muted-foreground text-xs">({BUSINESS_INFO.reviews_count} ביקורות)</span>
+              <span className="text-primary font-bold text-sm">{averageRating.toFixed(1)}</span>
+              <span className="text-muted-foreground text-xs">({reviews.length} ביקורות)</span>
               <span className="text-muted-foreground text-xs">·</span>
               <span className="text-muted-foreground text-xs">{BUSINESS_INFO.address}</span>
             </div>
@@ -213,7 +220,7 @@ export default function Home() {
                   </Link>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {MOCK_GALLERY.slice(0, 3).map((photo, i) => (
+                  {photos.slice(0, 3).map((photo, i) => (
                     <motion.div
                       key={photo.id}
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -225,6 +232,9 @@ export default function Home() {
                       <img src={photo.url} alt="" className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                     </motion.div>
                   ))}
+                  {photos.length === 0 && (
+                    <div className="col-span-3 glass rounded-xl p-4 text-center text-muted-foreground text-xs">עדיין אין תמונות בגלריה</div>
+                  )}
                 </div>
               </div>
 
@@ -237,7 +247,7 @@ export default function Home() {
                   </Link>
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-                  {MOCK_REVIEWS.slice(0, 4).map((review, i) => (
+                  {reviews.slice(0, 4).map((review, i) => (
                     <motion.div
                       key={review.id}
                       initial={{ opacity: 0, x: 20 }}
@@ -257,6 +267,9 @@ export default function Home() {
                       <p className="text-muted-foreground text-xs leading-relaxed line-clamp-3">{review.comment}</p>
                     </motion.div>
                   ))}
+                  {reviews.length === 0 && (
+                    <div className="glass rounded-2xl p-4 min-w-full text-center text-muted-foreground text-xs">עדיין אין ביקורות</div>
+                  )}
                 </div>
               </div>
 

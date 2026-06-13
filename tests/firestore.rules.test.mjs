@@ -12,9 +12,11 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'ost-barber-app';
@@ -36,6 +38,27 @@ const appointmentData = (customerId, overrides = {}) => ({
   endTime: '10:30',
   status: 'pending',
   createdAt: serverTimestamp(),
+  ...overrides,
+});
+
+const customerData = (uid, phoneNumber, overrides = {}) => ({
+  uid,
+  phoneNumber,
+  firstName: 'Test',
+  lastName: 'Customer',
+  role: 'customer',
+  visitsCount: 0,
+  completedAppointments: 0,
+  cancelledAppointments: 0,
+  noShowCount: 0,
+  totalSpent: 0,
+  reviewsCount: 0,
+  blocked: false,
+  blockedReason: '',
+  blockedAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  lastLoginAt: new Date(),
   ...overrides,
 });
 
@@ -108,25 +131,39 @@ before(async () => {
       active: true,
       duration: 30,
     });
-    await setDoc(doc(firestore, 'users', 'customer-a'), {
-      uid: 'customer-a',
-      phoneNumber: '+972500000000',
-      firstName: 'Test',
-      lastName: 'Customer',
-      role: 'customer',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      lastLoginAt: new Date(),
-    });
-    await setDoc(doc(firestore, 'users', 'customer-b'), {
-      uid: 'customer-b',
-      phoneNumber: '+972511111111',
+    await setDoc(doc(firestore, 'users', 'customer-a'), customerData('customer-a', '+972500000000'));
+    await setDoc(doc(firestore, 'users', 'customer-b'), customerData('customer-b', '+972511111111', {
       firstName: 'Other',
-      lastName: 'Customer',
-      role: 'customer',
+    }));
+    await setDoc(doc(firestore, 'reviews', 'published-review'), {
+      customerId: 'customer-a',
+      customerName: 'Test Customer',
+      appointmentId: 'customer-a-existing',
+      rating: 5,
+      text: 'Great',
+      status: 'published',
       createdAt: new Date(),
-      updatedAt: new Date(),
-      lastLoginAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'reviews', 'hidden-review'), {
+      customerId: 'customer-a',
+      customerName: 'Test Customer',
+      appointmentId: 'hidden-appointment',
+      rating: 4,
+      text: 'Hidden',
+      status: 'hidden',
+      createdAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'gallery', 'published-photo'), {
+      url: 'https://example.com/photo.jpg',
+      category: 'haircuts',
+      hidden: false,
+      featured: false,
+    });
+    await setDoc(doc(firestore, 'gallery', 'hidden-photo'), {
+      url: 'https://example.com/hidden.jpg',
+      category: 'haircuts',
+      hidden: true,
+      featured: false,
     });
   });
 });
@@ -296,6 +333,15 @@ test('phone customer can create only their own correctly bound user document', a
     firstName: 'New',
     lastName: 'Customer',
     role: 'customer',
+    visitsCount: 0,
+    completedAppointments: 0,
+    cancelledAppointments: 0,
+    noShowCount: 0,
+    totalSpent: 0,
+    reviewsCount: 0,
+    blocked: false,
+    blockedReason: '',
+    blockedAt: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
@@ -306,6 +352,15 @@ test('phone customer can create only their own correctly bound user document', a
     firstName: 'Wrong',
     lastName: 'Document',
     role: 'customer',
+    visitsCount: 0,
+    completedAppointments: 0,
+    cancelledAppointments: 0,
+    noShowCount: 0,
+    totalSpent: 0,
+    reviewsCount: 0,
+    blocked: false,
+    blockedReason: '',
+    blockedAt: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
@@ -347,6 +402,12 @@ test('active admin can read users and edit names but cannot change phoneNumber o
     lastName: 'Changed',
     updatedAt: serverTimestamp(),
   }));
+  await assertSucceeds(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    blocked: true,
+    blockedReason: 'Policy violation',
+    blockedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
   await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
     phoneNumber: '+972544444444',
     updatedAt: serverTimestamp(),
@@ -354,5 +415,49 @@ test('active admin can read users and edit names but cannot change phoneNumber o
   await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
     role: 'admin',
     updatedAt: serverTimestamp(),
+  }));
+});
+
+test('published reviews are public, hidden reviews are private, and clients cannot write reviews', async () => {
+  const publicDb = testEnvironment.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(publicDb, 'reviews', 'published-review')));
+  await assertFails(getDoc(doc(publicDb, 'reviews', 'hidden-review')));
+  const published = await assertSucceeds(getDocs(query(
+    collection(publicDb, 'reviews'),
+    where('status', '==', 'published'),
+  )));
+  assert.equal(published.size, 1);
+
+  const customerDb = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+  await assertSucceeds(getDoc(doc(customerDb, 'reviews', 'hidden-review')));
+  await assertFails(setDoc(doc(customerDb, 'reviews', 'client-review'), {
+    customerId: 'customer-a',
+    appointmentId: 'customer-a-existing',
+    rating: 5,
+    text: 'Client write',
+    status: 'published',
+  }));
+});
+
+test('admin can read all reviews but review writes require trusted functions', async () => {
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  const snapshot = await assertSucceeds(getDocs(collection(adminDb, 'reviews')));
+  assert.equal(snapshot.size, 2);
+  await assertFails(deleteDoc(doc(adminDb, 'reviews', 'published-review')));
+});
+
+test('gallery exposes only published photos and admin can manage it', async () => {
+  const publicDb = testEnvironment.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(publicDb, 'gallery', 'published-photo')));
+  await assertFails(getDoc(doc(publicDb, 'gallery', 'hidden-photo')));
+  const published = await assertSucceeds(getDocs(query(
+    collection(publicDb, 'gallery'),
+    where('hidden', '==', false),
+  )));
+  assert.equal(published.size, 1);
+
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  await assertSucceeds(updateDoc(doc(adminDb, 'gallery', 'hidden-photo'), {
+    hidden: false,
   }));
 });

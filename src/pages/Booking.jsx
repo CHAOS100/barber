@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { createCustomerAppointment } from '@/lib/appointmentsFirestore';
 import {
   useActiveBarbersRealtime,
@@ -10,12 +9,11 @@ import {
   useAppointmentBlocksRealtime,
   useBookingSettingsRealtime,
 } from '@/hooks/useBookingData';
-import { localDb } from '@/lib/localData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
 import BarberSelector from '../components/booking/BarberSelector';
-import WaitingListModal from '../components/booking/WaitingListModal';
 import GoldButton from '../components/ui/GoldButton';
+import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 
 // ─── Calendar helpers ──────────────────────────────────────────────
 const MONTH_NAMES_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -165,22 +163,20 @@ export default function Booking() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [showWaiting, setShowWaiting] = useState(false);
   const [bookingError, setBookingError] = useState('');
 
   const { data: services } = useActiveServicesRealtime();
   const { data: barbers } = useActiveBarbersRealtime();
+  const { appointments: customerAppointments } = useCustomerAppointmentsRealtime(Boolean(currentUser));
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
-  const { data: blockedDates = [] } = useQuery({
-    queryKey: ['blockedDates'],
-    queryFn: () => localDb.BlockedDate.list(),
-    placeholderData: [],
-  });
+  const blockedDates = [];
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
   const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
+  const activeAppointment = customerAppointments.find((appointment) =>
+    ['pending', 'approved', 'confirmed'].includes(appointment.status));
 
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
@@ -243,9 +239,16 @@ export default function Booking() {
       });
       setConfirmed(true);
     } catch (error) {
-      setBookingError(error?.code === 'functions/already-exists'
-        ? 'השעה נתפסה כרגע. יש לבחור שעה אחרת.'
-        : 'לא הצלחנו לשמור את התור. נסו שוב.');
+      const policyCode = error?.details?.code;
+      if (policyCode === 'customer/blocked') {
+        setBookingError('החשבון שלך חסום לקביעת תורים. פנה לעסק.');
+      } else if (policyCode === 'appointment/active-limit') {
+        setBookingError('כבר יש לך תור פעיל. ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.');
+      } else if (error?.code === 'functions/already-exists') {
+        setBookingError('השעה נתפסה כרגע. יש לבחור שעה אחרת.');
+      } else {
+        setBookingError('לא הצלחנו לשמור את התור. נסו שוב.');
+      }
     } finally {
       setLoading(false);
     }
@@ -292,6 +295,34 @@ export default function Booking() {
     );
   }
 
+  if (currentUser?.is_blocked) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
+        <div className="glass rounded-3xl p-6 text-center max-w-sm">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
+          <h2 className="text-xl font-black mb-2">לא ניתן לקבוע תור</h2>
+          <p className="text-muted-foreground text-sm mb-5">החשבון שלך חסום לקביעת תורים. פנה לעסק.</p>
+          <GoldButton onClick={() => navigate('/')} className="w-full">חזרה לדף הבית</GoldButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeAppointment) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
+        <div className="glass rounded-3xl p-6 text-center max-w-sm">
+          <Calendar className="w-12 h-12 text-primary mx-auto mb-3" />
+          <h2 className="text-xl font-black mb-2">כבר יש לך תור פעיל</h2>
+          <p className="text-muted-foreground text-sm mb-5">
+            ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.
+          </p>
+          <GoldButton onClick={() => navigate('/appointments')} className="w-full">צפה בתור הפעיל</GoldButton>
+        </div>
+      </div>
+    );
+  }
+
   const serviceList = services.filter(s => s.is_active !== false);
 
   return (
@@ -306,12 +337,6 @@ export default function Booking() {
             <h1 className="font-black text-lg">הזמנת תור</h1>
             <p className="text-muted-foreground text-xs">שלב {step} מתוך 3</p>
           </div>
-          <button
-            onClick={() => setShowWaiting(true)}
-            className="glass px-3 py-1.5 rounded-xl text-xs font-bold text-primary flex items-center gap-1"
-          >
-            <BellRing className="w-3 h-3" /> המתנה
-          </button>
         </div>
         <div className="flex gap-1.5 mt-3">
           {[1,2,3].map(s => (
@@ -422,9 +447,6 @@ export default function Booking() {
                     <div className="glass rounded-2xl p-6 text-center">
                       <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                       <p className="text-muted-foreground text-sm">אין שעות פנויות ביום זה</p>
-                      <button onClick={() => setShowWaiting(true)} className="mt-3 text-primary font-bold text-sm flex items-center gap-1 mx-auto">
-                        <BellRing className="w-4 h-4" /> הצטרף לרשימת המתנה
-                      </button>
                     </div>
                   ) : (
                     <>
@@ -552,12 +574,6 @@ export default function Booking() {
         </AnimatePresence>
       </div>
 
-      <WaitingListModal
-        isOpen={showWaiting}
-        onClose={() => setShowWaiting(false)}
-        currentUser={currentUser}
-        serviceName={selectedService?.name}
-      />
     </div>
   );
 }

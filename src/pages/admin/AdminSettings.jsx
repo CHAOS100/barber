@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Store, Phone, MapPin } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/mockData';
+import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
 import { saveBookingSettings, saveBusinessSettings } from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';

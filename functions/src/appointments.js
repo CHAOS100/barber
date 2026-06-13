@@ -1,6 +1,7 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { addMinutes, BLOCKING_STATUSES, findConflict } from './scheduling.js';
+import { findActiveCustomerAppointment, isCustomerBlocked } from './bookingPolicy.js';
 
 const db = () => getFirestore();
 
@@ -73,6 +74,13 @@ const getDayAppointments = async (transaction, date) => {
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 };
 
+const getCustomerAppointments = async (transaction, customerId) => {
+  const snapshot = await transaction.get(
+    db().collection('appointments').where('customerId', '==', customerId),
+  );
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+};
+
 const rejectConflict = (conflict) => {
   if (conflict) {
     throw new HttpsError('already-exists', 'This appointment overlaps another appointment.', {
@@ -88,9 +96,11 @@ export const createCustomerAppointment = onCall(async (request) => {
   const ref = db().collection('appointments').doc();
 
   await db().runTransaction(async (transaction) => {
+    const bookingLockRef = db().doc(`customerBookingLocks/${auth.uid}`);
     const serviceSnapshot = await transaction.get(db().doc(`services/${requested.serviceId}`));
     const barberSnapshot = await transaction.get(db().doc(`barbers/${requested.barberId}`));
     const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
+    await transaction.get(bookingLockRef);
     const service = serviceSnapshot.data();
     const barber = barberSnapshot.data();
     const customer = customerSnapshot.data();
@@ -108,6 +118,11 @@ export const createCustomerAppointment = onCall(async (request) => {
     ) {
       throw new HttpsError('failed-precondition', 'A valid customer profile is required.');
     }
+    if (isCustomerBlocked(customer)) {
+      throw new HttpsError('permission-denied', 'החשבון שלך חסום לקביעת תורים. פנה לעסק.', {
+        code: 'customer/blocked',
+      });
+    }
     const appointment = normalizeAppointment({
       ...requested,
       customerName: `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
@@ -119,10 +134,28 @@ export const createCustomerAppointment = onCall(async (request) => {
     }, auth.uid, 'pending');
     const buffer = await getBuffer(transaction);
     const appointments = await getDayAppointments(transaction, appointment.date);
+    const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
+    const activeAppointment = findActiveCustomerAppointment(customerAppointments);
+    if (activeAppointment) {
+      throw new HttpsError(
+        'failed-precondition',
+        'כבר יש לך תור פעיל. ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.',
+        {
+          code: 'appointment/active-limit',
+          activeAppointmentId: activeAppointment.id,
+        },
+      );
+    }
     rejectConflict(findConflict(appointment, appointments, buffer));
     transaction.set(ref, {
       ...appointment,
       createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(bookingLockRef, {
+      customerId: auth.uid,
+      appointmentId: ref.id,
+      status: 'pending',
       updatedAt: FieldValue.serverTimestamp(),
     });
   });

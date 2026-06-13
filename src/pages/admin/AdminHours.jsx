@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { BUSINESS_INFO } from '../../lib/mockData';
+import { BUSINESS_INFO } from '../../lib/businessConfig';
 import GoldButton from '../../components/ui/GoldButton';
 import { saveBookingSettings } from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime } from '@/hooks/useBookingData';

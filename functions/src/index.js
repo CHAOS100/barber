@@ -24,6 +24,17 @@ export {
   completeCustomerLogin,
   registerCustomerProfile,
 } from './customerProfiles.js';
+export {
+  createAdminReview,
+  createCustomerReview,
+  deleteAdminReview,
+  setAdminReviewStatus,
+} from './reviews.js';
+export {
+  syncCustomerActiveAppointmentLock,
+  syncCustomerAppointmentStats,
+  syncCustomerReviewStats,
+} from './customerStats.js';
 
 initializeApp();
 

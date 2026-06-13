@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Phone, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { loginUser } from '../lib/userStore';
-import { BARBER_PHOTO } from '../lib/mockData';
+import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
 import {
   confirmFirebasePhoneCode,

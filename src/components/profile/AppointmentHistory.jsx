@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Scissors, RotateCcw, Clock, Calendar, ChevronDown, BellRing } from 'lucide-react';
-import WaitingListModal from '../booking/WaitingListModal';
+import { Scissors, RotateCcw, Clock, ChevronDown } from 'lucide-react';
 import { localDateToString } from '../../lib/slotEngine';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 
@@ -88,7 +87,6 @@ function AppointmentCard({ appt, index, onRepeat, isFuture }) {
 export default function AppointmentHistory({ currentUser }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState('upcoming');
-  const [showWaiting, setShowWaiting] = useState(false);
 
   const todayStr = localDateToString();
 
@@ -137,16 +135,6 @@ export default function AppointmentHistory({ currentUser }) {
         ))}
       </div>
 
-      {/* Waiting list CTA */}
-      <button
-        onClick={() => setShowWaiting(true)}
-        className="w-full glass-gold rounded-2xl p-3 flex items-center gap-2 mb-3 press-scale"
-      >
-        <BellRing className="w-4 h-4 text-primary flex-shrink-0" />
-        <span className="text-xs font-bold text-primary">הצטרף לרשימת המתנה לתאריך תפוס</span>
-        <Calendar className="w-4 h-4 text-primary mr-auto flex-shrink-0" />
-      </button>
-
       {currentList.length === 0 ? (
         <div className="glass rounded-2xl p-6 text-center">
           <Scissors className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
@@ -172,13 +160,6 @@ export default function AppointmentHistory({ currentUser }) {
           ))}
         </div>
       )}
-
-      <WaitingListModal
-        isOpen={showWaiting}
-        onClose={() => setShowWaiting(false)}
-        currentUser={currentUser}
-        serviceName={null}
-      />
     </div>
   );
 }

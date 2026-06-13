@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BARBER_PHOTO } from '../lib/mockData';
+import { BARBER_PHOTO } from '../lib/businessConfig';
 
 export default function SplashScreen({ onDone }) {
   const [phase, setPhase] = useState('show'); // show | fadeout
