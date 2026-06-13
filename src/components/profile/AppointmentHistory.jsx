@@ -7,6 +7,8 @@ import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime
 
 const STATUS_LABELS = {
   confirmed: { label: 'מאושר', color: 'text-green-400', bg: 'bg-green-400/10' },
+  approved: { label: 'מאושר', color: 'text-green-400', bg: 'bg-green-400/10' },
+  scheduled: { label: 'מתוזמן', color: 'text-green-400', bg: 'bg-green-400/10' },
   completed: { label: 'הושלם', color: 'text-blue-400', bg: 'bg-blue-400/10' },
   cancelled: { label: 'בוטל', color: 'text-red-400', bg: 'bg-red-400/10' },
   pending: { label: 'ממתין', color: 'text-yellow-400', bg: 'bg-yellow-400/10' },

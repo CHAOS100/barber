@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star, Image } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { BARBER_PHOTO } from '../../lib/businessConfig';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -66,6 +66,7 @@ export default function AdminDashboard() {
     { icon: UserRoundCog, label: 'ספרים / צוות', path: '/admin/barbers', desc: 'הוספה וניהול ספרים' },
     { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: `${customers.length} לקוחות` },
     { icon: Star, label: 'ביקורות', path: '/reviews', desc: `${reviews.length} ביקורות` },
+    { icon: Image, label: 'ניהול תמונות', path: '/admin/gallery', desc: 'גלריה, עסק, צוות ושירותים' },
     { icon: BarChart3, label: 'אנליטיקה', path: '/admin/analytics', desc: 'דוחות מפורטים' },
     { icon: Clock, label: 'שעות עבודה', path: '/admin/hours', desc: 'ניהול לוח זמנים' },
     { icon: Settings, label: 'הגדרות', path: '/admin/settings', desc: 'הגדרות עסק' },
@@ -142,7 +143,7 @@ export default function AdminDashboard() {
                 contentStyle={{ background: '#1a1a1a', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 12, color: '#fff' }}
                 cursor={{ fill: 'rgba(212,175,55,0.1)' }}
               />
-              <Bar dataKey="appointments" fill="#D4AF37" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="appointments" fill="#93E3BD" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

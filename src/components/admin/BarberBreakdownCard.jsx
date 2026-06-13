@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Scissors, TrendingUp } from 'lucide-react';
 import { listAllBarbers } from '@/lib/businessFirestore';
 
-const AVATAR_COLORS = ['#D4AF37', '#C9A84C', '#F0D060', '#B8960C', '#E8C84A'];
+const AVATAR_COLORS = ['#93E3BD', '#78D2AA', '#C5F6DE', '#63B991', '#A9ECCA'];
 
 export default function BarberBreakdownCard({ appointments = [] }) {
   const now = new Date();

@@ -44,15 +44,15 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
           <AreaChart data={thisMonthData}>
             <defs>
               <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                <stop offset="5%" stopColor="#93E3BD" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#93E3BD" stopOpacity={0} />
               </linearGradient>
             </defs>
             <Tooltip
               contentStyle={{ background: '#1a1a1a', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 8, color: '#fff', fontSize: 11 }}
               formatter={(v) => [`₪${v}`, 'הכנסה']}
             />
-            <Area type="monotone" dataKey="rev" stroke="#D4AF37" strokeWidth={2} fill="url(#goldGrad)" dot={false} />
+            <Area type="monotone" dataKey="rev" stroke="#93E3BD" strokeWidth={2} fill="url(#goldGrad)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

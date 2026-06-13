@@ -1,4 +1,4 @@
-export const ACTIVE_APPOINTMENT_STATUSES = new Set(['pending', 'approved', 'confirmed']);
+export const ACTIVE_APPOINTMENT_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
 
 export const isCustomerBlocked = (customer) =>
   customer?.blocked === true || customer?.isBlocked === true;

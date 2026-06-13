@@ -157,10 +157,11 @@ export default function AdminCustomers() {
                     id: selectedCustomer.id,
                     changes: {
                       blocked: !selectedCustomer.is_blocked,
-                      blockedReason: blockedReason || 'נחסם על ידי מנהל',
+                      blockedReason,
                     },
                   })}
-                  className={`w-full py-3 rounded-xl font-bold text-sm ${
+                  disabled={updateMutation.isPending || (!selectedCustomer.is_blocked && !blockedReason.trim())}
+                  className={`w-full py-3 rounded-xl font-bold text-sm disabled:opacity-40 ${
                     selectedCustomer.is_blocked ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
                   }`}
                 >

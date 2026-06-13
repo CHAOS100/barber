@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
+import { getStorage } from 'firebase/storage';
 import { logoutUser, userStore } from './userStore';
 
 const FIREBASE_APP_NAME = 'ost-barber-web';
@@ -96,6 +97,7 @@ const firebaseApp = isFirebaseConfigured
 export const firebaseAuth = firebaseApp ? getAuth(firebaseApp) : null;
 export const firestoreDb = firebaseApp ? getFirestore(firebaseApp) : null;
 export const firebaseFunctions = firebaseApp ? getFunctions(firebaseApp) : null;
+export const firebaseStorage = firebaseApp ? getStorage(firebaseApp) : null;
 let customerAuthPromise;
 let phoneRecaptchaVerifier;
 let phoneRecaptchaWidgetId;
@@ -120,6 +122,12 @@ export const getFirestoreDb = () => {
 export const getFirebaseFunctions = () => {
   requireFirebase();
   return firebaseFunctions;
+};
+
+export const getFirebaseStorage = () => {
+  requireFirebase();
+  if (!firebaseStorage) throw firebaseConfigurationError();
+  return firebaseStorage;
 };
 
 export const prepareFirebaseAuth = async () => {

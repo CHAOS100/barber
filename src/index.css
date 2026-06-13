@@ -14,23 +14,23 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 7%;
     --popover-foreground: 0 0% 98%;
-    --primary: 46 65% 52%;
+    --primary: 152 59% 73%;
     --primary-foreground: 0 0% 4%;
     --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 12%;
     --muted-foreground: 0 0% 55%;
-    --accent: 46 65% 52%;
+    --accent: 152 59% 73%;
     --accent-foreground: 0 0% 4%;
     --destructive: 0 6% 25%;
     --destructive-foreground: 0 0% 98%;
-    --border: 39 100% 50%;
+    --border: 152 59% 73%;
     --input: 0 0% 12%;
-    --ring: 46 65% 52%;
+    --ring: 152 59% 73%;
     --radius: 1rem;
-    --gold: 46 65% 52%;
-    --gold-light: 48 82% 66%;
-    --gold-dark: 44 82% 39%;
+    --gold: 152 59% 73%;
+    --gold-light: 151 70% 85%;
+    --gold-dark: 153 45% 53%;
   }
 }
 
@@ -84,11 +84,11 @@
 }
 
 .gold-gradient {
-  background: linear-gradient(135deg, #C9A84C 0%, #D4AF37 50%, #F0D060 100%);
+  background: linear-gradient(135deg, #78D2AA 0%, #93E3BD 50%, #C5F6DE 100%);
 }
 
 .gold-text {
-  background: linear-gradient(135deg, #C9A84C 0%, #D4AF37 50%, #F0D060 100%);
+  background: linear-gradient(135deg, #78D2AA 0%, #93E3BD 50%, #C5F6DE 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -102,18 +102,18 @@
 }
 
 .glass-gold {
-  background: rgba(212, 175, 55, 0.08);
+  background: rgba(147, 227, 189, 0.08);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(147, 227, 189, 0.2);
 }
 
 .gold-shadow {
-  box-shadow: 0 8px 32px rgba(212, 175, 55, 0.15);
+  box-shadow: 0 8px 32px rgba(147, 227, 189, 0.15);
 }
 
 .gold-glow {
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.3), 0 4px 16px rgba(212, 175, 55, 0.2);
+  box-shadow: 0 0 20px rgba(147, 227, 189, 0.3), 0 4px 16px rgba(147, 227, 189, 0.2);
 }
 
 .dark-card {
@@ -152,7 +152,7 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.3);
+  background: rgba(147, 227, 189, 0.3);
   border-radius: 2px;
 }
 

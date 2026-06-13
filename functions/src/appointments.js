@@ -1,7 +1,17 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { addMinutes, BLOCKING_STATUSES, findConflict } from './scheduling.js';
-import { findActiveCustomerAppointment, isCustomerBlocked } from './bookingPolicy.js';
+import {
+  addMinutes,
+  BLOCKING_STATUSES,
+  DEFAULT_WORKING_HOURS,
+  findConflict,
+  getScheduleRejectionCode,
+} from './scheduling.js';
+import {
+  ACTIVE_APPOINTMENT_STATUSES,
+  findActiveCustomerAppointment,
+  isCustomerBlocked,
+} from './bookingPolicy.js';
 
 const db = () => getFirestore();
 
@@ -64,9 +74,15 @@ const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   };
 };
 
-const getBuffer = async (transaction) => {
-  const settings = await transaction.get(db().doc('settings/booking'));
-  return Math.max(0, Number(settings.data()?.appointmentBufferMinutes || 0));
+const getBookingSettings = async (transaction) => {
+  const snapshot = await transaction.get(db().doc('settings/booking'));
+  const settings = snapshot.data() || {};
+  return {
+    appointmentBufferMinutes: Math.max(0, Number(settings.appointmentBufferMinutes || 0)),
+    workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
+      ? settings.workingHours
+      : DEFAULT_WORKING_HOURS,
+  };
 };
 
 const getDayAppointments = async (transaction, date) => {
@@ -82,13 +98,76 @@ const getCustomerAppointments = async (transaction, customerId) => {
 };
 
 const rejectConflict = (conflict) => {
-  if (conflict) {
-    throw new HttpsError('already-exists', 'This appointment overlaps another appointment.', {
-      code: 'appointment/conflict',
-      conflictingAppointmentId: conflict.id,
+  if (!conflict) return;
+  throw new HttpsError('already-exists', 'This appointment overlaps another appointment.', {
+    code: 'appointment/conflict',
+    conflictingAppointmentId: conflict.id,
+  });
+};
+
+const rejectSchedule = (appointment, workingHours) => {
+  const code = getScheduleRejectionCode(appointment, workingHours);
+  if (!code) return;
+  throw new HttpsError('failed-precondition', 'The requested appointment is outside availability.', {
+    code,
+  });
+};
+
+const activeAppointmentDetails = (appointment) => ({
+  id: appointment.id,
+  date: appointment.date || '',
+  startTime: appointment.startTime || appointment.time || '',
+  serviceName: appointment.serviceName || appointment.service_name || '',
+  status: appointment.status || '',
+});
+
+const validateCustomer = (snapshot, auth) => {
+  const customer = snapshot.data();
+  if (
+    !snapshot.exists
+    || customer?.role !== 'customer'
+    || customer?.uid !== auth.uid
+    || customer?.phoneNumber !== auth.token.phone_number
+  ) {
+    throw new HttpsError('failed-precondition', 'A valid customer profile is required.', {
+      code: 'customer/profile-missing',
     });
   }
+  if (isCustomerBlocked(customer)) {
+    throw new HttpsError('permission-denied', 'Customer is blocked from booking.', {
+      code: 'customer/blocked',
+      blockedReason: text(customer.blockedReason),
+    });
+  }
+  return customer;
 };
+
+const validateServiceAndBarber = (serviceSnapshot, barberSnapshot) => {
+  const service = serviceSnapshot.data();
+  const barber = barberSnapshot.data();
+  if (!serviceSnapshot.exists || service?.active !== true) {
+    throw new HttpsError('failed-precondition', 'The selected service is not active.', {
+      code: 'service/not-active',
+    });
+  }
+  if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) {
+    throw new HttpsError('failed-precondition', 'The selected barber is not active.', {
+      code: 'barber/not-active',
+    });
+  }
+  return { service, barber };
+};
+
+const buildCustomerAppointment = (requested, customer, service, barber, customerId) =>
+  normalizeAppointment({
+    ...requested,
+    customerName: `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
+    customerPhone: customer.phoneNumber,
+    serviceName: service.name,
+    servicePrice: service.price,
+    serviceDuration: service.duration,
+    barberName: barber.name,
+  }, customerId, 'pending');
 
 export const createCustomerAppointment = onCall(async (request) => {
   const auth = requireCustomer(request);
@@ -101,52 +180,28 @@ export const createCustomerAppointment = onCall(async (request) => {
     const barberSnapshot = await transaction.get(db().doc(`barbers/${requested.barberId}`));
     const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
     await transaction.get(bookingLockRef);
-    const service = serviceSnapshot.data();
-    const barber = barberSnapshot.data();
-    const customer = customerSnapshot.data();
-    if (!serviceSnapshot.exists || service?.active !== true) {
-      throw new HttpsError('failed-precondition', 'The selected service is not active.');
-    }
-    if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) {
-      throw new HttpsError('failed-precondition', 'The selected barber is not active.');
-    }
-    if (
-      !customerSnapshot.exists
-      || customer?.role !== 'customer'
-      || customer?.uid !== auth.uid
-      || customer?.phoneNumber !== auth.token.phone_number
-    ) {
-      throw new HttpsError('failed-precondition', 'A valid customer profile is required.');
-    }
-    if (isCustomerBlocked(customer)) {
-      throw new HttpsError('permission-denied', 'החשבון שלך חסום לקביעת תורים. פנה לעסק.', {
-        code: 'customer/blocked',
-      });
-    }
-    const appointment = normalizeAppointment({
-      ...requested,
-      customerName: `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
-      customerPhone: customer.phoneNumber,
-      serviceName: service.name,
-      servicePrice: service.price,
-      serviceDuration: service.duration,
-      barberName: barber.name,
-    }, auth.uid, 'pending');
-    const buffer = await getBuffer(transaction);
+    const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
+    const customer = validateCustomer(customerSnapshot, auth);
+    const appointment = buildCustomerAppointment(requested, customer, service, barber, auth.uid);
+    const settings = await getBookingSettings(transaction);
     const appointments = await getDayAppointments(transaction, appointment.date);
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const activeAppointment = findActiveCustomerAppointment(customerAppointments);
+
     if (activeAppointment) {
-      throw new HttpsError(
-        'failed-precondition',
-        'כבר יש לך תור פעיל. ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.',
-        {
-          code: 'appointment/active-limit',
-          activeAppointmentId: activeAppointment.id,
-        },
-      );
+      throw new HttpsError('failed-precondition', 'Customer already has an active appointment.', {
+        code: 'appointment/active-limit',
+        activeAppointmentId: activeAppointment.id,
+        activeAppointment: activeAppointmentDetails(activeAppointment),
+      });
     }
-    rejectConflict(findConflict(appointment, appointments, buffer));
+
+    rejectSchedule(appointment, settings.workingHours);
+    rejectConflict(findConflict(
+      appointment,
+      appointments,
+      settings.appointmentBufferMinutes,
+    ));
     transaction.set(ref, {
       ...appointment,
       createdAt: FieldValue.serverTimestamp(),
@@ -163,16 +218,101 @@ export const createCustomerAppointment = onCall(async (request) => {
   return { id: ref.id };
 });
 
+export const replaceCustomerAppointment = onCall(async (request) => {
+  const auth = requireCustomer(request);
+  const activeAppointmentId = text(request.data?.activeAppointmentId);
+  if (!activeAppointmentId) {
+    throw new HttpsError('invalid-argument', 'activeAppointmentId is required.');
+  }
+
+  const requested = normalizeAppointment(request.data?.appointment || {}, auth.uid, 'pending');
+  const replacementRef = db().collection('appointments').doc();
+
+  await db().runTransaction(async (transaction) => {
+    const existingRef = db().doc(`appointments/${activeAppointmentId}`);
+    const bookingLockRef = db().doc(`customerBookingLocks/${auth.uid}`);
+    const existingSnapshot = await transaction.get(existingRef);
+    const serviceSnapshot = await transaction.get(db().doc(`services/${requested.serviceId}`));
+    const barberSnapshot = await transaction.get(db().doc(`barbers/${requested.barberId}`));
+    const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
+    await transaction.get(bookingLockRef);
+
+    if (!existingSnapshot.exists || existingSnapshot.data()?.customerId !== auth.uid) {
+      throw new HttpsError('not-found', 'Active appointment not found.', {
+        code: 'appointment/active-not-found',
+      });
+    }
+    const existing = { id: existingSnapshot.id, ...existingSnapshot.data() };
+    if (!ACTIVE_APPOINTMENT_STATUSES.has(existing.status)) {
+      throw new HttpsError('failed-precondition', 'Only an active appointment can be replaced.', {
+        code: 'appointment/not-replaceable',
+      });
+    }
+
+    const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
+    const customer = validateCustomer(customerSnapshot, auth);
+    const replacement = buildCustomerAppointment(requested, customer, service, barber, auth.uid);
+    const settings = await getBookingSettings(transaction);
+    const appointments = await getDayAppointments(transaction, replacement.date);
+    const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
+    const otherActive = customerAppointments.find((appointment) => (
+      appointment.id !== activeAppointmentId
+      && ACTIVE_APPOINTMENT_STATUSES.has(appointment.status)
+    ));
+
+    if (otherActive) {
+      throw new HttpsError('failed-precondition', 'Customer has another active appointment.', {
+        code: 'appointment/active-limit',
+        activeAppointmentId: otherActive.id,
+        activeAppointment: activeAppointmentDetails(otherActive),
+      });
+    }
+
+    rejectSchedule(replacement, settings.workingHours);
+    rejectConflict(findConflict(
+      replacement,
+      appointments,
+      settings.appointmentBufferMinutes,
+      activeAppointmentId,
+    ));
+
+    transaction.update(existingRef, {
+      status: 'cancelled',
+      cancelledAt: FieldValue.serverTimestamp(),
+      cancelledBy: auth.uid,
+      cancellationReason: 'customer_replaced_appointment',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(replacementRef, {
+      ...replacement,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(bookingLockRef, {
+      customerId: auth.uid,
+      appointmentId: replacementRef.id,
+      status: 'pending',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { id: replacementRef.id, replacedAppointmentId: activeAppointmentId };
+});
+
 export const createAdminAppointment = onCall(async (request) => {
   const auth = await requireAdmin(request);
   const appointment = normalizeAppointment(request.data, text(request.data.customerId) || auth.uid);
   const ref = db().collection('appointments').doc();
 
   await db().runTransaction(async (transaction) => {
-    const buffer = await getBuffer(transaction);
+    const settings = await getBookingSettings(transaction);
     const appointments = await getDayAppointments(transaction, appointment.date);
     if (BLOCKING_STATUSES.has(appointment.status)) {
-      rejectConflict(findConflict(appointment, appointments, buffer));
+      rejectConflict(findConflict(
+        appointment,
+        appointments,
+        settings.appointmentBufferMinutes,
+      ));
     }
     transaction.set(ref, {
       ...appointment,
@@ -200,7 +340,7 @@ const updateAppointment = async (request, adminOnly) => {
 
     const requested = request.data.changes || {};
     if (!adminOnly) {
-      const allowed = new Set(['date', 'startTime', 'time', 'status']);
+      const allowed = new Set(['date', 'startTime', 'time', 'status', 'cancellationReason']);
       const invalidKey = Object.keys(requested).find((key) => !allowed.has(key));
       if (invalidKey) {
         throw new HttpsError('permission-denied', `Customers cannot update ${invalidKey}.`);
@@ -209,20 +349,38 @@ const updateAppointment = async (request, adminOnly) => {
     if (!adminOnly && requested.status && requested.status !== 'cancelled' && requested.status !== 'pending') {
       throw new HttpsError('permission-denied', 'Customers may only cancel or reschedule appointments.');
     }
+    if (!adminOnly && requested.cancellationReason && requested.status !== 'cancelled') {
+      throw new HttpsError('permission-denied', 'A cancellation reason is allowed only when cancelling.');
+    }
 
     const merged = normalizeAppointment(
       { ...existing, ...requested },
       existing.customerId,
       requested.status || existing.status,
     );
-    const buffer = await getBuffer(transaction);
+    const settings = await getBookingSettings(transaction);
     const appointments = await getDayAppointments(transaction, merged.date);
     if (BLOCKING_STATUSES.has(merged.status)) {
-      rejectConflict(findConflict(merged, appointments, buffer, appointmentId));
+      if (!adminOnly) rejectSchedule(merged, settings.workingHours);
+      rejectConflict(findConflict(
+        merged,
+        appointments,
+        settings.appointmentBufferMinutes,
+        appointmentId,
+      ));
     }
 
+    const cancellation = requested.status === 'cancelled'
+      ? {
+        cancelledAt: FieldValue.serverTimestamp(),
+        cancelledBy: auth.uid,
+        cancellationReason: text(requested.cancellationReason)
+          || (adminOnly ? 'admin_cancelled' : 'customer_cancelled'),
+      }
+      : {};
     transaction.update(ref, {
       ...merged,
+      ...cancellation,
       updatedAt: FieldValue.serverTimestamp(),
     });
   });

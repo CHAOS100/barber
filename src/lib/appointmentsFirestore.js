@@ -69,6 +69,37 @@ export const createCustomerAppointment = async (input) => {
   }
 };
 
+export const replaceCustomerAppointment = async (activeAppointmentId, input) => {
+  console.info('[Firestore] Customer appointment replacement attempt', {
+    projectId: firebaseProjectId,
+    activeAppointmentId,
+    date: input.date,
+    startTime: input.startTime || input.time,
+  });
+
+  try {
+    await ensureFirebaseCustomer();
+    const replacement = await callAppointmentFunction('replaceCustomerAppointment', {
+      activeAppointmentId,
+      appointment: input,
+    });
+    console.info('[Firestore] Customer appointment replaced', {
+      projectId: firebaseProjectId,
+      activeAppointmentId,
+      appointmentId: replacement.id,
+    });
+    return { id: replacement.id, ...input, status: 'pending' };
+  } catch (error) {
+    console.error('[Firestore] Customer appointment replacement failed', {
+      projectId: firebaseProjectId,
+      activeAppointmentId,
+      code: error?.details?.code || error?.code || 'unknown',
+      message: error?.message || 'Unknown Firestore error',
+    });
+    throw error;
+  }
+};
+
 export const createAdminAppointment = async (input) => {
   const user = await ensureFirebaseAdmin();
   const appointment = await callAppointmentFunction('createAdminAppointment', input);
@@ -143,8 +174,8 @@ export const updateAdminAppointment = async (appointmentId, changes) => {
   }
 };
 
-export const cancelOwnAppointment = (appointmentId) =>
-  updateOwnAppointment(appointmentId, { status: 'cancelled' });
+export const cancelOwnAppointment = (appointmentId, cancellationReason = 'customer_cancelled') =>
+  updateOwnAppointment(appointmentId, { status: 'cancelled', cancellationReason });
 
 export const deleteAppointment = async (appointmentId) => {
   await ensureFirebaseAdmin();

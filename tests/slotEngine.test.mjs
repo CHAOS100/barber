@@ -58,3 +58,7 @@ test('editing duration recalculates availability', () => {
 test('cancelled appointment frees its slot', () => {
   assert.equal(slots(0, [{ ...existing, status: 'cancelled' }]).includes('09:40'), true);
 });
+
+test('scheduled appointment blocks its slot', () => {
+  assert.equal(slots(0, [{ ...existing, status: 'scheduled' }]).includes('09:40'), false);
+});

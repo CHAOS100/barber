@@ -24,6 +24,7 @@ const mapProfile = (snapshot) => {
     phone: data.phoneNumber || '',
     is_blocked: data.blocked === true || data.isBlocked === true,
     blocked_reason: data.blockedReason || '',
+    blocked_by: data.blockedBy || null,
     warning_count: Number(data.warningCount || 0),
     total_appointments: Number(data.visitsCount || 0),
   };
@@ -182,16 +183,23 @@ export const subscribeToAllCustomerProfiles = (onData, onError) => {
 };
 
 export const updateCustomerByAdmin = async (userId, changes) => {
-  await ensureFirebaseAdmin();
+  const admin = await ensureFirebaseAdmin();
   const payload = /** @type {Record<string, any>} */ ({ updatedAt: serverTimestamp() });
   if (changes.firstName !== undefined) payload.firstName = String(changes.firstName || '').trim();
   if (changes.lastName !== undefined) payload.lastName = String(changes.lastName || '').trim();
   if (changes.blocked !== undefined) {
+    const blockedReason = String(changes.blockedReason || '').trim();
+    if (changes.blocked === true && !blockedReason) {
+      throw Object.assign(new Error('יש להזין סיבת חסימה.'), {
+        code: 'customer/blocked-reason-required',
+      });
+    }
     payload.blocked = changes.blocked === true;
     payload.blockedReason = changes.blocked === true
-      ? String(changes.blockedReason || 'נחסם על ידי מנהל').trim()
+      ? blockedReason
       : '';
     payload.blockedAt = changes.blocked === true ? serverTimestamp() : null;
+    payload.blockedBy = changes.blocked === true ? admin.uid : null;
     payload.isBlocked = deleteField();
   }
   if (changes.warningCount !== undefined) payload.warningCount = Math.max(0, Number(changes.warningCount || 0));

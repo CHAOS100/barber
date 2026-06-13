@@ -65,7 +65,7 @@ export const syncCustomerActiveAppointmentLock = onDocumentWritten(
       const lockRef = db().doc(`customerBookingLocks/${customerId}`);
       const snapshot = await db().collection('appointments').where('customerId', '==', customerId).get();
       const active = snapshot.docs.find((item) =>
-        ['pending', 'approved', 'confirmed'].includes(item.data().status));
+        ['pending', 'approved', 'confirmed', 'scheduled'].includes(item.data().status));
       if (!active) {
         await lockRef.delete();
         return;

@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
+import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 import { useAppointmentBlocksRealtime, useBookingSettingsRealtime } from '@/hooks/useBookingData';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -200,9 +201,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
             )}
             {updateMutation.error && (
               <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-                {/** @type {any} */ (updateMutation.error).code === 'functions/already-exists'
-                  ? 'השעה נתפסה כרגע. יש לבחור שעה אחרת.'
-                  : 'עדכון התור נכשל.'}
+                {getBookingRejectionMessage(updateMutation.error)}
               </div>
             )}
           </>

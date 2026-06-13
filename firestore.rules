@@ -87,6 +87,7 @@ service cloud.firestore {
         && request.resource.data.blocked == false
         && request.resource.data.blockedReason == ''
         && request.resource.data.blockedAt == null
+        && request.resource.data.blockedBy == null
         && hasValidCustomerNames(request.resource.data)
         && request.resource.data.keys().hasAll([
           'uid',
@@ -103,6 +104,7 @@ service cloud.firestore {
           'blocked',
           'blockedReason',
           'blockedAt',
+          'blockedBy',
           'createdAt',
           'updatedAt'
         ])
@@ -121,6 +123,7 @@ service cloud.firestore {
           'blocked',
           'blockedReason',
           'blockedAt',
+          'blockedBy',
           'createdAt',
           'updatedAt',
           'lastLoginAt'
@@ -141,11 +144,32 @@ service cloud.firestore {
             'blocked',
             'blockedReason',
             'blockedAt',
+            'blockedBy',
             'isBlocked',
             'warningCount',
             'updatedAt'
           ])
           && hasValidCustomerNames(request.resource.data)
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'blocked',
+              'blockedReason',
+              'blockedAt',
+              'blockedBy'
+            ])
+            || (
+              request.resource.data.blocked == true
+              && request.resource.data.blockedReason is string
+              && request.resource.data.blockedReason.size() > 0
+              && request.resource.data.blockedBy == request.auth.uid
+            )
+            || (
+              request.resource.data.blocked == false
+              && request.resource.data.blockedReason == ''
+              && request.resource.data.blockedAt == null
+              && request.resource.data.blockedBy == null
+            )
+          )
         );
 
       allow delete: if false;
@@ -159,7 +183,7 @@ service cloud.firestore {
     }
 
     match /gallery/{photoId} {
-      allow read: if isAdmin() || resource.data.hidden == false;
+      allow read: if isAdmin() || resource.data.active == true;
       allow create, update, delete: if isAdmin();
     }
 

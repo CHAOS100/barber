@@ -56,6 +56,7 @@ const customerData = (uid, phoneNumber, overrides = {}) => ({
   blocked: false,
   blockedReason: '',
   blockedAt: null,
+  blockedBy: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   lastLoginAt: new Date(),
@@ -154,16 +155,14 @@ before(async () => {
       createdAt: new Date(),
     });
     await setDoc(doc(firestore, 'gallery', 'published-photo'), {
-      url: 'https://example.com/photo.jpg',
-      category: 'haircuts',
-      hidden: false,
-      featured: false,
+      imageUrl: 'https://example.com/photo.jpg',
+      category: 'gallery',
+      active: true,
     });
     await setDoc(doc(firestore, 'gallery', 'hidden-photo'), {
-      url: 'https://example.com/hidden.jpg',
-      category: 'haircuts',
-      hidden: true,
-      featured: false,
+      imageUrl: 'https://example.com/hidden.jpg',
+      category: 'gallery',
+      active: false,
     });
   });
 });
@@ -342,6 +341,7 @@ test('phone customer can create only their own correctly bound user document', a
     blocked: false,
     blockedReason: '',
     blockedAt: null,
+    blockedBy: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
@@ -361,6 +361,7 @@ test('phone customer can create only their own correctly bound user document', a
     blocked: false,
     blockedReason: '',
     blockedAt: null,
+    blockedBy: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
@@ -406,6 +407,7 @@ test('active admin can read users and edit names but cannot change phoneNumber o
     blocked: true,
     blockedReason: 'Policy violation',
     blockedAt: serverTimestamp(),
+    blockedBy: 'active-admin',
     updatedAt: serverTimestamp(),
   }));
   await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
@@ -452,12 +454,12 @@ test('gallery exposes only published photos and admin can manage it', async () =
   await assertFails(getDoc(doc(publicDb, 'gallery', 'hidden-photo')));
   const published = await assertSucceeds(getDocs(query(
     collection(publicDb, 'gallery'),
-    where('hidden', '==', false),
+    where('active', '==', true),
   )));
   assert.equal(published.size, 1);
 
   const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
   await assertSucceeds(updateDoc(doc(adminDb, 'gallery', 'hidden-photo'), {
-    hidden: false,
+    active: true,
   }));
 });

@@ -229,7 +229,7 @@ export default function Home() {
                       className="aspect-square rounded-xl overflow-hidden cursor-pointer press-scale"
                       onClick={() => navigate('/gallery')}
                     >
-                      <img src={photo.url} alt="" className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+                      <img src={photo.imageUrl || photo.url} alt={photo.title || ''} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                     </motion.div>
                   ))}
                   {photos.length === 0 && (

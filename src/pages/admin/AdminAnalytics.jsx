@@ -16,7 +16,7 @@ import {
   calculateAdminStats,
 } from '@/lib/dashboardStats';
 
-const GOLD_COLORS = ['#D4AF37', '#C9A84C', '#F0D060', '#B8960C', '#E5C45B'];
+const GOLD_COLORS = ['#93E3BD', '#78D2AA', '#C5F6DE', '#63B991', '#A9ECCA'];
 
 export default function AdminAnalytics() {
   const navigate = useNavigate();
@@ -84,14 +84,14 @@ export default function AdminAnalytics() {
             <AreaChart data={monthlyData}>
               <defs>
                 <linearGradient id="goldGradAnalytics" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#93E3BD" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#93E3BD" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 11 }} />
               <YAxis hide />
               <Tooltip formatter={(value) => [`₪${value}`, 'הכנסות']} />
-              <Area type="monotone" dataKey="revenue" stroke="#D4AF37" strokeWidth={2} fill="url(#goldGradAnalytics)" />
+              <Area type="monotone" dataKey="revenue" stroke="#93E3BD" strokeWidth={2} fill="url(#goldGradAnalytics)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -106,7 +106,7 @@ export default function AdminAnalytics() {
                 <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 10 }} />
                 <YAxis hide />
                 <Tooltip formatter={(value) => [value, 'תורים']} />
-                <Bar dataKey="count" fill="#D4AF37" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="count" fill="#93E3BD" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -145,8 +145,8 @@ export default function AdminAnalytics() {
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 11 }} />
               <YAxis hide />
               <Tooltip />
-              <Line type="monotone" dataKey="appointments" stroke="#D4AF37" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="customers" stroke="#C9A84C" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="appointments" stroke="#93E3BD" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="customers" stroke="#78D2AA" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>

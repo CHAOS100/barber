@@ -2,7 +2,14 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
-import { createCustomerAppointment } from '@/lib/appointmentsFirestore';
+import {
+  createCustomerAppointment,
+  replaceCustomerAppointment,
+} from '@/lib/appointmentsFirestore';
+import {
+  BOOKING_STATUS_LABELS,
+  getBookingRejectionMessage,
+} from '@/lib/bookingErrors';
 import {
   useActiveBarbersRealtime,
   useActiveServicesRealtime,
@@ -164,6 +171,7 @@ export default function Booking() {
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [replacementMode, setReplacementMode] = useState(false);
 
   const { data: services } = useActiveServicesRealtime();
   const { data: barbers } = useActiveBarbersRealtime();
@@ -176,7 +184,7 @@ export default function Booking() {
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
   const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
   const activeAppointment = customerAppointments.find((appointment) =>
-    ['pending', 'approved', 'confirmed'].includes(appointment.status));
+    ['pending', 'approved', 'confirmed', 'scheduled'].includes(appointment.status));
 
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
@@ -220,13 +228,25 @@ export default function Booking() {
   }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings]);
 
   const slotGroups = useMemo(() => groupSlots(availableSlots), [availableSlots]);
+  const emptyAvailabilityMessage = useMemo(() => {
+    if (!selectedDate || !selectedService) return 'אין שעות פנויות ביום זה';
+    const hours = getWorkingHoursForDate(dateToStr(selectedDate), workingHours);
+    if (!hours?.is_open) return 'העסק סגור ביום הזה.';
+    const [openHour, openMinute] = String(hours.open_time || '00:00').split(':').map(Number);
+    const [closeHour, closeMinute] = String(hours.close_time || '00:00').split(':').map(Number);
+    const availableMinutes = ((closeHour * 60) + closeMinute) - ((openHour * 60) + openMinute);
+    if (Number(selectedService.duration) > availableMinutes) {
+      return 'משך השירות לא נכנס בחלון הזמן הפנוי.';
+    }
+    return 'אין שעות פנויות ביום זה';
+  }, [selectedDate, selectedService, workingHours]);
 
   const handleConfirm = async () => {
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
     setLoading(true);
     setBookingError('');
     try {
-      await createCustomerAppointment({
+      const appointmentInput = {
         serviceId: selectedService.id,
         serviceName: selectedService.name,
         servicePrice: selectedService.price,
@@ -236,19 +256,15 @@ export default function Booking() {
         barberId: selectedBarber.id,
         barberName: selectedBarber.name,
         notes,
-      });
+      };
+      if (replacementMode && activeAppointment) {
+        await replaceCustomerAppointment(activeAppointment.id, appointmentInput);
+      } else {
+        await createCustomerAppointment(appointmentInput);
+      }
       setConfirmed(true);
     } catch (error) {
-      const policyCode = error?.details?.code;
-      if (policyCode === 'customer/blocked') {
-        setBookingError('החשבון שלך חסום לקביעת תורים. פנה לעסק.');
-      } else if (policyCode === 'appointment/active-limit') {
-        setBookingError('כבר יש לך תור פעיל. ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.');
-      } else if (error?.code === 'functions/already-exists') {
-        setBookingError('השעה נתפסה כרגע. יש לבחור שעה אחרת.');
-      } else {
-        setBookingError('לא הצלחנו לשמור את התור. נסו שוב.');
-      }
+      setBookingError(getBookingRejectionMessage(error));
     } finally {
       setLoading(false);
     }
@@ -301,23 +317,64 @@ export default function Booking() {
         <div className="glass rounded-3xl p-6 text-center max-w-sm">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
           <h2 className="text-xl font-black mb-2">לא ניתן לקבוע תור</h2>
-          <p className="text-muted-foreground text-sm mb-5">החשבון שלך חסום לקביעת תורים. פנה לעסק.</p>
+          <p className="text-muted-foreground text-sm mb-5">
+            {currentUser.blockedReason || currentUser.blocked_reason
+              ? `החשבון שלך חסום לקביעת תורים. סיבה: ${currentUser.blockedReason || currentUser.blocked_reason}. פנה לעסק.`
+              : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.'}
+          </p>
           <GoldButton onClick={() => navigate('/')} className="w-full">חזרה לדף הבית</GoldButton>
         </div>
       </div>
     );
   }
 
-  if (activeAppointment) {
+  if (activeAppointment && !replacementMode) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
         <div className="glass rounded-3xl p-6 text-center max-w-sm">
           <Calendar className="w-12 h-12 text-primary mx-auto mb-3" />
           <h2 className="text-xl font-black mb-2">כבר יש לך תור פעיל</h2>
-          <p className="text-muted-foreground text-sm mb-5">
-            ניתן לקבוע תור נוסף רק לאחר שהתור הנוכחי יסתיים או יבוטל.
+          <p className="text-muted-foreground text-sm mb-4">
+            כבר יש לך תור פעיל. ניתן לבטל את התור הקיים ולקבוע תור חדש.
           </p>
-          <GoldButton onClick={() => navigate('/appointments')} className="w-full">צפה בתור הפעיל</GoldButton>
+          <div className="dark-card rounded-2xl p-4 text-right mb-5 space-y-2 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">תאריך</span>
+              <span className="font-bold">{activeAppointment.date || '-'}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">שעה</span>
+              <span className="font-bold">{activeAppointment.startTime || activeAppointment.time || '-'}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">שירות</span>
+              <span className="font-bold">{activeAppointment.serviceName || activeAppointment.service_name || '-'}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">סטטוס</span>
+              <span className="font-bold text-primary">{BOOKING_STATUS_LABELS[activeAppointment.status] || activeAppointment.status}</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <button
+              onClick={() => navigate('/appointments')}
+              className="w-full py-3 rounded-xl glass font-bold text-sm"
+            >
+              השאר את התור הקיים
+            </button>
+            <GoldButton
+              onClick={() => {
+                setReplacementMode(true);
+                setSelectedDate(null);
+                setSelectedTime(null);
+                setBookingError('');
+                setStep(1);
+              }}
+              className="w-full"
+            >
+              בטל וקבע חדש
+            </GoldButton>
+          </div>
         </div>
       </div>
     );
@@ -346,6 +403,11 @@ export default function Booking() {
       </div>
 
       <div className="px-4 py-6">
+        {replacementMode && activeAppointment && (
+          <div className="glass-gold rounded-2xl p-3 mb-4 text-sm text-primary font-bold text-center">
+            התור הקיים יבוטל רק לאחר שהתור החדש יישמר בהצלחה.
+          </div>
+        )}
         <AnimatePresence mode="wait">
 
           {/* ── STEP 1: Barber + Service ── */}
@@ -446,7 +508,7 @@ export default function Booking() {
                   {availableSlots.length === 0 ? (
                     <div className="glass rounded-2xl p-6 text-center">
                       <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-muted-foreground text-sm">אין שעות פנויות ביום זה</p>
+                      <p className="text-muted-foreground text-sm">{emptyAvailabilityMessage}</p>
                     </div>
                   ) : (
                     <>
@@ -567,7 +629,7 @@ export default function Booking() {
                 </div>
               )}
               <GoldButton onClick={handleConfirm} size="lg" className="w-full" disabled={loading}>
-                {loading ? 'מאשר...' : currentUser ? 'אשר תור' : 'התחבר ואשר'}
+                {loading ? 'מאשר...' : currentUser ? (replacementMode ? 'בטל וקבע תור חדש' : 'אשר תור') : 'התחבר ואשר'}
               </GoldButton>
             </motion.div>
           )}

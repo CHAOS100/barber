@@ -17,6 +17,7 @@ export {
   createAdminAppointment,
   createCustomerAppointment,
   deleteAdminAppointment,
+  replaceCustomerAppointment,
   updateAdminAppointment,
   updateOwnAppointment,
 } from './appointments.js';
@@ -79,7 +80,7 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
   },
 );
 
-const blockingStatuses = new Set(['pending', 'approved', 'confirmed']);
+const blockingStatuses = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
 
 export const syncAppointmentAvailabilityBlock = onDocumentWritten(
   'appointments/{appointmentId}',

@@ -5,11 +5,10 @@ import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 
 const CATEGORIES = [
   { key: 'all', label: 'הכל' },
-  { key: 'haircuts', label: 'תספורות' },
-  { key: 'skin_fades', label: 'פייד' },
-  { key: 'beard', label: 'זקן' },
-  { key: 'before_after', label: 'לפני/אחרי' },
-  { key: 'premium_styles', label: 'פרימיום' },
+  { key: 'gallery', label: 'תיק עבודות' },
+  { key: 'business', label: 'העסק' },
+  { key: 'barber', label: 'הצוות' },
+  { key: 'service', label: 'שירותים' },
 ];
 
 export default function Gallery() {
@@ -26,7 +25,7 @@ export default function Gallery() {
 
   const handleShare = async () => {
     if (navigator.share && filtered[selectedIndex]) {
-      await navigator.share({ url: filtered[selectedIndex].url });
+      await navigator.share({ url: filtered[selectedIndex].imageUrl || filtered[selectedIndex].url });
     }
   };
 
@@ -60,7 +59,7 @@ export default function Gallery() {
       <div className="px-4">
         {error && <div className="mb-3 text-red-400 text-sm">טעינת הגלריה מ-Firestore נכשלה.</div>}
         {filtered.length === 0 && (
-          <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">עדיין אין תמונות בגלריה.</div>
+          <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">עדיין אין תמונות בגלריה</div>
         )}
         <motion.div layout className="grid grid-cols-2 md:grid-cols-3 gap-2">
           <AnimatePresence>
@@ -75,8 +74,8 @@ export default function Gallery() {
                 onClick={() => setSelectedIndex(index)}
               >
                 <img
-                  src={photo.url}
-                  alt={photo.caption || ''}
+                  src={photo.imageUrl || photo.url}
+                  alt={photo.title || ''}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   loading="lazy"
                 />
@@ -127,8 +126,8 @@ export default function Gallery() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
-              src={filtered[selectedIndex].url}
-              alt=""
+              src={filtered[selectedIndex].imageUrl || filtered[selectedIndex].url}
+              alt={filtered[selectedIndex].title || ''}
               className="max-w-full max-h-full object-contain px-16"
               onClick={(e) => e.stopPropagation()}
             />

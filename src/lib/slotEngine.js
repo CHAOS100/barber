@@ -13,7 +13,7 @@ export function minutesToTime(minutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-export const BLOCKING_APPOINTMENT_STATUSES = new Set(['pending', 'approved', 'confirmed']);
+export const BLOCKING_APPOINTMENT_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
 
 export function getAppointmentInterval(appointment) {
   const startTime = appointment.startTime || appointment.time;

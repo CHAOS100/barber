@@ -111,6 +111,7 @@ export const registerCustomerProfile = onCall(async (request) => {
       blocked: false,
       blockedReason: '',
       blockedAt: null,
+      blockedBy: null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       lastLoginAt: FieldValue.serverTimestamp(),
