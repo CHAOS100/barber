@@ -9,31 +9,56 @@ export default function MobileViewportManager() {
   useEffect(() => {
     const viewport = window.visualViewport;
     const root = document.documentElement;
+    let animationFrame = 0;
+    let stableHeight = window.innerHeight;
 
     const updateViewport = () => {
-      const height = viewport?.height || window.innerHeight;
-      const keyboardHeight = viewport ? Math.max(0, window.innerHeight - viewport.height) : 0;
-      root.style.setProperty('--app-viewport-height', `${height}px`);
-      root.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-      root.classList.toggle('keyboard-open', keyboardHeight > 120);
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const visibleHeight = viewport?.height || stableHeight;
+        const possibleKeyboardHeight = viewport
+          ? Math.max(0, stableHeight - viewport.height - viewport.offsetTop)
+          : 0;
+
+        if (!isEditableElement(document.activeElement) || possibleKeyboardHeight <= 120) {
+          stableHeight = window.innerHeight;
+        }
+
+        const keyboardHeight = viewport
+          ? Math.max(0, stableHeight - viewport.height - viewport.offsetTop)
+          : 0;
+
+        root.style.setProperty('--app-viewport-height', `${stableHeight}px`);
+        root.style.setProperty('--visible-viewport-height', `${visibleHeight}px`);
+        root.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+        root.classList.toggle('keyboard-open', keyboardHeight > 120);
+      });
     };
 
     const keepInputVisible = (event) => {
       if (!isEditableElement(event.target)) return;
+
       window.setTimeout(() => {
-        event.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-      }, 250);
+        const element = event.target;
+        const bounds = element.getBoundingClientRect();
+        const visibleTop = viewport?.offsetTop || 0;
+        const visibleBottom = visibleTop + (viewport?.height || window.innerHeight);
+        const margin = 16;
+
+        if (bounds.top < visibleTop + margin || bounds.bottom > visibleBottom - margin) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        }
+      }, 180);
     };
 
     updateViewport();
     viewport?.addEventListener('resize', updateViewport);
-    viewport?.addEventListener('scroll', updateViewport);
     window.addEventListener('resize', updateViewport);
     document.addEventListener('focusin', keepInputVisible);
 
     return () => {
+      cancelAnimationFrame(animationFrame);
       viewport?.removeEventListener('resize', updateViewport);
-      viewport?.removeEventListener('scroll', updateViewport);
       window.removeEventListener('resize', updateViewport);
       document.removeEventListener('focusin', keepInputVisible);
       root.classList.remove('keyboard-open');

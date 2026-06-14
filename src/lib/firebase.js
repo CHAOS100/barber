@@ -17,6 +17,7 @@ const FIREBASE_APP_NAME = 'ost-barber-web';
 const EXPECTED_FIREBASE_PROJECT_ID = 'ost-barber-app';
 const EXPECTED_FIREBASE_API_KEY = 'AIzaSyDYKVodoIVuB2KDLLYV5q3ihkDudOjqMm4';
 const ADMIN_COLLECTION = 'admins';
+const PHONE_RECAPTCHA_CONTAINER_ID = 'firebase-phone-recaptcha';
 
 const firebaseEnvironment = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -101,6 +102,9 @@ export const firebaseStorage = firebaseApp ? getStorage(firebaseApp) : null;
 let customerAuthPromise;
 let phoneRecaptchaVerifier;
 let phoneRecaptchaWidgetId;
+let phoneRecaptchaRenderPromise;
+let phoneSmsRequestPromise;
+let phoneRecaptchaWasUsed = false;
 
 const firebaseConfigurationError = () => new Error(
   `Firebase is not configured from valid Vercel build-time environment variables. Missing: ${
@@ -157,62 +161,153 @@ export const normalizeIsraeliPhoneNumber = (phoneNumber) => {
   );
 };
 
-export const resetFirebasePhoneRecaptcha = () => {
-  console.info('[Firebase Phone Auth] reCAPTCHA reset', {
-    hadVerifier: Boolean(phoneRecaptchaVerifier),
-    widgetId: phoneRecaptchaWidgetId ?? null,
-  });
-  phoneRecaptchaVerifier?.clear();
-  phoneRecaptchaVerifier = null;
-  phoneRecaptchaWidgetId = null;
+const ensurePhoneRecaptchaContainer = () => {
+  let container = document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID);
+  if (container) return container;
+
+  container = document.createElement('div');
+  container.id = PHONE_RECAPTCHA_CONTAINER_ID;
+  document.body.appendChild(container);
+  return container;
 };
 
-export const startFirebasePhoneVerification = async (phoneNumber, containerId) => {
+const resetRenderedPhoneRecaptcha = (reason = 'reuse') => {
+  if (phoneRecaptchaWidgetId === null || phoneRecaptchaWidgetId === undefined) return;
+  try {
+    const grecaptcha = /** @type {any} */ (window).grecaptcha;
+    grecaptcha?.reset?.(phoneRecaptchaWidgetId);
+    console.info('[Firebase Phone Auth] Recaptcha reset', {
+      reason,
+      widgetId: phoneRecaptchaWidgetId,
+    });
+  } catch (error) {
+    console.warn('[Firebase Phone Auth] Recaptcha reset failed', {
+      reason,
+      code: error?.code || 'unknown',
+      message: error?.message || 'Unknown reCAPTCHA error',
+    });
+  }
+};
+
+const getOrCreatePhoneRecaptchaVerifier = async () => {
+  await prepareFirebaseAuth();
+  ensurePhoneRecaptchaContainer();
+
+  if (phoneRecaptchaVerifier) {
+    console.info('[Firebase Phone Auth] Recaptcha reused', {
+      widgetId: phoneRecaptchaWidgetId ?? null,
+      rendered: Boolean(phoneRecaptchaRenderPromise),
+    });
+    await phoneRecaptchaRenderPromise;
+    return phoneRecaptchaVerifier;
+  }
+
+  phoneRecaptchaVerifier = new RecaptchaVerifier(
+    firebaseAuth,
+    PHONE_RECAPTCHA_CONTAINER_ID,
+    {
+      size: 'invisible',
+      callback: () => console.info('[Firebase Phone Auth] Recaptcha solved'),
+      'expired-callback': () => {
+        console.warn('[Firebase Phone Auth] Recaptcha expired');
+        resetRenderedPhoneRecaptcha('expired');
+      },
+    },
+  );
+  phoneRecaptchaRenderPromise = phoneRecaptchaVerifier.render()
+    .then((widgetId) => {
+      phoneRecaptchaWidgetId = widgetId;
+      console.info('[Firebase Phone Auth] Recaptcha initialized', {
+        widgetId,
+        mode: 'invisible',
+      });
+      return widgetId;
+    })
+    .catch((error) => {
+      clearFirebasePhoneRecaptcha('render-failed');
+      throw error;
+    });
+
+  await phoneRecaptchaRenderPromise;
+  return phoneRecaptchaVerifier;
+};
+
+export const resetFirebasePhoneRecaptcha = (reason = 'manual-reset') => {
+  resetRenderedPhoneRecaptcha(reason);
+};
+
+export const clearFirebasePhoneRecaptcha = (reason = 'manual-clear') => {
+  const hadVerifier = Boolean(phoneRecaptchaVerifier);
+  try {
+    phoneRecaptchaVerifier?.clear();
+  } catch (error) {
+    console.warn('[Firebase Phone Auth] Recaptcha clear failed', {
+      reason,
+      code: error?.code || 'unknown',
+    });
+  }
+  phoneRecaptchaVerifier = null;
+  phoneRecaptchaWidgetId = null;
+  phoneRecaptchaRenderPromise = null;
+  phoneRecaptchaWasUsed = false;
+  document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID)?.remove();
+  console.info('[Firebase Phone Auth] Recaptcha cleared', { reason, hadVerifier });
+};
+
+export const startFirebasePhoneVerification = async (phoneNumber) => {
+  if (phoneSmsRequestPromise) {
+    console.info('[Firebase Phone Auth] SMS request already in progress; reusing request');
+    return phoneSmsRequestPromise;
+  }
+
   console.info('[Firebase Phone Auth] phone submitted', {
     phoneMasked: maskPhoneNumber(phoneNumber),
     hostname: window.location.hostname,
     projectId: firebaseProjectId,
   });
-  await prepareFirebaseAuth();
-  const normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
-  firebaseAuth.languageCode = 'he';
-  console.info('[Firebase Phone Auth] phone normalized', {
-    normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+
+  phoneSmsRequestPromise = (async () => {
+    console.info('[Firebase Phone Auth] SMS request started', {
+      phoneMasked: maskPhoneNumber(phoneNumber),
+    });
+    let normalizedPhoneNumber = '';
+
+    try {
+      await prepareFirebaseAuth();
+      normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
+      firebaseAuth.languageCode = 'he';
+      console.info('[Firebase Phone Auth] phone normalized', {
+        normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+      });
+      const verifier = await getOrCreatePhoneRecaptchaVerifier();
+      if (phoneRecaptchaWasUsed) resetRenderedPhoneRecaptcha('sms-request-reuse');
+      phoneRecaptchaWasUsed = true;
+
+      const confirmationResult = await signInWithPhoneNumber(
+        firebaseAuth,
+        normalizedPhoneNumber,
+        verifier,
+      );
+      console.info('[Firebase Phone Auth] SMS request succeeded', {
+        normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        verificationIdPresent: Boolean(confirmationResult.verificationId),
+      });
+      return { confirmationResult, phoneNumber: normalizedPhoneNumber };
+    } catch (error) {
+      console.error('[Firebase Phone Auth] SMS request failed', {
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown Firebase error',
+        normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        recaptchaWidgetId: phoneRecaptchaWidgetId ?? null,
+      });
+      resetRenderedPhoneRecaptcha('sms-request-failed');
+      throw error;
+    }
+  })().finally(() => {
+    phoneSmsRequestPromise = null;
   });
 
-  resetFirebasePhoneRecaptcha();
-  phoneRecaptchaVerifier = new RecaptchaVerifier(firebaseAuth, containerId, {
-    size: 'invisible',
-    callback: () => console.info('[Firebase Phone Auth] reCAPTCHA solved'),
-    'expired-callback': () => console.warn('[Firebase Phone Auth] reCAPTCHA expired'),
-  });
-
-  try {
-    phoneRecaptchaWidgetId = await phoneRecaptchaVerifier.render();
-    console.info('[Firebase Phone Auth] reCAPTCHA ready', {
-      widgetId: phoneRecaptchaWidgetId,
-      mode: 'invisible',
-    });
-    const confirmationResult = await signInWithPhoneNumber(
-      firebaseAuth,
-      normalizedPhoneNumber,
-      phoneRecaptchaVerifier,
-    );
-    console.info('[Firebase Phone Auth] Firebase accepted SMS request', {
-      normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
-      verificationIdPresent: Boolean(confirmationResult.verificationId),
-    });
-    return { confirmationResult, phoneNumber: normalizedPhoneNumber };
-  } catch (error) {
-    console.error('[Firebase Phone Auth] Firebase SMS request failed', {
-      code: error?.code || 'unknown',
-      message: error?.message || 'Unknown Firebase error',
-      normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
-      recaptchaWidgetId: phoneRecaptchaWidgetId ?? null,
-    });
-    resetFirebasePhoneRecaptcha();
-    throw error;
-  }
+  return phoneSmsRequestPromise;
 };
 
 export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
@@ -231,7 +326,7 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
   try {
     const credential = await confirmationResult.confirm(String(code || '').trim());
     customerAuthPromise = null;
-    resetFirebasePhoneRecaptcha();
+    clearFirebasePhoneRecaptcha('otp-confirmed');
     console.info('[Firebase Phone Auth] phone verification completed', {
       uid: credential.user.uid,
       phoneMasked: maskPhoneNumber(credential.user.phoneNumber),
@@ -247,15 +342,26 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
 };
 
 export const getPhoneAuthErrorMessage = (error) => {
+  const errorMessage = String(error?.message || '').toLowerCase();
+  if (errorMessage.includes('recaptcha has already been rendered')) {
+    return 'אימות האבטחה כבר הופעל. יש להמתין רגע ולנסות שוב.';
+  }
+  if (errorMessage.includes('recaptcha') && errorMessage.includes('expired')) {
+    return 'אימות האבטחה פג תוקף. יש לנסות לשלוח את הקוד מחדש.';
+  }
+  if (errorMessage.includes('recaptcha')) {
+    return 'אימות האבטחה נכשל. יש לנסות שוב בעוד רגע.';
+  }
   if (
     error?.code === 'auth/operation-not-allowed'
-    && String(error?.message || '').toLowerCase().includes('region')
+    && errorMessage.includes('region')
   ) {
     return 'שליחת SMS לישראל אינה מאופשרת בהגדרות Firebase. יש לפנות למנהל המערכת.';
   }
 
   const messages = {
     'auth/captcha-check-failed': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
+    'auth/recaptcha-expired': 'אימות האבטחה פג תוקף. יש לנסות לשלוח את הקוד מחדש.',
     'auth/billing-not-enabled': 'שליחת SMS אינה זמינה עד להפעלת חיוב בפרויקט Firebase.',
     'auth/code-expired': 'קוד האימות פג תוקף. יש לבקש קוד חדש.',
     'auth/invalid-app-credential': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
@@ -263,8 +369,11 @@ export const getPhoneAuthErrorMessage = (error) => {
     'auth/network-request-failed': 'לא ניתן להתחבר ל-Firebase. יש לבדוק את החיבור ולנסות שוב.',
     'auth/invalid-verification-code': 'קוד האימות שגוי. יש לנסות שוב.',
     'auth/missing-phone-number': 'יש להזין מספר טלפון.',
+    'auth/missing-app-credential': 'אימות האבטחה חסר או פג תוקף. יש לנסות לשלוח את הקוד מחדש.',
     'auth/missing-verification-code': 'יש להזין את קוד האימות שנשלח.',
     'auth/missing-verification-id': 'בקשת האימות פגה. יש לבקש קוד חדש.',
+    'auth/invalid-verification-id': 'בקשת האימות פגה. יש לבקש קוד חדש.',
+    'auth/session-expired': 'קוד האימות פג תוקף. יש לבקש קוד חדש.',
     'auth/operation-not-allowed': 'התחברות באמצעות טלפון או שליחת SMS אינה מופעלת בהגדרות Firebase.',
     'auth/quota-exceeded': 'מכסת הודעות ה-SMS הסתיימה. יש לנסות מאוחר יותר.',
     'auth/too-many-requests': 'בוצעו יותר מדי ניסיונות. יש להמתין ולנסות שוב.',
@@ -458,6 +567,7 @@ export const signInFirebaseAdmin = async (email, password) => {
 
 export const signOutFirebaseSession = async () => {
   customerAuthPromise = null;
+  clearFirebasePhoneRecaptcha('sign-out');
   if (firebaseAuth?.currentUser) {
     await signOut(firebaseAuth);
   }

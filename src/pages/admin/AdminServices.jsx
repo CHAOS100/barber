@@ -137,7 +137,7 @@ export default function AdminServices() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-8"
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
             onClick={() => setEditModal(null)}
           >
             <motion.div

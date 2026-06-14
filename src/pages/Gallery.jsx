@@ -98,7 +98,7 @@ export default function Gallery() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
             onClick={() => setSelectedIndex(null)}
           >
             <div className="absolute top-4 right-4 flex gap-3">

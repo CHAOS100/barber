@@ -20,7 +20,7 @@ export default function BottomNav() {
     : tabs;
 
   return (
-    <div className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/10" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+    <div className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/10">
       <div className="flex items-center justify-around px-2 pt-2 pb-1">
         {allTabs.map((tab) => {
           const isActive = location.pathname === tab.path || (tab.path !== '/' && location.pathname.startsWith(tab.path));

@@ -63,13 +63,13 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-end justify-center px-4 pb-4"
+      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
+        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
         onClick={e => e.stopPropagation()}

@@ -400,7 +400,7 @@ export default function Home() {
       </div>
 
       {/* Sticky Book Button */}
-      <div className="mobile-fixed-cta fixed bottom-20 left-0 right-0 z-40 px-4">
+      <div className="mobile-fixed-cta fixed left-0 right-0 z-40 px-4">
         <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
           הזמן עכשיו
         </GoldButton>

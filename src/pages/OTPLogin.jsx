@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Phone, ShieldCheck, Lock, Mail } from 'lucide-react';
+import { ArrowRight, Phone, ShieldCheck, Lock, Mail, MessageCircle } from 'lucide-react';
 import { loginUser } from '../lib/userStore';
 import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
@@ -20,6 +20,11 @@ import {
   findAuthenticatedUserProfile,
 } from '@/lib/customerProfilesFirestore';
 
+const RESEND_COOLDOWN_SECONDS = 60;
+const MAX_RESEND_ATTEMPTS = 2;
+const WHATSAPP_NUMBER = '054-2244542';
+const WHATSAPP_URL = 'https://wa.me/972542244542';
+
 export default function OTPLogin() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -36,32 +41,56 @@ export default function OTPLogin() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const confirmationResultRef = useRef(null);
+  const smsRequestInFlightRef = useRef(false);
+  const verificationInFlightRef = useRef(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendAttempts, setResendAttempts] = useState(0);
 
   // Admin login
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [smsLoading, setSmsLoading] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => () => resetFirebasePhoneRecaptcha(), []);
+  useEffect(() => {
+    if (step !== 'otp' || resendCooldown <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [step, resendCooldown]);
 
   // ─── Customer OTP ──────────────────────────────────────────────
-  const handleSendOTP = async () => {
-    setLoading(true);
+  const handleSendOTP = async (isResend = false) => {
+    if (smsRequestInFlightRef.current || verificationInFlightRef.current) return;
+    if (isResend && (resendCooldown > 0 || resendAttempts >= MAX_RESEND_ATTEMPTS)) return;
+
+    smsRequestInFlightRef.current = true;
+    setSmsLoading(true);
     setError('');
+    if (isResend) {
+      setResendAttempts((attempts) => attempts + 1);
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    }
 
     try {
-      const customerPhone = normalizeIsraeliPhoneNumber(phone);
+      const customerPhone = isResend && normalizedPhone
+        ? normalizedPhone
+        : normalizeIsraeliPhoneNumber(phone);
       setNormalizedPhone(customerPhone);
 
-      console.info('[Firebase Phone Auth] starting customer SMS flow');
-      const result = await startFirebasePhoneVerification(phone, 'customer-phone-send-button');
+      console.info('[Firebase Phone Auth] starting customer SMS flow', { isResend });
+      const result = await startFirebasePhoneVerification(customerPhone);
       confirmationResultRef.current = result.confirmationResult;
       console.info('[Customer Auth] OTP sent', { phoneNumberPresent: Boolean(result.phoneNumber) });
 
       setOtp('');
       setStep('otp');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      if (!isResend) setResendAttempts(0);
     } catch (phoneAuthError) {
       console.error('[Firebase] Customer SMS verification failed', {
         code: phoneAuthError?.code || 'unknown',
@@ -69,13 +98,16 @@ export default function OTPLogin() {
       });
       setError(getPhoneAuthErrorMessage(phoneAuthError));
     } finally {
-      setLoading(false);
+      smsRequestInFlightRef.current = false;
+      setSmsLoading(false);
     }
   };
 
   const handleVerifyOTP = async () => {
+    if (verificationInFlightRef.current || smsRequestInFlightRef.current) return;
     if (otp.length !== 6) { setError('יש להזין קוד אימות בן 6 ספרות'); return; }
-    setLoading(true);
+    verificationInFlightRef.current = true;
+    setVerificationLoading(true);
     setError('');
 
     try {
@@ -110,7 +142,8 @@ export default function OTPLogin() {
           : getPhoneAuthErrorMessage(phoneAuthError),
       );
     } finally {
-      setLoading(false);
+      verificationInFlightRef.current = false;
+      setVerificationLoading(false);
     }
   };
 
@@ -177,7 +210,8 @@ export default function OTPLogin() {
   };
 
   const switchToAdmin = () => {
-    resetFirebasePhoneRecaptcha();
+    if (smsRequestInFlightRef.current || verificationInFlightRef.current) return;
+    resetFirebasePhoneRecaptcha('switch-to-admin');
     setMode('admin');
     setError('');
   };
@@ -185,20 +219,24 @@ export default function OTPLogin() {
     setMode('customer');
     setError('');
     setStep('phone');
+    setNormalizedPhone('');
+    confirmationResultRef.current = null;
     setFirstName('');
     setLastName('');
+    setResendAttempts(0);
+    setResendCooldown(0);
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col" dir="rtl">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+    <div className="auth-viewport min-h-screen bg-background flex flex-col" dir="rtl">
+      <div className="flex-1 flex flex-col items-center justify-start sm:justify-center px-6 py-6 sm:py-12 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-sm"
         >
           {/* Header */}
-          <div className="text-center mb-10">
+          <div className="text-center mb-6 sm:mb-10">
             <img src={BARBER_PHOTO} alt="OST Barber" className="w-24 h-24 rounded-2xl border-2 border-primary object-cover gold-shadow mx-auto mb-4" />
             <h1 className="text-3xl font-black tracking-tight">OST BARBER</h1>
             <p className="text-muted-foreground mt-1">
@@ -206,6 +244,7 @@ export default function OTPLogin() {
             </p>
           </div>
 
+          <div className="auth-step-frame">
           <AnimatePresence mode="wait">
 
             {/* ─── ADMIN MODE ─── */}
@@ -282,8 +321,12 @@ export default function OTPLogin() {
                     <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <input
                       type="tel"
+                      autoComplete="tel"
                       value={phone}
-                      onChange={e => setPhone(e.target.value)}
+                      onChange={e => {
+                        setPhone(e.target.value);
+                        setNormalizedPhone('');
+                      }}
                       placeholder="054-0000000"
                       className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                       dir="rtl"
@@ -291,14 +334,15 @@ export default function OTPLogin() {
                   </div>
                 </div>
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
-                <GoldButton id="customer-phone-send-button" onClick={handleSendOTP} size="lg" className="w-full" disabled={loading}>
-                  {loading ? 'שולח...' : 'שלח קוד אימות'}
+                <GoldButton onClick={() => handleSendOTP(false)} size="lg" className="w-full" disabled={smsLoading}>
+                  {smsLoading ? 'שולח...' : 'שלח קוד אימות'}
                 </GoldButton>
 
                 {/* Admin link */}
                 <div className="text-center pt-2">
                   <button
                     onClick={switchToAdmin}
+                    disabled={smsLoading || verificationLoading}
                     className="text-muted-foreground/60 text-xs hover:text-primary transition-colors"
                   >
                     כניסת מנהל
@@ -323,21 +367,63 @@ export default function OTPLogin() {
                 </div>
                 <input
                   type="text"
+                  autoComplete="one-time-code"
                   inputMode="numeric"
+                  name="one-time-code"
                   value={otp}
                   onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onPaste={(event) => {
+                    const pastedCode = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+                    if (!pastedCode) return;
+                    event.preventDefault();
+                    setOtp(pastedCode);
+                  }}
                   placeholder="הזן קוד 6 ספרות"
                   className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-center text-2xl font-bold tracking-widest placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                   maxLength={6}
                 />
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
-                <GoldButton onClick={handleVerifyOTP} size="lg" className="w-full" disabled={loading}>
-                  {loading ? 'מאמת...' : 'אמת קוד'}
+                <GoldButton onClick={handleVerifyOTP} size="lg" className="w-full" disabled={verificationLoading || smsLoading}>
+                  {verificationLoading ? 'מאמת...' : 'אמת קוד'}
                 </GoldButton>
+                <div className="glass rounded-2xl p-4 text-center space-y-2">
+                  <p className="text-sm font-bold">לא קיבלת קוד?</p>
+                  {resendAttempts >= MAX_RESEND_ATTEMPTS ? (
+                    <p className="text-muted-foreground text-xs leading-5">
+                      ניסית לשלוח קוד מספר פעמים. אם הקוד לא הגיע, צור קשר עם הספר.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSendOTP(true)}
+                      disabled={smsLoading || verificationLoading || resendCooldown > 0}
+                      className="text-primary text-sm font-bold disabled:text-muted-foreground disabled:cursor-not-allowed"
+                    >
+                      {smsLoading
+                        ? 'שולח...'
+                        : resendCooldown > 0
+                          ? `שליחה מחדש בעוד ${resendCooldown} שניות`
+                          : 'שליחה מחדש'}
+                    </button>
+                  )}
+                  <a
+                    href={WHATSAPP_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-2 text-primary text-sm font-bold"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    WhatsApp {WHATSAPP_NUMBER}
+                  </a>
+                </div>
                 <button
+                  disabled={smsLoading || verificationLoading}
                   onClick={() => {
-                    resetFirebasePhoneRecaptcha();
+                    resetFirebasePhoneRecaptcha('otp-back');
                     confirmationResultRef.current = null;
+                    setNormalizedPhone('');
+                    setResendAttempts(0);
+                    setResendCooldown(0);
                     setStep('phone');
                   }}
                   className="flex items-center gap-1 text-muted-foreground text-sm mx-auto"
@@ -394,6 +480,7 @@ export default function OTPLogin() {
             )}
 
           </AnimatePresence>
+          </div>
         </motion.div>
       </div>
     </div>
