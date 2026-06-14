@@ -32,12 +32,20 @@ import AdminBarbers from './pages/admin/AdminBarbers';
 // Layout
 import AppLayout from './components/layout/AppLayout';
 import AdminRoute from './components/AdminRoute';
+import { PHONE_RECAPTCHA_CONTAINER_ID } from '@/lib/firebase';
 
 function App() {
   const [splashDone, setSplashDone] = useState(false);
 
   return (
     <>
+      <button
+        type="button"
+        id={PHONE_RECAPTCHA_CONTAINER_ID}
+        className="firebase-phone-recaptcha-container"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <MobileViewportManager />
       <CustomerSessionHydrator />
       {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}

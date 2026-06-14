@@ -41,8 +41,10 @@ export default function OTPLogin() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const confirmationResultRef = useRef(null);
-  const smsRequestInFlightRef = useRef(false);
+  const isSendingOtpRef = useRef(false);
   const verificationInFlightRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
+  const resendAttemptsRef = useRef(0);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
 
@@ -64,47 +66,66 @@ export default function OTPLogin() {
   }, [step, resendCooldown]);
 
   // ─── Customer OTP ──────────────────────────────────────────────
-  const handleSendOTP = async (isResend = false) => {
-    if (smsRequestInFlightRef.current || verificationInFlightRef.current) return;
-    if (isResend && (resendCooldown > 0 || resendAttempts >= MAX_RESEND_ATTEMPTS)) return;
+  const handleSendOTP = async (isResend = false, triggerButton = null) => {
+    if (isSendingOtpRef.current || smsLoading || verificationInFlightRef.current) return;
+    if (!isResend && confirmationResultRef.current) {
+      setStep('otp');
+      return;
+    }
+    if (Date.now() < cooldownUntilRef.current || resendCooldown > 0) return;
+    if (isResend && (resendAttemptsRef.current >= MAX_RESEND_ATTEMPTS || resendAttempts >= MAX_RESEND_ATTEMPTS)) return;
 
-    smsRequestInFlightRef.current = true;
+    if (triggerButton) triggerButton.disabled = true;
+    isSendingOtpRef.current = true;
     setSmsLoading(true);
     setError('');
-    if (isResend) {
-      setResendAttempts((attempts) => attempts + 1);
-      setResendCooldown(RESEND_COOLDOWN_SECONDS);
-    }
 
     try {
       const customerPhone = isResend && normalizedPhone
         ? normalizedPhone
         : normalizeIsraeliPhoneNumber(phone);
       setNormalizedPhone(customerPhone);
+      cooldownUntilRef.current = Date.now() + (RESEND_COOLDOWN_SECONDS * 1000);
+      if (isResend) {
+        resendAttemptsRef.current += 1;
+        setResendAttempts(resendAttemptsRef.current);
+        setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      }
 
       console.info('[Firebase Phone Auth] starting customer SMS flow', { isResend });
-      const result = await startFirebasePhoneVerification(customerPhone);
+      const result = await startFirebasePhoneVerification(customerPhone, { isResend });
       confirmationResultRef.current = result.confirmationResult;
-      console.info('[Customer Auth] OTP sent', { phoneNumberPresent: Boolean(result.phoneNumber) });
+      console.info('[Customer Auth] OTP sent', {
+        phoneNumberPresent: Boolean(result.phoneNumber),
+        reusedExistingConfirmation: result.reused === true,
+      });
 
       setOtp('');
       setStep('otp');
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
-      if (!isResend) setResendAttempts(0);
+      if (!isResend) {
+        resendAttemptsRef.current = 0;
+        setResendAttempts(0);
+      }
     } catch (phoneAuthError) {
       console.error('[Firebase] Customer SMS verification failed', {
         code: phoneAuthError?.code || 'unknown',
         message: phoneAuthError?.message || 'Unknown Firebase error',
       });
+      if (phoneAuthError?.code === 'auth/sms-cooldown-active') {
+        const remainingSeconds = Math.ceil(Number(phoneAuthError.cooldownRemainingMs || 0) / 1000);
+        cooldownUntilRef.current = Date.now() + (remainingSeconds * 1000);
+        setResendCooldown(remainingSeconds);
+      }
       setError(getPhoneAuthErrorMessage(phoneAuthError));
     } finally {
-      smsRequestInFlightRef.current = false;
+      isSendingOtpRef.current = false;
       setSmsLoading(false);
     }
   };
 
   const handleVerifyOTP = async () => {
-    if (verificationInFlightRef.current || smsRequestInFlightRef.current) return;
+    if (verificationInFlightRef.current || isSendingOtpRef.current) return;
     if (otp.length !== 6) { setError('יש להזין קוד אימות בן 6 ספרות'); return; }
     verificationInFlightRef.current = true;
     setVerificationLoading(true);
@@ -210,7 +231,7 @@ export default function OTPLogin() {
   };
 
   const switchToAdmin = () => {
-    if (smsRequestInFlightRef.current || verificationInFlightRef.current) return;
+    if (isSendingOtpRef.current || verificationInFlightRef.current) return;
     resetFirebasePhoneRecaptcha('switch-to-admin');
     setMode('admin');
     setError('');
@@ -219,12 +240,15 @@ export default function OTPLogin() {
     setMode('customer');
     setError('');
     setStep('phone');
-    setNormalizedPhone('');
-    confirmationResultRef.current = null;
     setFirstName('');
     setLastName('');
-    setResendAttempts(0);
-    setResendCooldown(0);
+    if (!confirmationResultRef.current) {
+      setNormalizedPhone('');
+      cooldownUntilRef.current = 0;
+      resendAttemptsRef.current = 0;
+      setResendAttempts(0);
+      setResendCooldown(0);
+    }
   };
 
   return (
@@ -323,6 +347,7 @@ export default function OTPLogin() {
                       type="tel"
                       autoComplete="tel"
                       value={phone}
+                      disabled={Boolean(confirmationResultRef.current)}
                       onChange={e => {
                         setPhone(e.target.value);
                         setNormalizedPhone('');
@@ -334,8 +359,17 @@ export default function OTPLogin() {
                   </div>
                 </div>
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
-                <GoldButton onClick={() => handleSendOTP(false)} size="lg" className="w-full" disabled={smsLoading}>
-                  {smsLoading ? 'שולח...' : 'שלח קוד אימות'}
+                <GoldButton
+                  onClick={(event) => handleSendOTP(false, event.currentTarget)}
+                  size="lg"
+                  className="w-full"
+                  disabled={smsLoading || verificationLoading}
+                >
+                  {smsLoading
+                    ? 'שולח...'
+                    : confirmationResultRef.current
+                      ? 'חזרה להזנת הקוד'
+                      : 'שלח קוד אימות'}
                 </GoldButton>
 
                 {/* Admin link */}
@@ -395,7 +429,7 @@ export default function OTPLogin() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleSendOTP(true)}
+                      onClick={(event) => handleSendOTP(true, event.currentTarget)}
                       disabled={smsLoading || verificationLoading || resendCooldown > 0}
                       className="text-primary text-sm font-bold disabled:text-muted-foreground disabled:cursor-not-allowed"
                     >
@@ -420,10 +454,6 @@ export default function OTPLogin() {
                   disabled={smsLoading || verificationLoading}
                   onClick={() => {
                     resetFirebasePhoneRecaptcha('otp-back');
-                    confirmationResultRef.current = null;
-                    setNormalizedPhone('');
-                    setResendAttempts(0);
-                    setResendCooldown(0);
                     setStep('phone');
                   }}
                   className="flex items-center gap-1 text-muted-foreground text-sm mx-auto"

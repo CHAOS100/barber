@@ -17,7 +17,10 @@ const FIREBASE_APP_NAME = 'ost-barber-web';
 const EXPECTED_FIREBASE_PROJECT_ID = 'ost-barber-app';
 const EXPECTED_FIREBASE_API_KEY = 'AIzaSyDYKVodoIVuB2KDLLYV5q3ihkDudOjqMm4';
 const ADMIN_COLLECTION = 'admins';
-const PHONE_RECAPTCHA_CONTAINER_ID = 'firebase-phone-recaptcha';
+export const PHONE_RECAPTCHA_CONTAINER_ID = 'firebase-phone-recaptcha';
+const PHONE_SMS_COOLDOWN_MS = 60_000;
+const MAX_PHONE_SMS_RESEND_ATTEMPTS = 2;
+const PHONE_SMS_GUARD_STORAGE_KEY = 'ost_phone_sms_guard';
 
 const firebaseEnvironment = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -105,6 +108,10 @@ let phoneRecaptchaWidgetId;
 let phoneRecaptchaRenderPromise;
 let phoneSmsRequestPromise;
 let phoneRecaptchaWasUsed = false;
+let activePhoneConfirmationResult;
+let activePhoneConfirmationNumber = '';
+let phoneSmsCooldownUntil = 0;
+let phoneSmsResendAttempts = 0;
 
 const firebaseConfigurationError = () => new Error(
   `Firebase is not configured from valid Vercel build-time environment variables. Missing: ${
@@ -161,12 +168,59 @@ export const normalizeIsraeliPhoneNumber = (phoneNumber) => {
   );
 };
 
+const phoneSmsGuardError = (code, message, details = {}) => Object.assign(
+  new Error(message),
+  { code, ...details },
+);
+
+const loadPhoneSmsGuard = () => {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(PHONE_SMS_GUARD_STORAGE_KEY) || 'null');
+    phoneSmsCooldownUntil = Math.max(phoneSmsCooldownUntil, Number(stored?.cooldownUntil || 0));
+    phoneSmsResendAttempts = Math.max(phoneSmsResendAttempts, Number(stored?.resendAttempts || 0));
+  } catch {
+    // sessionStorage can be unavailable in restricted browser contexts.
+  }
+};
+
+const savePhoneSmsGuard = () => {
+  try {
+    sessionStorage.setItem(PHONE_SMS_GUARD_STORAGE_KEY, JSON.stringify({
+      cooldownUntil: phoneSmsCooldownUntil,
+      resendAttempts: phoneSmsResendAttempts,
+    }));
+  } catch {
+    // The in-memory guard remains active when sessionStorage is unavailable.
+  }
+};
+
+const clearPhoneSmsGuard = () => {
+  activePhoneConfirmationResult = null;
+  activePhoneConfirmationNumber = '';
+  phoneSmsCooldownUntil = 0;
+  phoneSmsResendAttempts = 0;
+  try {
+    sessionStorage.removeItem(PHONE_SMS_GUARD_STORAGE_KEY);
+  } catch {
+    // Nothing else is required when sessionStorage is unavailable.
+  }
+};
+
 const ensurePhoneRecaptchaContainer = () => {
   let container = document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID);
-  if (container) return container;
+  if (container) {
+    container.classList.add('firebase-phone-recaptcha-container');
+    container.setAttribute('aria-hidden', 'true');
+    container.setAttribute('tabindex', '-1');
+    return container;
+  }
 
-  container = document.createElement('div');
+  container = document.createElement('button');
+  container.setAttribute('type', 'button');
   container.id = PHONE_RECAPTCHA_CONTAINER_ID;
+  container.className = 'firebase-phone-recaptcha-container';
+  container.setAttribute('aria-hidden', 'true');
+  container.tabIndex = -1;
   document.body.appendChild(container);
   return container;
 };
@@ -220,6 +274,7 @@ const getOrCreatePhoneRecaptchaVerifier = async () => {
       console.info('[Firebase Phone Auth] Recaptcha initialized', {
         widgetId,
         mode: 'invisible',
+        containerId: PHONE_RECAPTCHA_CONTAINER_ID,
       });
       return widgetId;
     })
@@ -250,31 +305,81 @@ export const clearFirebasePhoneRecaptcha = (reason = 'manual-clear') => {
   phoneRecaptchaWidgetId = null;
   phoneRecaptchaRenderPromise = null;
   phoneRecaptchaWasUsed = false;
-  document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID)?.remove();
+  document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID)?.replaceChildren();
   console.info('[Firebase Phone Auth] Recaptcha cleared', { reason, hadVerifier });
 };
 
-export const startFirebasePhoneVerification = async (phoneNumber) => {
+export const startFirebasePhoneVerification = async (phoneNumber, { isResend = false } = {}) => {
+  const normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
+  loadPhoneSmsGuard();
+
   if (phoneSmsRequestPromise) {
-    console.info('[Firebase Phone Auth] SMS request already in progress; reusing request');
+    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: request in progress');
     return phoneSmsRequestPromise;
   }
 
+  if (!isResend && activePhoneConfirmationResult) {
+    if (activePhoneConfirmationNumber !== normalizedPhoneNumber) {
+      throw phoneSmsGuardError(
+        'auth/sms-session-phone-mismatch',
+        'The active verification session belongs to another phone number.',
+      );
+    }
+    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: confirmation already exists');
+    return {
+      confirmationResult: activePhoneConfirmationResult,
+      phoneNumber: activePhoneConfirmationNumber,
+      reused: true,
+    };
+  }
+
+  const cooldownRemainingMs = phoneSmsCooldownUntil - Date.now();
+  if (cooldownRemainingMs > 0) {
+    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: cooldown active', {
+      cooldownRemainingMs,
+    });
+    throw phoneSmsGuardError(
+      'auth/sms-cooldown-active',
+      'SMS request cooldown is active.',
+      { cooldownRemainingMs },
+    );
+  }
+
+  if (isResend && phoneSmsResendAttempts >= MAX_PHONE_SMS_RESEND_ATTEMPTS) {
+    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: resend limit reached');
+    throw phoneSmsGuardError('auth/too-many-requests', 'SMS resend limit reached.');
+  }
+
+  if (
+    isResend
+    && activePhoneConfirmationNumber
+    && activePhoneConfirmationNumber !== normalizedPhoneNumber
+  ) {
+    throw phoneSmsGuardError(
+      'auth/sms-session-phone-mismatch',
+      'The active verification session belongs to another phone number.',
+    );
+  }
+
   console.info('[Firebase Phone Auth] phone submitted', {
-    phoneMasked: maskPhoneNumber(phoneNumber),
+    phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
     hostname: window.location.hostname,
     projectId: firebaseProjectId,
+    isResend,
   });
+
+  phoneSmsCooldownUntil = Date.now() + PHONE_SMS_COOLDOWN_MS;
+  if (isResend) phoneSmsResendAttempts += 1;
+  savePhoneSmsGuard();
 
   phoneSmsRequestPromise = (async () => {
     console.info('[Firebase Phone Auth] SMS request started', {
-      phoneMasked: maskPhoneNumber(phoneNumber),
+      phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+      isResend,
     });
-    let normalizedPhoneNumber = '';
 
     try {
       await prepareFirebaseAuth();
-      normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
       firebaseAuth.languageCode = 'he';
       console.info('[Firebase Phone Auth] phone normalized', {
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
@@ -283,16 +388,23 @@ export const startFirebasePhoneVerification = async (phoneNumber) => {
       if (phoneRecaptchaWasUsed) resetRenderedPhoneRecaptcha('sms-request-reuse');
       phoneRecaptchaWasUsed = true;
 
+      console.log('REAL FIREBASE SMS REQUEST SENT');
+      console.info('[Firebase Phone Auth] real SMS request details', {
+        phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        isResend,
+      });
       const confirmationResult = await signInWithPhoneNumber(
         firebaseAuth,
         normalizedPhoneNumber,
         verifier,
       );
+      activePhoneConfirmationResult = confirmationResult;
+      activePhoneConfirmationNumber = normalizedPhoneNumber;
       console.info('[Firebase Phone Auth] SMS request succeeded', {
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         verificationIdPresent: Boolean(confirmationResult.verificationId),
       });
-      return { confirmationResult, phoneNumber: normalizedPhoneNumber };
+      return { confirmationResult, phoneNumber: normalizedPhoneNumber, reused: false };
     } catch (error) {
       console.error('[Firebase Phone Auth] SMS request failed', {
         code: error?.code || 'unknown',
@@ -326,6 +438,7 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
   try {
     const credential = await confirmationResult.confirm(String(code || '').trim());
     customerAuthPromise = null;
+    clearPhoneSmsGuard();
     clearFirebasePhoneRecaptcha('otp-confirmed');
     console.info('[Firebase Phone Auth] phone verification completed', {
       uid: credential.user.uid,
@@ -344,13 +457,13 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
 export const getPhoneAuthErrorMessage = (error) => {
   const errorMessage = String(error?.message || '').toLowerCase();
   if (errorMessage.includes('recaptcha has already been rendered')) {
-    return 'אימות האבטחה כבר הופעל. יש להמתין רגע ולנסות שוב.';
+    return 'אימות האבטחה נכשל. נסה שוב.';
   }
   if (errorMessage.includes('recaptcha') && errorMessage.includes('expired')) {
-    return 'אימות האבטחה פג תוקף. יש לנסות לשלוח את הקוד מחדש.';
+    return 'אימות האבטחה נכשל. נסה שוב.';
   }
   if (errorMessage.includes('recaptcha')) {
-    return 'אימות האבטחה נכשל. יש לנסות שוב בעוד רגע.';
+    return 'אימות האבטחה נכשל. נסה שוב.';
   }
   if (
     error?.code === 'auth/operation-not-allowed'
@@ -360,27 +473,29 @@ export const getPhoneAuthErrorMessage = (error) => {
   }
 
   const messages = {
-    'auth/captcha-check-failed': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
-    'auth/recaptcha-expired': 'אימות האבטחה פג תוקף. יש לנסות לשלוח את הקוד מחדש.',
+    'auth/captcha-check-failed': 'אימות האבטחה נכשל. נסה שוב.',
+    'auth/recaptcha-expired': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/billing-not-enabled': 'שליחת SMS אינה זמינה עד להפעלת חיוב בפרויקט Firebase.',
-    'auth/code-expired': 'קוד האימות פג תוקף. יש לבקש קוד חדש.',
-    'auth/invalid-app-credential': 'אימות האבטחה נכשל. יש לרענן את הדף ולנסות שוב.',
+    'auth/code-expired': 'הקוד פג תוקף. שלח קוד חדש.',
+    'auth/invalid-app-credential': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/invalid-phone-number': 'יש להזין מספר טלפון ישראלי תקין.',
-    'auth/network-request-failed': 'לא ניתן להתחבר ל-Firebase. יש לבדוק את החיבור ולנסות שוב.',
-    'auth/invalid-verification-code': 'קוד האימות שגוי. יש לנסות שוב.',
+    'auth/network-request-failed': 'בעיה בחיבור. נסה שוב.',
+    'auth/sms-cooldown-active': 'יש להמתין לפני שליחת קוד נוסף.',
+    'auth/sms-session-phone-mismatch': 'כבר נשלח קוד למספר אחר. יש להשלים את האימות הקיים.',
+    'auth/invalid-verification-code': 'קוד האימות שגוי.',
     'auth/missing-phone-number': 'יש להזין מספר טלפון.',
-    'auth/missing-app-credential': 'אימות האבטחה חסר או פג תוקף. יש לנסות לשלוח את הקוד מחדש.',
+    'auth/missing-app-credential': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/missing-verification-code': 'יש להזין את קוד האימות שנשלח.',
-    'auth/missing-verification-id': 'בקשת האימות פגה. יש לבקש קוד חדש.',
-    'auth/invalid-verification-id': 'בקשת האימות פגה. יש לבקש קוד חדש.',
-    'auth/session-expired': 'קוד האימות פג תוקף. יש לבקש קוד חדש.',
+    'auth/missing-verification-id': 'הקוד פג תוקף. שלח קוד חדש.',
+    'auth/invalid-verification-id': 'הקוד פג תוקף. שלח קוד חדש.',
+    'auth/session-expired': 'הקוד פג תוקף. שלח קוד חדש.',
     'auth/operation-not-allowed': 'התחברות באמצעות טלפון או שליחת SMS אינה מופעלת בהגדרות Firebase.',
     'auth/quota-exceeded': 'מכסת הודעות ה-SMS הסתיימה. יש לנסות מאוחר יותר.',
-    'auth/too-many-requests': 'בוצעו יותר מדי ניסיונות. יש להמתין ולנסות שוב.',
+    'auth/too-many-requests': 'בוצעו יותר מדי ניסיונות. נסה שוב מאוחר יותר.',
     'auth/unauthorized-domain': 'כתובת האתר אינה מורשית להתחברות ב-Firebase.',
   };
 
-  return messages[error?.code] || 'שליחת קוד האימות נכשלה. יש לנסות שוב.';
+  return messages[error?.code] || 'שליחת קוד האימות נכשלה. נסה שוב.';
 };
 
 const unauthorizedAdminError = (reason) => {
@@ -506,7 +621,7 @@ export const ensureFirebaseCustomer = async () => {
     customerAuthPromise = (async () => {
       await prepareFirebaseAuth();
       const user = firebaseAuth.currentUser;
-      if (!user?.phoneNumber) {
+      if (!user?.phoneNumber || user.isAnonymous) {
         if (userStore.getState().currentUser?.isAdmin !== true) {
           logoutUser();
         }
@@ -567,6 +682,7 @@ export const signInFirebaseAdmin = async (email, password) => {
 
 export const signOutFirebaseSession = async () => {
   customerAuthPromise = null;
+  clearPhoneSmsGuard();
   clearFirebasePhoneRecaptcha('sign-out');
   if (firebaseAuth?.currentUser) {
     await signOut(firebaseAuth);

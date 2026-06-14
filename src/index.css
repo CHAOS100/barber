@@ -121,6 +121,17 @@ body:has([role="dialog"]) {
   min-height: 430px;
 }
 
+.firebase-phone-recaptcha-container {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 @media (max-height: 720px) {
   .auth-step-frame {
     min-height: 390px;

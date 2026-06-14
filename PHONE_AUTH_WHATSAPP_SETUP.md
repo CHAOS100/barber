@@ -5,6 +5,11 @@
 The customer login uses Firebase Web Phone Authentication with invisible reCAPTCHA.
 Admin email/password login is unchanged.
 
+The web app keeps one hidden button anchor for `RecaptchaVerifier` and configures it
+with `size: "invisible"`. Normal login does not show a checkbox. Google may still
+show an interactive image challenge when it classifies a request as suspicious;
+that security decision cannot and should not be bypassed.
+
 Before deploying:
 
 1. Open Firebase Console for `ost-barber-app`.
@@ -12,8 +17,11 @@ Before deploying:
 3. Enable **Phone**.
 4. Go to **Authentication > Settings > SMS region policy** and allow **Israel (IL)**.
 5. Go to **Authentication > Settings > Authorized domains**.
-6. Add the production Vercel domain and any custom production domain.
+6. Add `barber-sigma-five.vercel.app` and any custom production domain.
 7. Keep all six existing `VITE_FIREBASE_*` variables configured in Vercel.
+
+Firebase creates and manages the reCAPTCHA client configuration automatically. Do not
+create or expose a separate reCAPTCHA site key in the frontend.
 
 Israeli mobile numbers are normalized as follows:
 
