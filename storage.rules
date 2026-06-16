@@ -9,16 +9,21 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.active == true;
     }
 
-    match /gallery/{allPaths=**} {
-      allow read: if true;
-      allow write: if isAdmin()
-        && (
-          request.resource == null
-          || (
-            request.resource.size < 10 * 1024 * 1024
-            && request.resource.contentType.matches('image/.*')
-          )
-        );
+    function isActiveGalleryImage(imageId) {
+      return firestore.exists(/databases/(default)/documents/gallery/$(imageId))
+        && firestore.get(/databases/(default)/documents/gallery/$(imageId)).data.active == true;
+    }
+
+    function isValidGalleryImageUpload() {
+      return request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /gallery/{imageId}/{fileName} {
+      allow read: if isAdmin() || isActiveGalleryImage(imageId);
+      allow create, update: if isAdmin() && isValidGalleryImageUpload();
+      allow delete: if isAdmin();
     }
 
     match /{allPaths=**} {

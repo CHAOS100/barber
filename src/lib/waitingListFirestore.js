@@ -9,12 +9,11 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
 import {
   ensureFirebaseAdmin,
   ensureFirebaseCustomer,
+  firebaseAuth,
   firebaseProjectId,
-  getFirebaseFunctions,
   getFirestoreDb,
 } from '@/lib/firebase';
 import { getCurrentCustomerProfile } from '@/lib/customerProfilesFirestore';
@@ -145,6 +144,24 @@ export const deleteWaitingListEntryByAdmin = async (waitingListId) => {
 
 export const manuallyNotifyWaitingListEntry = async (waitingListId) => {
   await ensureFirebaseAdmin();
-  const callable = httpsCallable(getFirebaseFunctions(), 'manualNotifyWaitingListEntry');
-  await callable({ waitingListId });
+  const token = await firebaseAuth.currentUser.getIdToken();
+  const functionUrl = `https://us-central1-${firebaseProjectId}.cloudfunctions.net/manualNotifyWaitingListEntry`;
+  const response = await fetch(functionUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ waitingListId }),
+  });
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok || result?.ok === false) {
+    throw Object.assign(
+      new Error(result?.error?.message || 'Waiting list notification failed.'),
+      { code: result?.error?.code || `http/${response.status}` },
+    );
+  }
+
+  return result;
 };

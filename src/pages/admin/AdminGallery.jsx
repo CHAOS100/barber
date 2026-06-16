@@ -15,9 +15,11 @@ import { useMutation } from '@tanstack/react-query';
 import {
   createGalleryPhoto,
   deleteGalleryPhoto,
+  getGalleryUploadErrorMessage,
   replaceGalleryImage,
   updateGalleryPhoto,
   uploadGalleryImage,
+  validateGalleryImageFile,
 } from '@/lib/galleryFirestore';
 import { useAdminGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
@@ -49,6 +51,8 @@ export default function AdminGallery() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [file, setFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState('');
   const { photos, error } = useAdminGalleryRealtime(isAdmin);
   const { data: services } = useAllServicesRealtime();
   const { data: barbers } = useAllBarbersRealtime();
@@ -57,6 +61,8 @@ export default function AdminGallery() {
     setEditing(null);
     setForm(emptyForm);
     setFile(null);
+    setUploadProgress(0);
+    setUploadError('');
   };
 
   const openEditor = (photo = null) => {
@@ -71,26 +77,59 @@ export default function AdminGallery() {
       active: photo.active !== false,
     } : emptyForm);
     setFile(null);
+    setUploadProgress(0);
+    setUploadError('');
+  };
+
+  const handleFileSelected = (selectedFile) => {
+    setUploadError('');
+    setUploadProgress(0);
+    if (!selectedFile) {
+      setFile(null);
+      return;
+    }
+
+    try {
+      validateGalleryImageFile(selectedFile);
+      setFile(selectedFile);
+    } catch (fileError) {
+      setFile(null);
+      setUploadError(getGalleryUploadErrorMessage(fileError));
+    }
   };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (editing?.id) {
-        if (file) return replaceGalleryImage(editing, file, form);
+        if (file) return replaceGalleryImage(editing, file, form, { onProgress: setUploadProgress });
         return updateGalleryPhoto(editing.id, form);
       }
-      if (file) return uploadGalleryImage(file, form);
+      if (file) return uploadGalleryImage(file, form, { onProgress: setUploadProgress });
       return createGalleryPhoto(form);
+    },
+    onMutate: () => {
+      setUploadError('');
+      if (file) setUploadProgress(0);
     },
     onSuccess: () => {
       toast({ title: editing?.id ? 'התמונה עודכנה' : 'התמונה נוספה לגלריה' });
       closeEditor();
     },
-    onError: (mutationError) => toast({
-      variant: 'destructive',
-      title: 'שמירת התמונה נכשלה',
-      description: getUserFacingErrorMessage(mutationError),
-    }),
+    onError: (mutationError) => {
+      const message = file
+        ? getGalleryUploadErrorMessage(mutationError)
+        : getUserFacingErrorMessage(mutationError);
+      setUploadError(message);
+      setUploadProgress(0);
+      toast({
+        variant: 'destructive',
+        title: file ? 'העלאת התמונה נכשלה' : 'שמירת התמונה נכשלה',
+        description: message,
+      });
+    },
+    onSettled: () => {
+      if (!file) setUploadProgress(0);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -123,6 +162,9 @@ export default function AdminGallery() {
     return () => URL.revokeObjectURL(previewUrl);
   }, [file, previewUrl]);
   const canSave = Boolean(file || form.imageUrl.trim());
+  const saveButtonText = saveMutation.isPending
+    ? (file ? `מעלה ${uploadProgress}%` : 'שומר...')
+    : 'שמור תמונה';
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -231,14 +273,58 @@ export default function AdminGallery() {
                 <label className="block glass rounded-xl p-3 cursor-pointer text-center">
                   <Upload className="w-5 h-5 text-primary mx-auto mb-1" />
                   <span className="text-sm font-bold">{file ? file.name : 'בחר תמונה מהמכשיר'}</span>
-                  <span className="block text-xs text-muted-foreground mt-1">תמונה בלבד, עד 10MB</span>
+                  <span className="block text-xs text-muted-foreground mt-1">JPEG, PNG או WebP עד 10MB</span>
                   <input
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => setFile(event.target.files?.[0] || null)}
+                    onChange={(event) => handleFileSelected(event.target.files?.[0] || null)}
+                    disabled={saveMutation.isPending}
                   />
                 </label>
+
+                <label className="block glass rounded-xl p-3 cursor-pointer text-center">
+                  <span className="text-sm font-bold">צלם תמונה במצלמה</span>
+                  <span className="block text-xs text-muted-foreground mt-1">מותאם לניידים שתומכים בפתיחת מצלמה</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(event) => handleFileSelected(event.target.files?.[0] || null)}
+                    disabled={saveMutation.isPending}
+                  />
+                </label>
+
+                {(saveMutation.isPending && file) && (
+                  <div className="rounded-xl bg-secondary p-3">
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="text-muted-foreground">מעלה תמונה</span>
+                      <span className="font-bold text-primary">{uploadProgress}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-background overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-200"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center">
+                    <p className="text-red-400 text-sm font-bold">{uploadError}</p>
+                    {canSave && !saveMutation.isPending && (
+                      <button
+                        type="button"
+                        onClick={() => saveMutation.mutate()}
+                        className="mt-2 text-primary text-sm font-bold"
+                      >
+                        נסה שוב
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <label className="block text-xs text-muted-foreground">
                   או כתובת תמונה
@@ -321,7 +407,7 @@ export default function AdminGallery() {
                 className="w-full mt-5"
                 disabled={!canSave || saveMutation.isPending}
               >
-                {saveMutation.isPending ? 'שומר...' : 'שמור תמונה'}
+                {saveButtonText}
               </GoldButton>
             </motion.div>
           </motion.div>

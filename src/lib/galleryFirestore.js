@@ -6,6 +6,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -13,7 +14,7 @@ import {
   deleteObject,
   getDownloadURL,
   ref as storageRef,
-  uploadBytes,
+  uploadBytesResumable,
 } from 'firebase/storage';
 import {
   ensureFirebaseAdmin,
@@ -22,6 +23,7 @@ import {
 } from '@/lib/firebase';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_CATEGORIES = new Set(['gallery', 'business', 'barber', 'service']);
 const galleryCollection = () => collection(getFirestoreDb(), 'gallery');
 
@@ -57,22 +59,57 @@ const galleryPayload = (input, adminUid) => ({
 
 const validateImageFile = (file) => {
   if (!file) throw Object.assign(new Error('יש לבחור קובץ תמונה.'), { code: 'gallery/file-required' });
-  if (!String(file.type || '').startsWith('image/')) {
-    throw Object.assign(new Error('ניתן להעלות קובצי תמונה בלבד.'), { code: 'gallery/invalid-file-type' });
+  if (!ALLOWED_IMAGE_TYPES.has(String(file.type || ''))) {
+    throw Object.assign(new Error('סוג קובץ לא נתמך'), { code: 'gallery/invalid-file-type' });
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    throw Object.assign(new Error('גודל התמונה המרבי הוא 10MB.'), { code: 'gallery/file-too-large' });
+    throw Object.assign(new Error('הקובץ גדול מדי'), { code: 'gallery/file-too-large' });
   }
 };
 
-const buildStoragePath = (file, category) => {
+export const getGalleryUploadErrorMessage = (error) => {
+  if (error?.code === 'gallery/file-too-large') return 'הקובץ גדול מדי';
+  if (error?.code === 'gallery/invalid-file-type') return 'סוג קובץ לא נתמך';
+  if (error?.code === 'storage/unauthorized') return 'אין לך הרשאה להעלות תמונות.';
+  if (error?.code === 'storage/canceled') return 'העלאת התמונה בוטלה.';
+  if (String(error?.message || '').includes('bucket')) return 'Firebase Storage לא מוגדר לפרויקט.';
+  return 'העלאת התמונה נכשלה';
+};
+
+export const validateGalleryImageFile = validateImageFile;
+
+const buildStoragePath = (imageId, file) => {
   const safeName = String(file.name || 'image')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  const uniqueId = globalThis.crypto?.randomUUID?.()
-    || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `gallery/${normalizeCategory(category)}/${uniqueId}-${safeName || 'image'}`;
+  return `gallery/${imageId}/${safeName || 'image'}`;
 };
+
+const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) => new Promise((resolve, reject) => {
+  onProgress?.(0);
+  const uploadTask = uploadBytesResumable(imageRef, file, {
+    contentType: file.type,
+    customMetadata: {
+      uploadedBy: adminUid,
+      imageId,
+    },
+  });
+
+  uploadTask.on(
+    'state_changed',
+    (snapshot) => {
+      const progress = snapshot.totalBytes
+        ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+        : 0;
+      onProgress?.(progress);
+    },
+    reject,
+    () => {
+      onProgress?.(100);
+      resolve(uploadTask.snapshot);
+    },
+  );
+});
 
 export const subscribeToPublishedGallery = (onData, onError) => onSnapshot(
   query(galleryCollection(), where('active', '==', true)),
@@ -108,45 +145,42 @@ export const createGalleryPhoto = async (input) => {
   });
 };
 
-export const uploadGalleryImage = async (file, input = {}) => {
+export const uploadGalleryImage = async (file, input = {}, options = {}) => {
   validateImageFile(file);
   const admin = await ensureFirebaseAdmin();
-  const storagePath = buildStoragePath(file, input.category);
+  const photoRef = doc(galleryCollection());
+  const storagePath = buildStoragePath(photoRef.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
 
-  await uploadBytes(imageRef, file, {
-    contentType: file.type,
-    customMetadata: { uploadedBy: admin.uid },
-  });
+  await uploadFileWithProgress(imageRef, file, admin.uid, photoRef.id, options.onProgress);
 
   try {
     const imageUrl = await getDownloadURL(imageRef);
-    const created = await addDoc(galleryCollection(), {
+    await setDoc(photoRef, {
       ...galleryPayload({ ...input, imageUrl, storagePath }, admin.uid),
       createdAt: serverTimestamp(),
     });
-    return { id: created.id, imageUrl, storagePath };
+    return { id: photoRef.id, imageUrl, storagePath };
   } catch (error) {
     await deleteObject(imageRef).catch(() => {});
     throw error;
   }
 };
 
-export const replaceGalleryImage = async (photo, file, changes = {}) => {
+export const replaceGalleryImage = async (photo, file, changes = {}, options = {}) => {
   validateImageFile(file);
   if (!photo?.id) throw new Error('מזהה תמונה חסר.');
   const admin = await ensureFirebaseAdmin();
-  const storagePath = buildStoragePath(file, changes.category || photo.category);
+  const storagePath = buildStoragePath(photo.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
-  await uploadBytes(imageRef, file, {
-    contentType: file.type,
-    customMetadata: { uploadedBy: admin.uid },
-  });
+  await uploadFileWithProgress(imageRef, file, admin.uid, photo.id, options.onProgress);
 
   try {
     const imageUrl = await getDownloadURL(imageRef);
-    await updateGalleryPhoto(photo.id, { ...changes, imageUrl });
-    if (photo.storagePath) {
+    await updateDoc(doc(getFirestoreDb(), 'gallery', photo.id), {
+      ...galleryPayload({ ...photo, ...changes, imageUrl, storagePath }, admin.uid),
+    });
+    if (photo.storagePath && photo.storagePath !== storagePath) {
       await deleteObject(storageRef(getFirebaseStorage(), photo.storagePath)).catch((error) => {
         if (error?.code !== 'storage/object-not-found') {
           console.warn('[Firebase Storage] Previous gallery image cleanup failed', {
@@ -156,11 +190,6 @@ export const replaceGalleryImage = async (photo, file, changes = {}) => {
         }
       });
     }
-    await updateDoc(doc(getFirestoreDb(), 'gallery', photo.id), {
-      storagePath,
-      uploadedBy: admin.uid,
-      updatedAt: serverTimestamp(),
-    });
     return { id: photo.id, imageUrl, storagePath };
   } catch (error) {
     await deleteObject(imageRef).catch(() => {});

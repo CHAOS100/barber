@@ -6,6 +6,7 @@ import {
   buildAppointmentCancelledJob,
   buildWaitingListAvailableJob,
   buildWaitingListManualJob,
+  buildWaitingListManualSmsJob,
 } from '../src/notifications/notificationJobs.js';
 
 const appointment = {
@@ -81,4 +82,18 @@ test('manual waiting list notify creates WhatsApp job', () => {
   assert.equal(notificationJob.data.type, 'waiting_list_manual_notify');
   assert.equal(notificationJob.data.phone, '+972541234567');
   assert.equal(notificationJob.data.waitingListId, 'wait-1');
+});
+
+test('manual waiting list SMS notify creates queued SMS job', () => {
+  const notificationJob = buildWaitingListManualSmsJob(
+    'wait-1',
+    { phoneNumber: '054-1234567', date: '2026-06-20', exactTime: '11:00' },
+    new Date('2026-06-12T12:00:00.000Z'),
+  );
+
+  assert.equal(notificationJob.id, 'wait-1_manual_sms_1781265600000');
+  assert.equal(notificationJob.data.type, 'waiting_list_manual_sms_notify');
+  assert.equal(notificationJob.data.channel, 'sms');
+  assert.equal(notificationJob.data.phone, '+972541234567');
+  assert.equal(notificationJob.data.providerConfigured, false);
 });

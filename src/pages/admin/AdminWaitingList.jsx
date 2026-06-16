@@ -77,8 +77,15 @@ export default function AdminWaitingList() {
   const runAction = async (entryId, action, successTitle) => {
     setBusyId(entryId);
     try {
-      await action(entryId);
-      toast({ title: successTitle });
+      const result = await action(entryId);
+      if (result?.smsProviderConfigured === false) {
+        toast({
+          title: 'הלקוח נוסף להתראה',
+          description: 'הלקוח נוסף להתראה, אבל שליחת SMS אמיתית דורשת חיבור ספק SMS.',
+        });
+      } else {
+        toast({ title: successTitle });
+      }
     } catch (actionError) {
       toast({
         variant: 'destructive',
@@ -180,7 +187,7 @@ export default function AdminWaitingList() {
                 <div className="grid grid-cols-3 gap-2">
                   <GoldButton
                     size="sm"
-                    onClick={() => runAction(entry.id, manuallyNotifyWaitingListEntry, 'הודעה נוספה לתור השליחה')}
+                    onClick={() => runAction(entry.id, manuallyNotifyWaitingListEntry, 'ההתראה נשלחה / נוספה לשליחה בהצלחה.')}
                     disabled={busyId === entry.id}
                     className="w-full"
                   >

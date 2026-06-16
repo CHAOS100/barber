@@ -3,12 +3,12 @@ import { DateTime } from 'luxon';
 export const NOTIFICATION_CHANNEL = 'whatsapp';
 export const NOTIFICATION_STATUS = 'pending';
 
-const normalizeWhatsAppPhone = (phone) => {
+const normalizeIsraeliPhone = (phone) => {
   const value = String(phone || '').replace(/[^\d+]/g, '');
   if (/^05\d{8}$/.test(value)) return `+972${value.slice(1)}`;
   if (/^9725\d{8}$/.test(value)) return `+${value}`;
   if (/^\+9725\d{8}$/.test(value)) return value;
-  throw new Error(`Invalid Israeli WhatsApp phone number: ${value || 'missing'}`);
+  throw new Error(`Invalid Israeli notification phone number: ${value || 'missing'}`);
 };
 
 const appointmentStart = (appointment) => {
@@ -25,12 +25,12 @@ const appointmentStart = (appointment) => {
   return start;
 };
 
-const job = ({ id, type, phone, appointmentId, scheduledFor, createdAt }) => ({
+const job = ({ id, type, phone, appointmentId, scheduledFor, createdAt, channel = NOTIFICATION_CHANNEL }) => ({
   id,
   data: {
     type,
-    channel: NOTIFICATION_CHANNEL,
-    phone: normalizeWhatsAppPhone(phone),
+    channel,
+    phone: normalizeIsraeliPhone(phone),
     appointmentId,
     scheduledFor,
     status: NOTIFICATION_STATUS,
@@ -150,6 +150,38 @@ export const buildWaitingListManualJob = (
     data: {
       ...notificationJob.data,
       waitingListId,
+      message: requestedTime
+        ? `התפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date} בשעה ${requestedTime}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
+        : `ייתכן שהתפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date}. היכנס לאפליקציה כדי לבדוק זמינות.`,
+    },
+  };
+};
+
+export const buildWaitingListManualSmsJob = (
+  waitingListId,
+  waitingListEntry,
+  now = new Date(),
+) => {
+  const requestedTime = waitingListEntry.exactTime
+    || waitingListEntry.availableStartTime
+    || waitingListEntry.startTime
+    || '';
+  const notificationJob = job({
+    id: `${waitingListId}_manual_sms_${now.getTime()}`,
+    type: 'waiting_list_manual_sms_notify',
+    channel: 'sms',
+    phone: waitingListEntry.phoneNumber,
+    appointmentId: waitingListEntry.availableAppointmentId || null,
+    scheduledFor: now,
+    createdAt: now,
+  });
+
+  return {
+    ...notificationJob,
+    data: {
+      ...notificationJob.data,
+      waitingListId,
+      providerConfigured: false,
       message: requestedTime
         ? `התפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date} בשעה ${requestedTime}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
         : `ייתכן שהתפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date}. היכנס לאפליקציה כדי לבדוק זמינות.`,

@@ -18,6 +18,7 @@ const TYPE_LABELS = {
   appointment_cancelled: 'ביטול תור',
   waiting_list_slot_available: 'תור התפנה לרשימת המתנה',
   waiting_list_manual_notify: 'הודעה ידנית לרשימת המתנה',
+  waiting_list_manual_sms_notify: 'SMS ידני לרשימת המתנה',
 };
 
 const formatTimestamp = (timestamp) => {
