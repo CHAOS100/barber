@@ -11,6 +11,7 @@ import {
 import GoldButton from '@/components/ui/GoldButton';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime } from '@/hooks/useBookingData';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 const emptyBarber = {
   name: '',
@@ -31,23 +32,23 @@ export default function AdminBarbers() {
     mutationFn: () => saveBarber(editing?.id, form),
     onSuccess: () => {
       setEditing(null);
-      toast({ title: editing?.id ? 'הספר עודכן' : 'הספר נוסף', description: 'רשימת הצוות עודכנה ב-Firestore.' });
+      toast({ title: editing?.id ? 'הספר עודכן' : 'הספר נוסף', description: 'רשימת הצוות עודכנה בהצלחה.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const archiveMutation = useMutation({
     mutationFn: archiveBarber,
     onSuccess: () => {
       toast({ title: 'הספר הועבר לארכיון' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'העברה לארכיון נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'העברה לארכיון נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const deleteMutation = useMutation({
     mutationFn: deleteBarber,
     onSuccess: () => {
       toast({ title: 'הספר נמחק' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
   const openEditor = (barber = null) => {
@@ -74,7 +75,7 @@ export default function AdminBarbers() {
       <div className="px-4 py-4 space-y-3">
         {barbersError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-            טעינת רשימת הספרים מ-Firestore נכשלה: {barbersError.message}
+            {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {barbers.map((barber) => (
@@ -118,9 +119,10 @@ export default function AdminBarbers() {
             onClick={() => setEditing(null)}
           >
             <motion.div
-              initial={{ y: 300 }}
-              animate={{ y: 0 }}
-              exit={{ y: 300 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
               onClick={event => event.stopPropagation()}
             >

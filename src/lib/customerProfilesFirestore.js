@@ -26,6 +26,10 @@ const mapProfile = (snapshot) => {
     blocked_reason: data.blockedReason || '',
     blocked_by: data.blockedBy || null,
     warning_count: Number(data.warningCount || 0),
+    requiresNoShowPayment: data.requiresNoShowPayment === true,
+    noShowPaymentAmount: Number(data.noShowPaymentAmount || 0),
+    noShowPaymentReason: data.noShowPaymentReason || '',
+    relatedAppointmentId: data.relatedAppointmentId || '',
     total_appointments: Number(data.visitsCount || 0),
   };
 };
@@ -43,6 +47,10 @@ export const customerProfileToSession = (profile) => ({
   blocked: profile.blocked === true || profile.isBlocked === true,
   blockedReason: profile.blockedReason || '',
   warningCount: Number(profile.warningCount || 0),
+  requiresNoShowPayment: profile.requiresNoShowPayment === true,
+  noShowPaymentAmount: Number(profile.noShowPaymentAmount || 0),
+  noShowPaymentReason: profile.noShowPaymentReason || '',
+  relatedAppointmentId: profile.relatedAppointmentId || '',
   visitsCount: Number(profile.visitsCount || 0),
   completedAppointments: Number(profile.completedAppointments || 0),
   cancelledAppointments: Number(profile.cancelledAppointments || 0),

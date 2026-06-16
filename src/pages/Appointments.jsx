@@ -9,11 +9,13 @@ import EditAppointmentModal from '../components/booking/EditAppointmentModal';
 import { localDateToString } from '../lib/slotEngine';
 import { cancelOwnAppointment } from '@/lib/appointmentsFirestore';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
+import { getBookingRejectionMessage } from '@/lib/bookingErrors';
+import { useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 
 const STATUS_LABELS = {
   pending: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
   confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20' },
-  completed: { label: 'הושלם', color: 'text-blue-400 bg-blue-400/20' },
+  completed: { label: 'הושלם', color: 'text-primary bg-primary/20' },
   cancelled: { label: 'בוטל', color: 'text-red-400 bg-red-400/20' },
   no_show: { label: 'לא הגיע', color: 'text-orange-400 bg-orange-400/20' },
 };
@@ -26,6 +28,8 @@ export default function Appointments() {
   const [editModal, setEditModal] = useState(null);
 
   const { appointments, isLoading, error: appointmentsError } = useCustomerAppointmentsRealtime(Boolean(currentUser));
+  const { settings: businessSettings } = useBusinessSettingsRealtime();
+  const cancellationDeadlineMinutes = businessSettings?.cancellationDeadlineMinutesBeforeAppointment ?? 180;
 
   const cancelMutation = useMutation({
     mutationFn: (id) => cancelOwnAppointment(id),
@@ -85,7 +89,7 @@ export default function Appointments() {
       <div className="px-4 space-y-3">
         {appointmentsError ? (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm text-center">
-            לא ניתן לקרוא את התורים מ-Firestore. נסה להתחבר מחדש.
+            לא הצלחנו לטעון את הנתונים. נסה לרענן.
           </div>
         ) : isLoading ? (
           [...Array(3)].map((_, i) => (
@@ -203,6 +207,9 @@ export default function Appointments() {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground mb-4">
+                ניתן לבטל עד {cancellationDeadlineMinutes} דקות לפני מועד התור לפי מדיניות העסק.
+              </p>
+              <p className="hidden">
                 ביטול פחות מ-3 שעות לפני התור עלול לגרום להוספת אזהרה לפרופיל שלך.
               </p>
               <div className="flex gap-3">
@@ -211,11 +218,17 @@ export default function Appointments() {
                 </button>
                 <button
                   onClick={() => cancelMutation.mutate(cancelModal.id)}
+                  disabled={cancelMutation.isPending}
                   className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold"
                 >
                   בטל תור
                 </button>
               </div>
+              {cancelMutation.error && (
+                <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                  {getBookingRejectionMessage(cancelMutation.error)}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

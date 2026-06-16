@@ -15,6 +15,13 @@ export const timeToMinutes = (time) => {
   return (hours * 60) + minutes;
 };
 
+const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
+
+export const positiveMinutes = (value, fallback = 0) => {
+  if (!hasNumberValue(value)) return Math.max(0, Number(fallback) || 0);
+  return Math.max(0, Number(value) || 0);
+};
+
 export const addMinutes = (time, duration) => {
   const total = timeToMinutes(time) + Number(duration || 0);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -25,6 +32,17 @@ export const overlaps = (candidate, existing, bufferMinutes = 0) => {
   const candidateEnd = timeToMinutes(candidate.endTime);
   const existingStart = timeToMinutes(existing.startTime);
   const existingEnd = timeToMinutes(existing.endTime);
+  if (typeof bufferMinutes === 'object' && bufferMinutes !== null) {
+    const candidateBefore = positiveMinutes(bufferMinutes.candidateBufferBeforeMinutes);
+    const candidateAfter = positiveMinutes(bufferMinutes.candidateBufferAfterMinutes);
+    const existingBefore = positiveMinutes(bufferMinutes.existingBufferBeforeMinutes);
+    const existingAfter = positiveMinutes(bufferMinutes.existingBufferAfterMinutes);
+
+    return !(
+      candidateStart - candidateBefore >= existingEnd + existingAfter
+      || candidateEnd + candidateAfter <= existingStart - existingBefore
+    );
+  }
   const buffer = Math.max(0, Number(bufferMinutes) || 0);
 
   return !(candidateStart >= existingEnd + buffer || candidateEnd + buffer <= existingStart);
@@ -35,7 +53,14 @@ export const findConflict = (candidate, appointments, bufferMinutes, excludeId =
     appointment.id !== excludeId
     && appointment.barberId === candidate.barberId
     && BLOCKING_STATUSES.has(appointment.status)
-    && overlaps(candidate, appointment, bufferMinutes)
+    && overlaps(candidate, appointment, typeof bufferMinutes === 'object' && bufferMinutes !== null
+      ? {
+        candidateBufferBeforeMinutes: positiveMinutes(candidate.bufferBeforeMinutes, bufferMinutes.defaultBufferBeforeMinutes),
+        candidateBufferAfterMinutes: positiveMinutes(candidate.bufferAfterMinutes, bufferMinutes.defaultBufferAfterMinutes),
+        existingBufferBeforeMinutes: positiveMinutes(appointment.bufferBeforeMinutes, bufferMinutes.defaultBufferBeforeMinutes),
+        existingBufferAfterMinutes: positiveMinutes(appointment.bufferAfterMinutes, bufferMinutes.defaultBufferAfterMinutes),
+      }
+      : bufferMinutes)
   )) || null;
 
 export const getWorkingHoursForDate = (date, workingHours = []) => {

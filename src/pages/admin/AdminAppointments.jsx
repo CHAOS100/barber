@@ -12,6 +12,7 @@ import {
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
@@ -268,6 +269,8 @@ export default function AdminAppointments() {
   const [selectedAppt, setSelectedAppt] = useState(null);
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [noShowAppt, setNoShowAppt] = useState(null);
+  const [noShowAction, setNoShowAction] = useState('warning');
 
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
   const { data: services, error: servicesError } = useAllServicesRealtime();
@@ -278,9 +281,10 @@ export default function AdminAppointments() {
     onSuccess: () => {
       setSelectedAppt(null);
       setEditAppt(null);
+      setNoShowAppt(null);
       toast({ title: 'התור עודכן', description: 'השינוי נשמר ומופיע בזמן אמת.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
   const deleteMutation = useMutation({
@@ -289,16 +293,16 @@ export default function AdminAppointments() {
       setSelectedAppt(null);
       toast({ title: 'התור נמחק', description: 'הזמן התפנה להזמנה מחדש.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת התור נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת התור נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
   const createMutation = useMutation({
     mutationFn: (data) => createAdminAppointment(data),
     onSuccess: () => {
       setShowNewForm(false);
-      toast({ title: 'התור נוסף', description: 'התור נשמר ב-Firestore.' });
+      toast({ title: 'התור נוסף', description: 'התור נשמר בהצלחה.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'יצירת התור נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'יצירת התור נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
@@ -365,12 +369,12 @@ export default function AdminAppointments() {
 
       {appointmentsError && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
-          לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+          {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
       {(servicesError || barbersError) && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
-          טעינת השירותים או הספרים מ-Firestore נכשלה. יש לרענן ולנסות שוב.
+          {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
       {mutationError && (
@@ -449,7 +453,10 @@ export default function AdminAppointments() {
                 {(appt.status === 'pending' || appt.status === 'confirmed') && (
                   <>
                     <button
-                      onClick={() => updateMutation.mutate({ id: appt.id, data: { status: 'no_show' } })}
+                      onClick={() => {
+                        setNoShowAppt(appt);
+                        setNoShowAction('warning');
+                      }}
                       className="flex-1 py-1.5 rounded-xl bg-orange-500/15 text-orange-400 text-xs font-bold flex items-center justify-center gap-1"
                     >
                       <UserX className="w-3 h-3" /> לא הגיע
@@ -513,6 +520,65 @@ export default function AdminAppointments() {
             isSaving={createMutation.isPending}
             error={createMutation.error}
           />
+        )}
+        {noShowAppt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            onClick={() => setNoShowAppt(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              onClick={event => event.stopPropagation()}
+              dir="rtl"
+            >
+              <h3 className="font-black text-lg mb-2">סימון אי הגעה</h3>
+              <p className="text-muted-foreground text-sm mb-4">
+                בחר מה לעשות עם הלקוח בעקבות אי הגעה לתור.
+              </p>
+              <div className="space-y-2">
+                {[
+                  { value: 'warning', label: 'אזהרה בלבד', description: 'הוספת אזהרה לפרופיל הלקוח.' },
+                  { value: 'payment_required', label: 'דרוש תשלום 50%', description: 'יסומן שנדרש תשלום לפני ההזמנה הבאה.' },
+                  { value: 'block', label: 'חסום לקוח', description: 'מונע מהלקוח לקבוע תורים חדשים.' },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setNoShowAction(option.value)}
+                    className={`w-full rounded-2xl p-3 text-right border transition-all ${
+                      noShowAction === option.value
+                        ? 'border-primary bg-primary/10'
+                        : 'border-white/10 glass'
+                    }`}
+                  >
+                    <span className="block font-bold text-sm">{option.label}</span>
+                    <span className="block text-xs text-muted-foreground mt-1">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setNoShowAppt(null)} className="flex-1 glass py-3 rounded-xl font-bold">
+                  ביטול
+                </button>
+                <button
+                  onClick={() => updateMutation.mutate({
+                    id: noShowAppt.id,
+                    data: { status: 'no_show', noShowAction },
+                  })}
+                  disabled={updateMutation.isPending}
+                  className="flex-1 gold-gradient text-black py-3 rounded-xl font-black"
+                >
+                  {updateMutation.isPending ? 'שומר...' : 'סמן לא הגיע'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

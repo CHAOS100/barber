@@ -100,3 +100,59 @@ export const buildAppointmentCancelledJob = (
   scheduledFor: now,
   createdAt: now,
 });
+
+export const buildWaitingListAvailableJob = (
+  waitingListId,
+  appointmentId,
+  waitingListEntry,
+  appointment,
+  now = new Date(),
+) => {
+  const notificationJob = job({
+    id: `${waitingListId}_${appointmentId}_available`,
+    type: 'waiting_list_slot_available',
+    phone: waitingListEntry.phoneNumber,
+    appointmentId,
+    scheduledFor: now,
+    createdAt: now,
+  });
+
+  return {
+    ...notificationJob,
+    data: {
+      ...notificationJob.data,
+      waitingListId,
+      message: `התפנה תור ב־OST BARBER בתאריך ${appointment.date} בשעה ${appointment.startTime}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`,
+    },
+  };
+};
+
+export const buildWaitingListManualJob = (
+  waitingListId,
+  waitingListEntry,
+  now = new Date(),
+) => {
+  const requestedTime = waitingListEntry.exactTime
+    || waitingListEntry.availableStartTime
+    || waitingListEntry.startTime
+    || '';
+  const notificationJob = job({
+    id: `${waitingListId}_manual_${now.getTime()}`,
+    type: 'waiting_list_manual_notify',
+    phone: waitingListEntry.phoneNumber,
+    appointmentId: waitingListEntry.availableAppointmentId || null,
+    scheduledFor: now,
+    createdAt: now,
+  });
+
+  return {
+    ...notificationJob,
+    data: {
+      ...notificationJob.data,
+      waitingListId,
+      message: requestedTime
+        ? `התפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date} בשעה ${requestedTime}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
+        : `ייתכן שהתפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date}. היכנס לאפליקציה כדי לבדוק זמינות.`,
+    },
+  };
+};

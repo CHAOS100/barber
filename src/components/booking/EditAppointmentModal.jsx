@@ -63,11 +63,19 @@ export default function EditAppointmentModal({ appointment, onClose }) {
     return getAvailableSlots({
       date: ds,
       serviceDuration: appointment.service_duration || 30,
+      service: {
+        id: appointment.service_id,
+        duration: appointment.service_duration || 30,
+        bufferBeforeMinutes: appointment.bufferBeforeMinutes,
+        bufferAfterMinutes: appointment.bufferAfterMinutes,
+      },
       appointments: otherAppointments,
       workingHours: wh,
       blockedTimes: [],
       slotInterval: bookingSettings?.slotInterval || 10,
+      visibleSlotIntervalMinutes: bookingSettings?.visibleSlotIntervalMinutes || 30,
       bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
+      settings: bookingSettings || {},
     });
   }, [selectedDate, isDateBlocked, workingHours, otherAppointments, appointment.service_duration, bookingSettings]);
 

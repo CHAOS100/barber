@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star, Image } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star, Image, Eye, MessageSquareText, ListChecks } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { BARBER_PHOTO } from '../../lib/businessConfig';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -12,6 +12,7 @@ import DailyCalendarView from '../../components/admin/DailyCalendarView';
 import { localDateToString } from '../../lib/slotEngine';
 import { updateAdminAppointment } from '@/lib/appointmentsFirestore';
 import { toast } from '@/components/ui/use-toast';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import { useAllServicesRealtime } from '@/hooks/useBookingData';
 import { useAdminReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
@@ -19,7 +20,7 @@ import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from 
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { currentUser, isAdmin } = useCurrentUser();
+  const { currentUser, isAdmin, enterAdminPreview } = useCurrentUser();
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime(isAdmin);
   const { data: services } = useAllServicesRealtime();
   const { reviews } = useAdminReviewsRealtime(isAdmin);
@@ -41,7 +42,7 @@ export default function AdminDashboard() {
       setMoveError(error?.code === 'functions/already-exists'
         ? 'לא ניתן להזיז את התור: השעה החדשה חופפת לתור אחר.'
         : 'הזזת התור נכשלה.');
-      toast({ variant: 'destructive', title: 'הזזת התור נכשלה', description: error?.message });
+      toast({ variant: 'destructive', title: 'הזזת התור נכשלה', description: getUserFacingErrorMessage(error) });
     }
   };
 
@@ -65,7 +66,9 @@ export default function AdminDashboard() {
     { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: `${services.length} שירותים` },
     { icon: UserRoundCog, label: 'ספרים / צוות', path: '/admin/barbers', desc: 'הוספה וניהול ספרים' },
     { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: `${customers.length} לקוחות` },
-    { icon: Star, label: 'ביקורות', path: '/reviews', desc: `${reviews.length} ביקורות` },
+    { icon: Star, label: 'ביקורות', path: '/admin/reviews', desc: `${reviews.length} ביקורות` },
+    { icon: ListChecks, label: 'רשימת המתנה', path: '/admin/waiting-list', desc: 'לקוחות שמחכים לתור שהתפנה' },
+    { icon: MessageSquareText, label: 'הודעות', path: '/admin/messages', desc: 'מעקב אחרי הודעות WhatsApp' },
     { icon: Image, label: 'ניהול תמונות', path: '/admin/gallery', desc: 'גלריה, עסק, צוות ושירותים' },
     { icon: BarChart3, label: 'אנליטיקה', path: '/admin/analytics', desc: 'דוחות מפורטים' },
     { icon: Clock, label: 'שעות עבודה', path: '/admin/hours', desc: 'ניהול לוח זמנים' },
@@ -83,13 +86,23 @@ export default function AdminDashboard() {
             <h1 className="text-2xl font-black">לוח ניהול</h1>
             <p className="text-primary text-sm font-medium">OST BARBER</p>
           </div>
+          <button
+            onClick={() => {
+              enterAdminPreview();
+              navigate('/');
+            }}
+            className="mr-auto glass-gold px-3 py-2 rounded-xl text-primary text-xs font-bold flex items-center gap-1"
+          >
+            <Eye className="w-4 h-4" />
+            צפייה כצד לקוח
+          </button>
         </div>
       </div>
 
       <div className="px-4 space-y-4">
         {appointmentsError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
-            לא ניתן לקרוא תורים מ-Firestore. ודא שהמשתמש מחובר ל-Firebase ומופיע באוסף admins.
+            {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {moveError && (
@@ -101,7 +114,7 @@ export default function AdminDashboard() {
         {/* Today Stats */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { icon: Calendar, label: 'תורים היום', value: stats.todayAppointments, color: 'text-blue-400', bg: 'bg-blue-400/20' },
+            { icon: Calendar, label: 'תורים היום', value: stats.todayAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Wallet, label: 'הכנסות היום', value: `₪${stats.todayRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Users, label: 'ממתינים לאישור', value: stats.pendingAppointments, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
             { icon: TrendingUp, label: 'הכנסות החודש', value: `₪${stats.monthRevenue.toLocaleString()}`, color: 'text-purple-400', bg: 'bg-purple-400/20' },

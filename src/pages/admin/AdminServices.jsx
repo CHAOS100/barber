@@ -7,8 +7,18 @@ import { deleteService, saveService } from '@/lib/businessFirestore';
 import GoldButton from '../../components/ui/GoldButton';
 import { useAllServicesRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
-const emptyService = { name: '', description: '', price: '', duration: '', is_active: true, category: '' };
+const emptyService = {
+  name: '',
+  description: '',
+  price: '',
+  duration: '',
+  bufferBeforeMinutes: '',
+  bufferAfterMinutes: '',
+  is_active: true,
+  category: '',
+};
 
 export default function AdminServices() {
   const navigate = useNavigate();
@@ -23,27 +33,27 @@ export default function AdminServices() {
     onSuccess: (_, variables) => {
       toast({
         title: editModal?.id ? 'השירות עודכן' : 'השירות נוסף',
-        description: `${variables.name} נשמר ב-Firestore.`,
+        description: `${variables.name} נשמר בהצלחה.`,
       });
       setEditModal(null);
     },
     onError: (error) => toast({
       variant: 'destructive',
       title: 'שמירת השירות נכשלה',
-      description: error?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(error),
     }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteService,
     onSuccess: () => toast({ title: 'השירות נמחק', description: 'הרשימה עודכנה בזמן אמת.' }),
-    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת השירות נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת השירות נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (/** @type {any} */ { id, is_active }) => saveService(id, { ...services.find(s => s.id === id), is_active }),
     onSuccess: () => toast({ title: 'סטטוס השירות עודכן' }),
-    onError: (error) => toast({ variant: 'destructive', title: 'עדכון השירות נכשל', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'עדכון השירות נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
   const openEdit = (service = null) => {
@@ -67,7 +77,17 @@ export default function AdminServices() {
       return;
     }
     setValidationError('');
-    saveMutation.mutate({ ...form, price: Number(form.price), duration: Number(form.duration) });
+    saveMutation.mutate({
+      ...form,
+      price: Number(form.price),
+      duration: Number(form.duration),
+      bufferBeforeMinutes: form.bufferBeforeMinutes === '' || form.bufferBeforeMinutes === null
+        ? null
+        : Number(form.bufferBeforeMinutes),
+      bufferAfterMinutes: form.bufferAfterMinutes === '' || form.bufferAfterMinutes === null
+        ? null
+        : Number(form.bufferAfterMinutes),
+    });
   };
 
   return (
@@ -85,7 +105,7 @@ export default function AdminServices() {
       <div className="px-4 py-4 space-y-3">
         {servicesError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-            טעינת השירותים מ-Firestore נכשלה: {servicesError.message}
+            {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {services.map((service, i) => (
@@ -141,9 +161,10 @@ export default function AdminServices() {
             onClick={() => setEditModal(null)}
           >
             <motion.div
-              initial={{ y: 300 }}
-              animate={{ y: 0 }}
-              exit={{ y: 300 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
@@ -160,6 +181,8 @@ export default function AdminServices() {
                   { field: 'price', label: 'מחיר (₪)', placeholder: '60', type: 'number' },
                   { field: 'duration', label: 'משך (דקות)', placeholder: '30', type: 'number' },
                   { field: 'category', label: 'קטגוריה', placeholder: 'תספורת', type: 'text' },
+                  { field: 'bufferBeforeMinutes', label: 'מרווח לפני השירות (דקות)', placeholder: 'לפי ברירת מחדל', type: 'number' },
+                  { field: 'bufferAfterMinutes', label: 'מרווח אחרי השירות (דקות)', placeholder: 'לפי ברירת מחדל', type: 'number' },
                 ].map(({ field, label, placeholder, type }) => (
                   <div key={field}>
                     <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
@@ -185,7 +208,7 @@ export default function AdminServices() {
               </div>
               {(validationError || saveMutation.error) && (
                 <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-                  {validationError || saveMutation.error?.message}
+                  {validationError || getUserFacingErrorMessage(saveMutation.error)}
                 </div>
               )}
               <GoldButton

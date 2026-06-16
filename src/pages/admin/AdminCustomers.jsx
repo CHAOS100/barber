@@ -8,6 +8,7 @@ import {
   updateCustomerByAdmin,
 } from '@/lib/customerProfilesFirestore';
 import { toast } from '@/components/ui/use-toast';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 export default function AdminCustomers() {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export default function AdminCustomers() {
     onError: (error) => toast({
       variant: 'destructive',
       title: 'עדכון הלקוח נכשל',
-      description: error?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(error),
     }),
   });
 
@@ -70,7 +71,7 @@ export default function AdminCustomers() {
 
       {loadError && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-          טעינת הלקוחות מ-Firestore נכשלה: {loadError.message}
+          {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
 
@@ -120,9 +121,10 @@ export default function AdminCustomers() {
             onClick={() => setSelectedCustomer(null)}
           >
             <motion.div
-              initial={{ y: 300 }}
-              animate={{ y: 0 }}
-              exit={{ y: 300 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
               onClick={event => event.stopPropagation()}
             >

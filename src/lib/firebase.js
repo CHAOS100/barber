@@ -469,13 +469,13 @@ export const getPhoneAuthErrorMessage = (error) => {
     error?.code === 'auth/operation-not-allowed'
     && errorMessage.includes('region')
   ) {
-    return 'שליחת SMS לישראל אינה מאופשרת בהגדרות Firebase. יש לפנות למנהל המערכת.';
+    return 'שליחת SMS אינה זמינה כרגע. פנה לעסק.';
   }
 
   const messages = {
     'auth/captcha-check-failed': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/recaptcha-expired': 'אימות האבטחה נכשל. נסה שוב.',
-    'auth/billing-not-enabled': 'שליחת SMS אינה זמינה עד להפעלת חיוב בפרויקט Firebase.',
+    'auth/billing-not-enabled': 'שליחת SMS אינה זמינה כרגע. פנה לעסק.',
     'auth/code-expired': 'הקוד פג תוקף. שלח קוד חדש.',
     'auth/invalid-app-credential': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/invalid-phone-number': 'יש להזין מספר טלפון ישראלי תקין.',
@@ -489,10 +489,10 @@ export const getPhoneAuthErrorMessage = (error) => {
     'auth/missing-verification-id': 'הקוד פג תוקף. שלח קוד חדש.',
     'auth/invalid-verification-id': 'הקוד פג תוקף. שלח קוד חדש.',
     'auth/session-expired': 'הקוד פג תוקף. שלח קוד חדש.',
-    'auth/operation-not-allowed': 'התחברות באמצעות טלפון או שליחת SMS אינה מופעלת בהגדרות Firebase.',
+    'auth/operation-not-allowed': 'התחברות באמצעות טלפון אינה זמינה כרגע.',
     'auth/quota-exceeded': 'מכסת הודעות ה-SMS הסתיימה. יש לנסות מאוחר יותר.',
     'auth/too-many-requests': 'בוצעו יותר מדי ניסיונות. נסה שוב מאוחר יותר.',
-    'auth/unauthorized-domain': 'כתובת האתר אינה מורשית להתחברות ב-Firebase.',
+    'auth/unauthorized-domain': 'התחברות אינה זמינה מהכתובת הנוכחית.',
   };
 
   return messages[error?.code] || 'שליחת קוד האימות נכשלה. נסה שוב.';
@@ -678,6 +678,20 @@ export const signInFirebaseAdmin = async (email, password) => {
   });
 
   return { user: credential.user, profile: adminProfile };
+};
+
+export const signInFirebaseAdminWithPhoneCode = async (confirmationResult, code) => {
+  const firebaseUser = await confirmFirebasePhoneCode(confirmationResult, code);
+  customerAuthPromise = null;
+  const adminProfile = await validateAdminDocument(firebaseUser);
+
+  console.info('[Firebase] Active admin authenticated with phone', {
+    projectId: firebaseProjectId,
+    uid: firebaseUser.uid,
+    phoneMasked: maskPhoneNumber(firebaseUser.phoneNumber),
+  });
+
+  return { user: firebaseUser, profile: adminProfile };
 };
 
 export const signOutFirebaseSession = async () => {

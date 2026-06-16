@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { updateOwnCustomerPreferences } from '@/lib/customerProfilesFirestore';
 import { loginUser } from '@/lib/userStore';
 import { toast } from '@/components/ui/use-toast';
+import { getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 const LANGUAGES = [
   { key: 'he', label: 'עברית' },
@@ -55,7 +56,7 @@ export default function SettingsTab({ currentUser, openPersonalRequest = 0 }) {
     onError: (error) => toast({
       variant: 'destructive',
       title: 'שמירת ההעדפות נכשלה',
-      description: error?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(error),
     }),
   });
 
@@ -107,7 +108,7 @@ export default function SettingsTab({ currentUser, openPersonalRequest = 0 }) {
           <ChevronLeft className="w-4 h-4 rotate-180" /> חזרה
         </button>
         <h3 className="font-black text-lg mb-1">הגדרות התראות</h3>
-        <p className="text-muted-foreground text-xs mb-4">השינויים נשמרים ב-Firestore</p>
+        <p className="text-muted-foreground text-xs mb-4">השינויים נשמרים לחשבון שלך</p>
         <div className="space-y-2">
           {NOTIFICATION_SETTINGS.map(({ key, label, desc }) => (
             <button

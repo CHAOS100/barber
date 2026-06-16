@@ -24,6 +24,7 @@ import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookin
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 const CATEGORIES = [
   { key: 'gallery', label: 'גלריה / תיק עבודות' },
@@ -88,7 +89,7 @@ export default function AdminGallery() {
     onError: (mutationError) => toast({
       variant: 'destructive',
       title: 'שמירת התמונה נכשלה',
-      description: mutationError?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(mutationError),
     }),
   });
 
@@ -98,7 +99,7 @@ export default function AdminGallery() {
     onError: (mutationError) => toast({
       variant: 'destructive',
       title: 'מחיקת התמונה נכשלה',
-      description: mutationError?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(mutationError),
     }),
   });
 
@@ -109,7 +110,7 @@ export default function AdminGallery() {
     onError: (mutationError) => toast({
       variant: 'destructive',
       title: 'עדכון התמונה נכשל',
-      description: mutationError?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(mutationError),
     }),
   });
 
@@ -141,7 +142,7 @@ export default function AdminGallery() {
       <div className="px-4 py-4">
         {error && (
           <div className="mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-            טעינת הגלריה מ־Firestore נכשלה: {error.message}
+            {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {photos.length === 0 && (
@@ -208,9 +209,10 @@ export default function AdminGallery() {
             onClick={closeEditor}
           >
             <motion.div
-              initial={{ y: 300 }}
-              animate={{ y: 0 }}
-              exit={{ y: 300 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-md overflow-y-auto"
               onClick={(event) => event.stopPropagation()}
             >

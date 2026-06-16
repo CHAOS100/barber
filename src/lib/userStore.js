@@ -4,6 +4,7 @@ const LEGACY_USER_STORAGE_KEY = 'ost_user';
 let listeners = [];
 let state = {
   currentUser: null,
+  adminPreview: false,
 };
 
 try {
@@ -33,7 +34,7 @@ export const userStore = {
 };
 
 export const loginUser = (user) => {
-  userStore.setState({ currentUser: user });
+  userStore.setState({ currentUser: user, adminPreview: false });
   try {
     if (user?.isAdmin === true) {
       localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(user));
@@ -44,6 +45,14 @@ export const loginUser = (user) => {
 };
 
 export const logoutUser = () => {
-  userStore.setState({ currentUser: null });
+  userStore.setState({ currentUser: null, adminPreview: false });
   try { localStorage.removeItem(ADMIN_STORAGE_KEY); } catch {}
+};
+
+export const enterAdminPreview = () => {
+  if (state.currentUser?.isAdmin === true) userStore.setState({ adminPreview: true });
+};
+
+export const exitAdminPreview = () => {
+  if (state.currentUser?.isAdmin === true) userStore.setState({ adminPreview: false });
 };

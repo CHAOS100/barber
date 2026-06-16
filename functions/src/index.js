@@ -11,8 +11,10 @@ import {
   buildAdminAppointmentCreatedJob,
   buildAppointmentApprovedJobs,
   buildAppointmentCancelledJob,
+  buildWaitingListAvailableJob,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
+import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
 export {
   createAdminAppointment,
   createCustomerAppointment,
@@ -36,6 +38,9 @@ export {
   syncCustomerAppointmentStats,
   syncCustomerReviewStats,
 } from './customerStats.js';
+export {
+  manualNotifyWaitingListEntry,
+} from './waitingList.js';
 
 initializeApp();
 
@@ -82,6 +87,44 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
 
 const blockingStatuses = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
 
+const dayPartForTime = (time) => {
+  const [hour] = String(time || '').split(':').map(Number);
+  if (hour < 12) return 'morning';
+  if (hour < 16) return 'noon';
+  return 'evening';
+};
+
+const waitingListMatches = (entry, appointment) => {
+  if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
+  const startTime = appointment.startTime || appointment.time;
+  if (entry.preferenceType === 'exact_time') return entry.exactTime === startTime;
+  if (entry.preferenceType === 'time_range') {
+    return (!entry.startTime || startTime >= entry.startTime)
+      && (!entry.endTime || startTime <= entry.endTime);
+  }
+  if (entry.preferenceType === 'day_part') return entry.dayPart === dayPartForTime(startTime);
+  return entry.preferenceType === 'whole_day';
+};
+
+const slotIsStillAvailable = async (appointmentId, appointment) => {
+  const snapshot = await getFirestore()
+    .collection('appointments')
+    .where('date', '==', appointment.date)
+    .where('barberId', '==', appointment.barberId)
+    .get();
+
+  return !snapshot.docs.some((docSnapshot) => {
+    if (docSnapshot.id === appointmentId) return false;
+    const other = docSnapshot.data();
+    return BLOCKING_STATUSES.has(other.status) && overlaps(appointment, other, {
+      candidateBufferBeforeMinutes: appointment.bufferBeforeMinutes || 0,
+      candidateBufferAfterMinutes: appointment.bufferAfterMinutes || 0,
+      existingBufferBeforeMinutes: other.bufferBeforeMinutes || 0,
+      existingBufferAfterMinutes: other.bufferAfterMinutes || 0,
+    });
+  });
+};
+
 export const syncAppointmentAvailabilityBlock = onDocumentWritten(
   'appointments/{appointmentId}',
   async (event) => {
@@ -99,8 +142,52 @@ export const syncAppointmentAvailabilityBlock = onDocumentWritten(
       date: appointment.date,
       startTime: appointment.startTime,
       endTime: appointment.endTime,
+      bufferBeforeMinutes: Math.max(0, Number(appointment.bufferBeforeMinutes || 0)),
+      bufferAfterMinutes: Math.max(0, Number(appointment.bufferAfterMinutes || 0)),
       status: appointment.status,
       updatedAt: appointment.updatedAt || appointment.createdAt || FieldValue.serverTimestamp(),
     });
+  },
+);
+
+export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
+  'appointments/{appointmentId}',
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const wasBlocking = before && blockingStatuses.has(before.status);
+    const isFreed = ['cancelled', 'rejected'].includes(after.status);
+    if (!wasBlocking || !isFreed || !after.date || !after.startTime || !after.barberId) return;
+
+    const appointmentId = event.params.appointmentId;
+    const available = await slotIsStillAvailable(appointmentId, after);
+    if (!available) return;
+
+    const snapshot = await getFirestore()
+      .collection('waitingList')
+      .where('date', '==', after.date)
+      .where('status', '==', 'active')
+      .get();
+
+    const matching = snapshot.docs
+      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
+      .filter((entry) => waitingListMatches(entry, after));
+
+    if (matching.length === 0) return;
+
+    await notificationJobs.enqueue(matching.map((entry) =>
+      buildWaitingListAvailableJob(entry.id, appointmentId, entry, after)));
+
+    const batch = getFirestore().batch();
+    matching.forEach((entry) => {
+      batch.update(getFirestore().doc(`waitingList/${entry.id}`), {
+        status: 'notified',
+        notifiedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        availableAppointmentId: appointmentId,
+        availableStartTime: after.startTime,
+      });
+    });
+    await batch.commit();
   },
 );

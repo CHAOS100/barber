@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Share2, ZoomIn } from 'lucide-react';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
+import { DATA_LOAD_ERROR_MESSAGE } from '@/lib/userFacingErrors';
 
 const CATEGORIES = [
   { key: 'all', label: 'הכל' },
@@ -57,7 +58,7 @@ export default function Gallery() {
 
       {/* Grid */}
       <div className="px-4">
-        {error && <div className="mb-3 text-red-400 text-sm">טעינת הגלריה מ-Firestore נכשלה.</div>}
+        {error && <div className="mb-3 text-red-400 text-sm">{DATA_LOAD_ERROR_MESSAGE}</div>}
         {filtered.length === 0 && (
           <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">עדיין אין תמונות בגלריה</div>
         )}

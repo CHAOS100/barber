@@ -3,18 +3,41 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Store, Phone, MapPin } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
-import { saveBookingSettings, saveBusinessSettings } from '@/lib/businessFirestore';
+import {
+  DEFAULT_BOOKING_POLICY_TEXT,
+  DEFAULT_BOOKING_POLICY_VERSION,
+  saveBookingSettings,
+  saveBusinessSettings,
+} from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
+import { getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
-  const [info, setInfo] = useState({ ...BUSINESS_INFO });
+  const [info, setInfo] = useState(/** @type {Record<string, any>} */ ({ ...BUSINESS_INFO }));
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const { settings: businessSettings } = useBusinessSettingsRealtime();
   const [bufferMinutes, setBufferMinutes] = useState(null);
+  const [bufferBeforeMinutes, setBufferBeforeMinutes] = useState(null);
+  const [bufferAfterMinutes, setBufferAfterMinutes] = useState(null);
+  const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(null);
+  const [cancellationDeadlineMinutes, setCancellationDeadlineMinutes] = useState(null);
   const displayedBuffer = bufferMinutes ?? bookingSettings?.appointmentBufferMinutes ?? 0;
+  const displayedBufferBefore = bufferBeforeMinutes
+    ?? bookingSettings?.defaultAppointmentBufferBeforeMinutes
+    ?? displayedBuffer;
+  const displayedBufferAfter = bufferAfterMinutes
+    ?? bookingSettings?.defaultAppointmentBufferAfterMinutes
+    ?? displayedBuffer;
+  const displayedVisibleSlotInterval = visibleSlotIntervalMinutes
+    ?? bookingSettings?.visibleSlotIntervalMinutes
+    ?? 30;
+  const displayedCancellationDeadline = cancellationDeadlineMinutes
+    ?? businessSettings?.cancellationDeadlineMinutesBeforeAppointment
+    ?? bookingSettings?.cancellationDeadlineMinutesBeforeAppointment
+    ?? 180;
 
   useEffect(() => {
     if (businessSettings) setInfo(previous => ({ ...previous, ...businessSettings }));
@@ -22,14 +45,26 @@ export default function AdminSettings() {
 
   const saveSettings = useMutation({
     mutationFn: () => Promise.all([
-      saveBookingSettings({ appointmentBufferMinutes: displayedBuffer }),
-      saveBusinessSettings(info),
+      saveBookingSettings({
+        appointmentBufferMinutes: displayedBufferBefore,
+        defaultAppointmentBufferBeforeMinutes: displayedBufferBefore,
+        defaultAppointmentBufferAfterMinutes: displayedBufferAfter,
+        visibleSlotIntervalMinutes: displayedVisibleSlotInterval,
+        cancellationDeadlineMinutesBeforeAppointment: displayedCancellationDeadline,
+      }),
+      saveBusinessSettings({
+        ...info,
+        defaultAppointmentBufferBeforeMinutes: displayedBufferBefore,
+        defaultAppointmentBufferAfterMinutes: displayedBufferAfter,
+        visibleSlotIntervalMinutes: displayedVisibleSlotInterval,
+        cancellationDeadlineMinutesBeforeAppointment: displayedCancellationDeadline,
+      }),
     ]),
     onSuccess: () => toast({ title: 'ההגדרות נשמרו', description: 'המידע העסקי והמרווח בין התורים עודכנו.' }),
     onError: (error) => toast({
       variant: 'destructive',
       title: 'שמירת ההגדרות נכשלה',
-      description: error?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(error),
     }),
   });
 
@@ -108,6 +143,79 @@ export default function AdminSettings() {
               className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
             />
           </label>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold">מרווחים וזמינות</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs text-muted-foreground">
+              מרווח לפני תור
+              <input
+                type="number"
+                min="0"
+                value={displayedBufferBefore}
+                onChange={e => {
+                  const value = Math.max(0, Number(e.target.value));
+                  setBufferBeforeMinutes(value);
+                  setBufferMinutes(value);
+                }}
+                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+              />
+            </label>
+            <label className="block text-xs text-muted-foreground">
+              מרווח אחרי תור
+              <input
+                type="number"
+                min="0"
+                value={displayedBufferAfter}
+                onChange={e => setBufferAfterMinutes(Math.max(0, Number(e.target.value)))}
+                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+              />
+            </label>
+          </div>
+          <label className="block text-xs text-muted-foreground">
+            הצגת שעות כל X דקות
+            <input
+              type="number"
+              min="1"
+              value={displayedVisibleSlotInterval}
+              onChange={e => setVisibleSlotIntervalMinutes(Math.max(1, Number(e.target.value)))}
+              className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+            />
+          </label>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold">מדיניות ביטול ואי הגעה</h3>
+          <label className="block text-xs text-muted-foreground">
+            מדיניות שמוצגת לפני אישור תור
+            <textarea
+              value={info.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT}
+              onChange={e => setInfo(prev => ({ ...prev, bookingPolicyText: e.target.value }))}
+              className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right text-sm focus:outline-none focus:border-primary resize-none h-36"
+              dir="rtl"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs text-muted-foreground">
+              גרסת מדיניות
+              <input
+                value={info.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION}
+                onChange={e => setInfo(prev => ({ ...prev, bookingPolicyVersion: e.target.value }))}
+                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+              />
+            </label>
+            <label className="block text-xs text-muted-foreground">
+              זמן ביטול מותר לפני התור בדקות
+              <input
+                type="number"
+                min="0"
+                value={displayedCancellationDeadline}
+                onChange={e => setCancellationDeadlineMinutes(Math.max(0, Number(e.target.value)))}
+                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
+              />
+            </label>
+          </div>
         </div>
 
         <GoldButton onClick={handleSave} disabled={saveSettings.isPending} size="lg" className="w-full">

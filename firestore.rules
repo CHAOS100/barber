@@ -26,6 +26,10 @@ service cloud.firestore {
       return isPhoneCustomer() && request.auth.uid == userId;
     }
 
+    function ownsWaitingListEntry() {
+      return isPhoneCustomer() && resource.data.customerId == request.auth.uid;
+    }
+
     function hasValidCustomerNames(data) {
       return data.firstName is string
         && data.firstName.size() > 0
@@ -185,6 +189,83 @@ service cloud.firestore {
     match /gallery/{photoId} {
       allow read: if isAdmin() || resource.data.active == true;
       allow create, update, delete: if isAdmin();
+    }
+
+    match /waitingList/{waitlistId} {
+      allow read: if isAdmin() || ownsWaitingListEntry();
+
+      allow create: if isPhoneCustomer()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.phoneNumber == request.auth.token.phone_number
+        && request.resource.data.customerName is string
+        && request.resource.data.customerName.size() > 0
+        && request.resource.data.date is string
+        && request.resource.data.status == 'active'
+        && request.resource.data.preferenceType in [
+          'exact_time',
+          'time_range',
+          'day_part',
+          'whole_day'
+        ]
+        && (
+          (
+            request.resource.data.preferenceType == 'exact_time'
+            && request.resource.data.exactTime is string
+            && request.resource.data.exactTime.size() == 5
+          )
+          || (
+            request.resource.data.preferenceType == 'time_range'
+            && request.resource.data.startTime is string
+            && request.resource.data.startTime.size() == 5
+            && request.resource.data.endTime is string
+            && request.resource.data.endTime.size() == 5
+          )
+          || (
+            request.resource.data.preferenceType == 'day_part'
+            && request.resource.data.dayPart in ['morning', 'noon', 'evening']
+          )
+          || request.resource.data.preferenceType == 'whole_day'
+        )
+        && request.resource.data.keys().hasAll([
+          'customerId',
+          'customerName',
+          'phoneNumber',
+          'date',
+          'preferenceType',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'customerId',
+          'customerName',
+          'phoneNumber',
+          'date',
+          'preferenceType',
+          'exactTime',
+          'startTime',
+          'endTime',
+          'dayPart',
+          'serviceId',
+          'serviceName',
+          'status',
+          'createdAt',
+          'updatedAt',
+          'notifiedAt',
+          'expiresAt'
+        ]);
+
+      allow update: if isAdmin()
+        || (
+          ownsWaitingListEntry()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'updatedAt'
+          ])
+          && request.resource.data.status == 'cancelled'
+        );
+
+      allow delete: if isAdmin();
     }
 
     match /customerBookingLocks/{customerId} {

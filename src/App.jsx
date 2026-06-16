@@ -28,6 +28,8 @@ import AdminHours from './pages/admin/AdminHours';
 import AdminGallery from './pages/admin/AdminGallery';
 import AdminSettings from './pages/admin/AdminSettings';
 import AdminBarbers from './pages/admin/AdminBarbers';
+import AdminWaitingList from './pages/admin/AdminWaitingList';
+import AdminMessages from './pages/admin/AdminMessages';
 
 // Layout
 import AppLayout from './components/layout/AppLayout';
@@ -75,6 +77,9 @@ function App() {
                 <Route path="/admin/gallery" element={<AdminGallery />} />
                 <Route path="/admin/settings" element={<AdminSettings />} />
                 <Route path="/admin/barbers" element={<AdminBarbers />} />
+                <Route path="/admin/waiting-list" element={<AdminWaitingList />} />
+                <Route path="/admin/messages" element={<AdminMessages />} />
+                <Route path="/admin/reviews" element={<Reviews />} />
               </Route>
             </Route>
             <Route path="*" element={<PageNotFound />} />

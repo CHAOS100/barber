@@ -17,6 +17,7 @@ import {
   setAdminReviewStatus,
 } from '@/lib/reviewsFirestore';
 import { toast } from '@/components/ui/use-toast';
+import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 
@@ -66,13 +67,13 @@ export default function Reviews() {
       ? createAdminReview({ customerName, rating, text })
       : createCustomerReview({ appointmentId, rating, text }),
     onSuccess: () => {
-      toast({ title: 'הביקורת פורסמה', description: 'הנתונים נשמרו ב-Firestore.' });
+      toast({ title: 'הביקורת פורסמה', description: 'תודה, הביקורת נשמרה.' });
       resetForm();
     },
     onError: (error) => toast({
       variant: 'destructive',
       title: 'פרסום הביקורת נכשל',
-      description: error?.message || 'יש לנסות שוב.',
+      description: getUserFacingErrorMessage(error),
     }),
   });
 
@@ -80,13 +81,13 @@ export default function Reviews() {
     mutationFn: (/** @type {{ id: string, status: string }} */ input) =>
       setAdminReviewStatus(input.id, input.status),
     onSuccess: () => toast({ title: 'סטטוס הביקורת עודכן' }),
-    onError: (error) => toast({ variant: 'destructive', title: 'העדכון נכשל', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'העדכון נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteAdminReview,
     onSuccess: () => toast({ title: 'הביקורת נמחקה' }),
-    onError: (error) => toast({ variant: 'destructive', title: 'המחיקה נכשלה', description: error?.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'המחיקה נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
   const canWriteReview = isAdmin || eligibleAppointments.length > 0;
@@ -98,7 +99,7 @@ export default function Reviews() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-black">ביקורות</h1>
-            <p className="text-muted-foreground text-sm">ביקורות אמיתיות מ-Firestore</p>
+            <p className="text-muted-foreground text-sm">ביקורות מלקוחות</p>
           </div>
           {currentUser && canWriteReview && (
             <GoldButton onClick={() => setShowForm(true)} size="sm">
@@ -133,7 +134,7 @@ export default function Reviews() {
 
       {listenerError && (
         <div className="mx-4 mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-          טעינת הביקורות מ-Firestore נכשלה: {listenerError.message}
+          {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
 

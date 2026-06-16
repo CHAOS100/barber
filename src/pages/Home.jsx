@@ -7,8 +7,6 @@ import {
   ChevronLeft,
   Clock,
   Coffee,
-  Heart,
-  HeartPulse,
   MessageCircle,
   Navigation,
   PhoneCall,
@@ -28,7 +26,7 @@ const COVER_IMAGE = "https://images.unsplash.com/photo-1503951914875-452162b0f3f
 const AMENITIES = [
   { Icon: Armchair, label: 'שירותים' },
   { Icon: Coffee, label: 'מתקן שתייה' },
-  { Icon: HeartPulse, label: 'עזרה ראשונה' },
+  { Icon: BadgeCheck, label: 'עזרה ראשונה' },
   { Icon: Shield, label: 'מקלט / מ"מ' },
 ];
 
@@ -39,7 +37,6 @@ export default function Home() {
   const open = isOpenNow();
   const [activeTab, setActiveTab] = useState('info');
   const [hoursExpanded, setHoursExpanded] = useState(false);
-  const [liked, setLiked] = useState(false);
   const { data: services } = useActiveServicesRealtime();
   const { reviews } = usePublishedReviewsRealtime();
   const { photos } = usePublishedGalleryRealtime();
@@ -62,12 +59,9 @@ export default function Home() {
       <div className="relative h-72 overflow-hidden">
         <img src={COVER_IMAGE} alt="OST BARBER" className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-background" />
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+        <div className="absolute top-4 left-4">
           <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
             <Share2 className="w-5 h-5 text-white" />
-          </button>
-          <button onClick={() => setLiked(l => !l)} className="glass p-2.5 rounded-full press-scale">
-            <Heart className={`w-5 h-5 transition-colors ${liked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
           </button>
         </div>
         {/* Category pills on image */}
@@ -163,7 +157,7 @@ export default function Home() {
               <div className="mb-5">
                 <h2 className="text-base font-black mb-2">על המקום</h2>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                  חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!<br />
+                  חברים שימו לב: מומלץ להקדים את התור עקב מצוקת חניות באזור!<br />
                   *יש לבחור תור לתספורת במידה ובחרת עם גזירות.<br />
                   *איחורים מעל 10 דקות לא יתקבלו.<br />
                   *במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.
@@ -397,13 +391,12 @@ export default function Home() {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
 
-      {/* Sticky Book Button */}
-      <div className="mobile-fixed-cta fixed left-0 right-0 z-40 px-4">
-        <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
+        <div className="pt-2 pb-4">
+          <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
           הזמן עכשיו
-        </GoldButton>
+          </GoldButton>
+        </div>
       </div>
     </div>
   );

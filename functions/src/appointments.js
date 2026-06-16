@@ -5,7 +5,9 @@ import {
   BLOCKING_STATUSES,
   DEFAULT_WORKING_HOURS,
   findConflict,
+  getWorkingHoursForDate,
   getScheduleRejectionCode,
+  timeToMinutes,
 } from './scheduling.js';
 import {
   ACTIVE_APPOINTMENT_STATUSES,
@@ -41,6 +43,11 @@ const requireAdmin = async (request) => {
 
 const text = (value) => String(value || '').trim();
 const positiveNumber = (value, fallback = 0) => Math.max(0, Number(value ?? fallback) || fallback);
+const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
+const firstMinutes = (...values) => {
+  const value = values.find(hasNumberValue);
+  return Math.max(0, Number(value) || 0);
+};
 
 const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   const startTime = text(input.startTime || input.time);
@@ -69,21 +76,72 @@ const normalizeAppointment = (input, customerId, forcedStatus = null) => {
     endTime: addMinutes(startTime, serviceDuration),
     status: forcedStatus || text(input.status) || 'pending',
     paid: input.paid === true,
+    bufferBeforeMinutes: input.bufferBeforeMinutes !== undefined ? Math.max(0, Number(input.bufferBeforeMinutes) || 0) : null,
+    bufferAfterMinutes: input.bufferAfterMinutes !== undefined ? Math.max(0, Number(input.bufferAfterMinutes) || 0) : null,
     notes: text(input.notes),
     adminNotes: text(input.adminNotes || input.admin_notes),
   };
 };
 
 const getBookingSettings = async (transaction) => {
-  const snapshot = await transaction.get(db().doc('settings/booking'));
-  const settings = snapshot.data() || {};
+  const bookingSnapshot = await transaction.get(db().doc('settings/booking'));
+  const businessSnapshot = await transaction.get(db().doc('settings/business'));
+  const settings = bookingSnapshot.data() || {};
+  const businessSettings = businessSnapshot.data() || {};
+  const legacyBuffer = Math.max(0, Number(settings.appointmentBufferMinutes || 0));
   return {
-    appointmentBufferMinutes: Math.max(0, Number(settings.appointmentBufferMinutes || 0)),
+    appointmentBufferMinutes: legacyBuffer,
+    defaultAppointmentBufferBeforeMinutes: hasNumberValue(settings.defaultAppointmentBufferBeforeMinutes)
+      ? Math.max(0, Number(settings.defaultAppointmentBufferBeforeMinutes) || 0)
+      : (hasNumberValue(businessSettings.defaultAppointmentBufferBeforeMinutes)
+        ? Math.max(0, Number(businessSettings.defaultAppointmentBufferBeforeMinutes) || 0)
+        : 0),
+    defaultAppointmentBufferAfterMinutes: hasNumberValue(settings.defaultAppointmentBufferAfterMinutes)
+      ? Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes) || 0)
+      : (hasNumberValue(businessSettings.defaultAppointmentBufferAfterMinutes)
+        ? Math.max(0, Number(businessSettings.defaultAppointmentBufferAfterMinutes) || 0)
+        : legacyBuffer),
+    visibleSlotIntervalMinutes: Math.max(
+      1,
+      Number(settings.visibleSlotIntervalMinutes || businessSettings.visibleSlotIntervalMinutes || 30),
+    ),
+    cancellationDeadlineMinutesBeforeAppointment: Math.max(
+      0,
+      Number(
+        businessSettings.cancellationDeadlineMinutesBeforeAppointment
+        ?? settings.cancellationDeadlineMinutesBeforeAppointment
+        ?? 180,
+      ),
+    ),
+    bookingPolicyText: text(businessSettings.bookingPolicyText),
+    bookingPolicyVersion: text(businessSettings.bookingPolicyVersion) || '2026-06-16',
     workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
       ? settings.workingHours
       : DEFAULT_WORKING_HOURS,
   };
 };
+
+const applyResolvedBuffers = (appointment, service, settings) => {
+  const workingDay = getWorkingHoursForDate(appointment.date, settings.workingHours) || {};
+  return {
+    ...appointment,
+    bufferBeforeMinutes: firstMinutes(
+      workingDay.bufferBeforeMinutes,
+      service?.bufferBeforeMinutes,
+      settings.defaultAppointmentBufferBeforeMinutes,
+    ),
+    bufferAfterMinutes: firstMinutes(
+      workingDay.bufferAfterMinutes,
+      service?.bufferAfterMinutes,
+      settings.defaultAppointmentBufferAfterMinutes,
+    ),
+  };
+};
+
+const conflictSettings = (settings) => ({
+  defaultBufferBeforeMinutes: settings.defaultAppointmentBufferBeforeMinutes,
+  defaultBufferAfterMinutes: settings.defaultAppointmentBufferAfterMinutes,
+});
 
 const getDayAppointments = async (transaction, date) => {
   const snapshot = await transaction.get(db().collection('appointments').where('date', '==', date));
@@ -95,6 +153,44 @@ const getCustomerAppointments = async (transaction, customerId) => {
     db().collection('appointments').where('customerId', '==', customerId),
   );
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+};
+
+const dayPartForTime = (time) => {
+  const [hour] = String(time || '').split(':').map(Number);
+  if (hour < 12) return 'morning';
+  if (hour < 16) return 'noon';
+  return 'evening';
+};
+
+const waitingListMatchesAppointment = (entry, appointment) => {
+  if (!['active', 'notified'].includes(entry.status)) return false;
+  if (entry.date !== appointment.date) return false;
+  if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
+  if (entry.preferenceType === 'exact_time') return entry.exactTime === appointment.startTime;
+  if (entry.preferenceType === 'time_range') {
+    return (!entry.startTime || appointment.startTime >= entry.startTime)
+      && (!entry.endTime || appointment.startTime <= entry.endTime);
+  }
+  if (entry.preferenceType === 'day_part') {
+    return entry.dayPart === dayPartForTime(appointment.startTime);
+  }
+  return entry.preferenceType === 'whole_day';
+};
+
+const markMatchingWaitingListBooked = async (transaction, customerId, appointmentId, appointment) => {
+  const snapshot = await transaction.get(
+    db().collection('waitingList').where('customerId', '==', customerId),
+  );
+
+  snapshot.docs.forEach((item) => {
+    const entry = item.data();
+    if (!waitingListMatchesAppointment(entry, appointment)) return;
+    transaction.update(item.ref, {
+      status: 'booked',
+      bookedAppointmentId: appointmentId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
 };
 
 const rejectConflict = (conflict) => {
@@ -120,6 +216,42 @@ const activeAppointmentDetails = (appointment) => ({
   serviceName: appointment.serviceName || appointment.service_name || '',
   status: appointment.status || '',
 });
+
+const getIsraelNowLocalMinutes = () => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date()).map((part) => [part.type, part.value]));
+  const dayNumber = Math.floor(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) / 86400000);
+  return (dayNumber * 1440) + (Number(parts.hour) * 60) + Number(parts.minute);
+};
+
+const getAppointmentLocalMinutes = (appointment) => {
+  const [year, month, day] = String(appointment.date || '').split('-').map(Number);
+  const dayNumber = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+  return (dayNumber * 1440) + timeToMinutes(appointment.startTime || appointment.time);
+};
+
+const enforceCustomerCancellationDeadline = (appointment, settings) => {
+  const deadline = Math.max(0, Number(settings.cancellationDeadlineMinutesBeforeAppointment || 0));
+  const minutesUntilAppointment = getAppointmentLocalMinutes(appointment) - getIsraelNowLocalMinutes();
+  if (minutesUntilAppointment < deadline) {
+    throw new HttpsError('failed-precondition', 'Cancellation deadline has passed.', {
+      code: 'appointment/cancellation-deadline-passed',
+      cancellationDeadlineMinutesBeforeAppointment: deadline,
+    });
+  }
+};
+
+const normalizeNoShowAction = (value) => {
+  const action = text(value);
+  return ['block', 'payment_required', 'warning'].includes(action) ? action : 'warning';
+};
 
 const validateCustomer = (snapshot, auth) => {
   const customer = snapshot.data();
@@ -182,8 +314,17 @@ export const createCustomerAppointment = onCall(async (request) => {
     await transaction.get(bookingLockRef);
     const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
     const customer = validateCustomer(customerSnapshot, auth);
-    const appointment = buildCustomerAppointment(requested, customer, service, barber, auth.uid);
     const settings = await getBookingSettings(transaction);
+    if (request.data?.policyAccepted !== true) {
+      throw new HttpsError('failed-precondition', 'Booking policy must be accepted.', {
+        code: 'appointment/policy-not-accepted',
+      });
+    }
+    const appointment = applyResolvedBuffers(
+      buildCustomerAppointment(requested, customer, service, barber, auth.uid),
+      service,
+      settings,
+    );
     const appointments = await getDayAppointments(transaction, appointment.date);
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const activeAppointment = findActiveCustomerAppointment(customerAppointments);
@@ -200,10 +341,13 @@ export const createCustomerAppointment = onCall(async (request) => {
     rejectConflict(findConflict(
       appointment,
       appointments,
-      settings.appointmentBufferMinutes,
+      conflictSettings(settings),
     ));
+    await markMatchingWaitingListBooked(transaction, auth.uid, ref.id, appointment);
     transaction.set(ref, {
       ...appointment,
+      policyAcceptedAt: FieldValue.serverTimestamp(),
+      policyVersion: settings.bookingPolicyVersion,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -249,10 +393,19 @@ export const replaceCustomerAppointment = onCall(async (request) => {
       });
     }
 
+    const settings = await getBookingSettings(transaction);
+    if (request.data?.appointment?.policyAccepted !== true) {
+      throw new HttpsError('failed-precondition', 'Booking policy must be accepted.', {
+        code: 'appointment/policy-not-accepted',
+      });
+    }
     const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
     const customer = validateCustomer(customerSnapshot, auth);
-    const replacement = buildCustomerAppointment(requested, customer, service, barber, auth.uid);
-    const settings = await getBookingSettings(transaction);
+    const replacement = applyResolvedBuffers(
+      buildCustomerAppointment(requested, customer, service, barber, auth.uid),
+      service,
+      settings,
+    );
     const appointments = await getDayAppointments(transaction, replacement.date);
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const otherActive = customerAppointments.find((appointment) => (
@@ -272,10 +425,11 @@ export const replaceCustomerAppointment = onCall(async (request) => {
     rejectConflict(findConflict(
       replacement,
       appointments,
-      settings.appointmentBufferMinutes,
+      conflictSettings(settings),
       activeAppointmentId,
     ));
 
+    await markMatchingWaitingListBooked(transaction, auth.uid, replacementRef.id, replacement);
     transaction.update(existingRef, {
       status: 'cancelled',
       cancelledAt: FieldValue.serverTimestamp(),
@@ -285,6 +439,8 @@ export const replaceCustomerAppointment = onCall(async (request) => {
     });
     transaction.set(replacementRef, {
       ...replacement,
+      policyAcceptedAt: FieldValue.serverTimestamp(),
+      policyVersion: settings.bookingPolicyVersion,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -301,17 +457,25 @@ export const replaceCustomerAppointment = onCall(async (request) => {
 
 export const createAdminAppointment = onCall(async (request) => {
   const auth = await requireAdmin(request);
-  const appointment = normalizeAppointment(request.data, text(request.data.customerId) || auth.uid);
+  const requestedAppointment = normalizeAppointment(request.data, text(request.data.customerId) || auth.uid);
   const ref = db().collection('appointments').doc();
 
   await db().runTransaction(async (transaction) => {
     const settings = await getBookingSettings(transaction);
+    const serviceSnapshot = requestedAppointment.serviceId
+      ? await transaction.get(db().doc(`services/${requestedAppointment.serviceId}`))
+      : null;
+    const appointment = applyResolvedBuffers(
+      requestedAppointment,
+      serviceSnapshot?.data?.() || {},
+      settings,
+    );
     const appointments = await getDayAppointments(transaction, appointment.date);
     if (BLOCKING_STATUSES.has(appointment.status)) {
       rejectConflict(findConflict(
         appointment,
         appointments,
-        settings.appointmentBufferMinutes,
+        conflictSettings(settings),
       ));
     }
     transaction.set(ref, {
@@ -353,19 +517,32 @@ const updateAppointment = async (request, adminOnly) => {
       throw new HttpsError('permission-denied', 'A cancellation reason is allowed only when cancelling.');
     }
 
-    const merged = normalizeAppointment(
+    const normalizedMerged = normalizeAppointment(
       { ...existing, ...requested },
       existing.customerId,
       requested.status || existing.status,
     );
     const settings = await getBookingSettings(transaction);
+    const serviceSnapshot = normalizedMerged.serviceId
+      ? await transaction.get(db().doc(`services/${normalizedMerged.serviceId}`))
+      : null;
+    const merged = applyResolvedBuffers(
+      normalizedMerged,
+      serviceSnapshot?.data?.() || {},
+      settings,
+    );
+
+    if (!adminOnly && requested.status === 'cancelled') {
+      enforceCustomerCancellationDeadline(merged, settings);
+    }
+
     const appointments = await getDayAppointments(transaction, merged.date);
     if (BLOCKING_STATUSES.has(merged.status)) {
       if (!adminOnly) rejectSchedule(merged, settings.workingHours);
       rejectConflict(findConflict(
         merged,
         appointments,
-        settings.appointmentBufferMinutes,
+        conflictSettings(settings),
         appointmentId,
       ));
     }
@@ -378,11 +555,55 @@ const updateAppointment = async (request, adminOnly) => {
           || (adminOnly ? 'admin_cancelled' : 'customer_cancelled'),
       }
       : {};
+    const noShowAction = adminOnly && requested.status === 'no_show'
+      ? normalizeNoShowAction(requested.noShowAction)
+      : '';
+    const noShow = noShowAction
+      ? {
+        noShowAt: FieldValue.serverTimestamp(),
+        markedNoShowBy: auth.uid,
+        noShowAction,
+      }
+      : {};
+    const noShowCustomerRef = noShowAction && merged.customerId
+      ? db().doc(`users/${merged.customerId}`)
+      : null;
+    const noShowCustomerSnapshot = noShowCustomerRef
+      ? await transaction.get(noShowCustomerRef)
+      : null;
     transaction.update(ref, {
       ...merged,
       ...cancellation,
+      ...noShow,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    if (noShowAction && noShowCustomerRef && noShowCustomerSnapshot?.exists) {
+      const noShowReason = 'אי הגעה לתור';
+      if (noShowAction === 'block') {
+        transaction.update(noShowCustomerRef, {
+          blocked: true,
+          blockedReason: 'החשבון שלך נחסם לקביעת תורים עקב אי הגעה לתור. להסרת החסימה פנה לעסק.',
+          blockedAt: FieldValue.serverTimestamp(),
+          blockedBy: auth.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      } else if (noShowAction === 'payment_required') {
+        transaction.update(noShowCustomerRef, {
+          requiresNoShowPayment: true,
+          noShowPaymentAmount: Math.round(Number(merged.servicePrice || 0) * 0.5),
+          noShowPaymentReason: 'לפי מדיניות העסק, נדרש תשלום של 50% ממחיר התספורת עקב ביטול ללא הודעה מראש / אי הגעה.',
+          relatedAppointmentId: appointmentId,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        transaction.update(noShowCustomerRef, {
+          warningCount: FieldValue.increment(1),
+          lastWarningReason: noShowReason,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
   });
 
   return { id: appointmentId };

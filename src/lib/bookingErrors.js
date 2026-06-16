@@ -35,6 +35,12 @@ export const getBookingRejectionMessage = (error) => {
   if (code === 'appointment/not-replaceable' || code === 'appointment/active-not-found') {
     return 'התור הקיים כבר אינו פעיל ולא ניתן להחליף אותו.';
   }
+  if (code === 'appointment/cancellation-deadline-passed') {
+    return 'לא ניתן לבטל את התור בשלב זה לפי מדיניות העסק. פנה לספר.';
+  }
+  if (code === 'appointment/policy-not-accepted') {
+    return 'יש לאשר את מדיניות העסק לפני קביעת התור.';
+  }
   if (TEMPORARY_ERROR_CODES.has(code)) return 'אירעה תקלה זמנית. נסה שוב בעוד רגע.';
   return 'אירעה תקלה זמנית. נסה שוב בעוד רגע.';
 };

@@ -13,9 +13,22 @@ import {
   where,
 } from 'firebase/firestore';
 import { ensureFirebaseAdmin, getFirestoreDb } from '@/lib/firebase';
-import { DEFAULT_WORKING_HOURS, timeToMinutes } from '@/lib/slotEngine';
+import {
+  DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES,
+  DEFAULT_WORKING_HOURS,
+  timeToMinutes,
+} from '@/lib/slotEngine';
 
 const DEFAULT_SLOT_INTERVAL = 10;
+export const DEFAULT_BOOKING_POLICY_TEXT = `חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!
+*יש לבחור תור לתספורת במידה ובחרת עם גזירות.
+*איחורים מעל 10 דקות לא יתקבלו.
+*במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.`;
+export const DEFAULT_BOOKING_POLICY_VERSION = '2026-06-16';
+
+const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
+const normalizeOptionalMinutes = (value) =>
+  hasNumberValue(value) ? Math.max(0, Number(value) || 0) : null;
 
 const mapService = (snapshot) => {
   const data = snapshot.data();
@@ -44,6 +57,8 @@ const normalizeService = (input) => ({
   category: String(input.category || '').trim(),
   price: Number(input.price || 0),
   duration: Math.max(1, Number(input.duration || 30)),
+  bufferBeforeMinutes: normalizeOptionalMinutes(input.bufferBeforeMinutes),
+  bufferAfterMinutes: normalizeOptionalMinutes(input.bufferAfterMinutes),
   active: input.active ?? input.is_active ?? true,
   sortOrder: Number(input.sortOrder || input.sort_order || 0),
   updatedAt: serverTimestamp(),
@@ -160,6 +175,8 @@ export const saveService = async (id, input) => {
     name: payload.name,
     price: payload.price,
     duration: payload.duration,
+    bufferBeforeMinutes: payload.bufferBeforeMinutes,
+    bufferAfterMinutes: payload.bufferAfterMinutes,
     active: payload.active,
     category: payload.category,
   });
@@ -268,12 +285,28 @@ const normalizeWorkingHours = (workingHours = DEFAULT_WORKING_HOURS) =>
       open_time: input.open_time || defaultDay.open_time || '09:00',
       close_time: input.close_time || defaultDay.close_time || '20:00',
       breaks: Array.isArray(input.breaks) ? input.breaks : [],
+      bufferBeforeMinutes: normalizeOptionalMinutes(input.bufferBeforeMinutes),
+      bufferAfterMinutes: normalizeOptionalMinutes(input.bufferAfterMinutes),
     };
   });
 
 const mapBookingSettings = (data = {}) => ({
   appointmentBufferMinutes: Math.max(0, Number(data.appointmentBufferMinutes || 0)),
+  defaultAppointmentBufferBeforeMinutes: hasNumberValue(data.defaultAppointmentBufferBeforeMinutes)
+    ? Math.max(0, Number(data.defaultAppointmentBufferBeforeMinutes) || 0)
+    : 0,
+  defaultAppointmentBufferAfterMinutes: hasNumberValue(data.defaultAppointmentBufferAfterMinutes)
+    ? Math.max(0, Number(data.defaultAppointmentBufferAfterMinutes) || 0)
+    : Math.max(0, Number(data.appointmentBufferMinutes || 0)),
   slotInterval: Math.max(1, Number(data.slotInterval || DEFAULT_SLOT_INTERVAL)),
+  visibleSlotIntervalMinutes: Math.max(
+    1,
+    Number(data.visibleSlotIntervalMinutes || DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES),
+  ),
+  cancellationDeadlineMinutesBeforeAppointment: Math.max(
+    0,
+    Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
+  ),
   workingHours: normalizeWorkingHours(data.workingHours),
 });
 
@@ -290,8 +323,26 @@ export const saveBookingSettings = async (input) => {
   if (input.appointmentBufferMinutes !== undefined) {
     payload.appointmentBufferMinutes = Math.max(0, Number(input.appointmentBufferMinutes || 0));
   }
+  if (input.defaultAppointmentBufferBeforeMinutes !== undefined) {
+    payload.defaultAppointmentBufferBeforeMinutes = Math.max(0, Number(input.defaultAppointmentBufferBeforeMinutes || 0));
+  }
+  if (input.defaultAppointmentBufferAfterMinutes !== undefined) {
+    payload.defaultAppointmentBufferAfterMinutes = Math.max(0, Number(input.defaultAppointmentBufferAfterMinutes || 0));
+  }
   if (input.slotInterval !== undefined) {
     payload.slotInterval = Math.max(1, Number(input.slotInterval || DEFAULT_SLOT_INTERVAL));
+  }
+  if (input.visibleSlotIntervalMinutes !== undefined) {
+    payload.visibleSlotIntervalMinutes = Math.max(
+      1,
+      Number(input.visibleSlotIntervalMinutes || DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES),
+    );
+  }
+  if (input.cancellationDeadlineMinutesBeforeAppointment !== undefined) {
+    payload.cancellationDeadlineMinutesBeforeAppointment = Math.max(
+      0,
+      Number(input.cancellationDeadlineMinutesBeforeAppointment || 0),
+    );
   }
   if (input.workingHours !== undefined) {
     payload.workingHours = normalizeWorkingHours(input.workingHours);
@@ -319,7 +370,16 @@ export const subscribeToBookingSettings = (onData, onError) => onSnapshot(
 export const subscribeToBusinessSettings = (onData, onError) => onSnapshot(
   doc(getFirestoreDb(), 'settings', 'business'),
   (snapshot) => {
-    const settings = snapshot.data() || {};
+    const data = snapshot.data() || {};
+    const settings = {
+      ...data,
+      bookingPolicyText: data.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT,
+      bookingPolicyVersion: data.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION,
+      cancellationDeadlineMinutesBeforeAppointment: Math.max(
+        0,
+        Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
+      ),
+    };
     console.info('[Firestore Settings] business settings snapshot', {
       exists: snapshot.exists(),
       name: settings.name || '',
@@ -336,6 +396,24 @@ export const saveBusinessSettings = async (input) => {
     phone: String(input.phone || '').trim(),
     address: String(input.address || '').trim(),
     description: String(input.description || '').trim(),
+    bookingPolicyText: String(input.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT).trim(),
+    bookingPolicyVersion: String(input.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION).trim(),
+    defaultAppointmentBufferBeforeMinutes: Math.max(
+      0,
+      Number(input.defaultAppointmentBufferBeforeMinutes ?? 0),
+    ),
+    defaultAppointmentBufferAfterMinutes: Math.max(
+      0,
+      Number(input.defaultAppointmentBufferAfterMinutes ?? 0),
+    ),
+    visibleSlotIntervalMinutes: Math.max(
+      1,
+      Number(input.visibleSlotIntervalMinutes ?? DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES),
+    ),
+    cancellationDeadlineMinutesBeforeAppointment: Math.max(
+      0,
+      Number(input.cancellationDeadlineMinutesBeforeAppointment ?? 180),
+    ),
   };
   console.info('[Firestore Settings] saving business settings', {
     name: payload.name,

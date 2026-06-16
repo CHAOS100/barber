@@ -6,6 +6,7 @@ import {
   createCustomerAppointment,
   replaceCustomerAppointment,
 } from '@/lib/appointmentsFirestore';
+import { createWaitingListEntry } from '@/lib/waitingListFirestore';
 import {
   BOOKING_STATUS_LABELS,
   getBookingRejectionMessage,
@@ -14,6 +15,7 @@ import {
   useActiveBarbersRealtime,
   useActiveServicesRealtime,
   useAppointmentBlocksRealtime,
+  useBusinessSettingsRealtime,
   useBookingSettingsRealtime,
 } from '@/hooks/useBookingData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -21,6 +23,7 @@ import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
+import { toast } from '@/components/ui/use-toast';
 
 // ─── Calendar helpers ──────────────────────────────────────────────
 const MONTH_NAMES_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -159,7 +162,7 @@ function ServiceCard({ service, selected, onSelect }) {
 export default function Booking() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentUser } = useCurrentUser();
+  const { currentUser, isAdmin, exitAdminPreview } = useCurrentUser();
 
   const [step, setStep] = useState(location.state?.service ? 2 : 1);
   const [selectedService, setSelectedService] = useState(location.state?.service || null);
@@ -172,11 +175,21 @@ export default function Booking() {
   const [confirmed, setConfirmed] = useState(false);
   const [bookingError, setBookingError] = useState('');
   const [replacementMode, setReplacementMode] = useState(false);
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [waitingListOpen, setWaitingListOpen] = useState(false);
+  const [waitingListPreferenceType, setWaitingListPreferenceType] = useState('whole_day');
+  const [waitingListExactTime, setWaitingListExactTime] = useState('');
+  const [waitingListStartTime, setWaitingListStartTime] = useState('');
+  const [waitingListEndTime, setWaitingListEndTime] = useState('');
+  const [waitingListDayPart, setWaitingListDayPart] = useState('morning');
+  const [waitingListLoading, setWaitingListLoading] = useState(false);
+  const [waitingListMessage, setWaitingListMessage] = useState('');
 
   const { data: services } = useActiveServicesRealtime();
   const { data: barbers } = useActiveBarbersRealtime();
   const { appointments: customerAppointments } = useCustomerAppointmentsRealtime(Boolean(currentUser));
   const { settings: bookingSettings } = useBookingSettingsRealtime();
+  const { settings: businessSettings } = useBusinessSettingsRealtime();
   const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
   const blockedDates = [];
@@ -219,11 +232,14 @@ export default function Booking() {
     return getAvailableSlots({
       date: ds,
       serviceDuration: selectedService.duration,
+      service: selectedService,
       appointments: appointmentBlocks.filter(block => block.barberId === selectedBarber?.id),
       workingHours: wh,
       blockedTimes: [],
       slotInterval: bookingSettings?.slotInterval || 10,
+      visibleSlotIntervalMinutes: bookingSettings?.visibleSlotIntervalMinutes || 30,
       bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
+      settings: bookingSettings || {},
     });
   }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings]);
 
@@ -241,8 +257,35 @@ export default function Booking() {
     return 'אין שעות פנויות ביום זה';
   }, [selectedDate, selectedService, workingHours]);
 
+  if (isAdmin) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
+        <div className="glass rounded-3xl p-6 text-center max-w-sm">
+          <Calendar className="w-12 h-12 text-primary mx-auto mb-3" />
+          <h2 className="text-xl font-black mb-2">תצוגת לקוח בלבד</h2>
+          <p className="text-muted-foreground text-sm mb-5">
+            מנהל לא יכול לקבוע תור מתוך מסך הלקוח. כדי ליצור תור ידני, חזור לניהול והשתמש במסך התורים.
+          </p>
+          <GoldButton
+            onClick={() => {
+              exitAdminPreview();
+              navigate('/admin/appointments');
+            }}
+            className="w-full"
+          >
+            חזרה לניהול תורים
+          </GoldButton>
+        </div>
+      </div>
+    );
+  }
+
   const handleConfirm = async () => {
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
+    if (!policyAccepted) {
+      setBookingError('יש לאשר את מדיניות העסק לפני קביעת התור.');
+      return;
+    }
     setLoading(true);
     setBookingError('');
     try {
@@ -256,6 +299,8 @@ export default function Booking() {
         barberId: selectedBarber.id,
         barberName: selectedBarber.name,
         notes,
+        policyAccepted: true,
+        policyVersion: businessSettings?.bookingPolicyVersion || '2026-06-16',
       };
       if (replacementMode && activeAppointment) {
         await replaceCustomerAppointment(activeAppointment.id, appointmentInput);
@@ -269,6 +314,155 @@ export default function Booking() {
       setLoading(false);
     }
   };
+
+  const handleJoinWaitingList = async () => {
+    if (!currentUser) {
+      navigate('/login', { state: { next: '/booking' } });
+      return;
+    }
+    if (!selectedDateStr || !selectedService) {
+      setWaitingListMessage('יש לבחור שירות ותאריך לפני הצטרפות לרשימת המתנה.');
+      return;
+    }
+    if (waitingListPreferenceType === 'exact_time' && !waitingListExactTime) {
+      setWaitingListMessage('יש לבחור שעה מדויקת.');
+      return;
+    }
+    if (
+      waitingListPreferenceType === 'time_range'
+      && (!waitingListStartTime || !waitingListEndTime || waitingListStartTime >= waitingListEndTime)
+    ) {
+      setWaitingListMessage('יש לבחור טווח שעות תקין.');
+      return;
+    }
+
+    setWaitingListLoading(true);
+    setWaitingListMessage('');
+    try {
+      await createWaitingListEntry({
+        date: selectedDateStr,
+        preferenceType: waitingListPreferenceType,
+        exactTime: waitingListExactTime,
+        startTime: waitingListStartTime,
+        endTime: waitingListEndTime,
+        dayPart: waitingListDayPart,
+        serviceId: selectedService.id,
+        serviceName: selectedService.name,
+      });
+      setWaitingListMessage('נכנסת לרשימת ההמתנה. נעדכן אותך אם יתפנה תור מתאים.');
+      toast({ title: 'נכנסת לרשימת ההמתנה', description: 'אם יתפנה תור מתאים, תישלח אליך הודעה.' });
+    } catch (error) {
+      console.error('[Firestore] Waiting list create failed', {
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown Firestore error',
+      });
+      setWaitingListMessage('אירעה תקלה זמנית. נסה שוב.');
+      toast({ variant: 'destructive', title: 'הצטרפות לרשימת המתנה נכשלה', description: 'אירעה תקלה זמנית. נסה שוב.' });
+    } finally {
+      setWaitingListLoading(false);
+    }
+  };
+
+  const waitingListPanel = selectedDate && selectedService ? (
+    <div className="mt-4 glass-gold rounded-2xl p-4 text-right">
+      <div className="flex items-center gap-2 mb-3">
+        <BellRing className="w-4 h-4 text-primary" />
+        <h4 className="font-black text-sm">רוצה שנעדכן אותך אם יתפנה?</h4>
+      </div>
+      <p className="text-muted-foreground text-xs leading-5 mb-3">
+        בחר העדפת זמן ונוסיף אותך לרשימת ההמתנה. ההודעה לא שומרת לך תור אוטומטית.
+      </p>
+      <button
+        type="button"
+        onClick={() => setWaitingListOpen((open) => !open)}
+        className="w-full rounded-xl bg-primary/15 text-primary px-4 py-3 text-sm font-bold"
+      >
+        {waitingListOpen ? 'סגור רשימת המתנה' : 'הצטרף לרשימת המתנה'}
+      </button>
+
+      {waitingListOpen && (
+        <div className="mt-4 space-y-3">
+          <label className="text-sm font-bold block">
+            העדפת זמן
+            <select
+              value={waitingListPreferenceType}
+              onChange={(event) => setWaitingListPreferenceType(event.target.value)}
+              className="mt-2 w-full bg-secondary border border-border rounded-xl px-3 py-3 text-right focus:outline-none focus:border-primary"
+            >
+              <option value="whole_day">כל היום</option>
+              <option value="day_part">חלק ביום</option>
+              <option value="time_range">טווח שעות</option>
+              <option value="exact_time">שעה מדויקת</option>
+            </select>
+          </label>
+
+          {waitingListPreferenceType === 'day_part' && (
+            <label className="text-sm font-bold block">
+              חלק ביום
+              <select
+                value={waitingListDayPart}
+                onChange={(event) => setWaitingListDayPart(event.target.value)}
+                className="mt-2 w-full bg-secondary border border-border rounded-xl px-3 py-3 text-right focus:outline-none focus:border-primary"
+              >
+                <option value="morning">בוקר</option>
+                <option value="noon">צהריים</option>
+                <option value="evening">ערב</option>
+              </select>
+            </label>
+          )}
+
+          {waitingListPreferenceType === 'exact_time' && (
+            <label className="text-sm font-bold block">
+              שעה מדויקת
+              <input
+                type="time"
+                value={waitingListExactTime}
+                onChange={(event) => setWaitingListExactTime(event.target.value)}
+                className="mt-2 w-full bg-secondary border border-border rounded-xl px-3 py-3 text-right focus:outline-none focus:border-primary"
+              />
+            </label>
+          )}
+
+          {waitingListPreferenceType === 'time_range' && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm font-bold block">
+                משעה
+                <input
+                  type="time"
+                  value={waitingListStartTime}
+                  onChange={(event) => setWaitingListStartTime(event.target.value)}
+                  className="mt-2 w-full bg-secondary border border-border rounded-xl px-3 py-3 text-right focus:outline-none focus:border-primary"
+                />
+              </label>
+              <label className="text-sm font-bold block">
+                עד שעה
+                <input
+                  type="time"
+                  value={waitingListEndTime}
+                  onChange={(event) => setWaitingListEndTime(event.target.value)}
+                  className="mt-2 w-full bg-secondary border border-border rounded-xl px-3 py-3 text-right focus:outline-none focus:border-primary"
+                />
+              </label>
+            </div>
+          )}
+
+          {waitingListMessage && (
+            <p className={`text-sm text-center font-bold ${waitingListMessage.includes('נכנסת') ? 'text-primary' : 'text-red-400'}`}>
+              {waitingListMessage}
+            </p>
+          )}
+
+          <GoldButton
+            onClick={handleJoinWaitingList}
+            disabled={waitingListLoading}
+            className="w-full"
+          >
+            {waitingListLoading ? 'מוסיף...' : 'אשר הצטרפות לרשימת המתנה'}
+          </GoldButton>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   // ─── Confirmed screen ─────────────────────────────
   if (confirmed) {
@@ -311,6 +505,13 @@ export default function Booking() {
     );
   }
 
+  const blockedReason = currentUser?.blockedReason || currentUser?.blocked_reason || '';
+  const blockedMessage = blockedReason.includes('אי הגעה לתור')
+    ? 'החשבון שלך נחסם לקביעת תורים עקב אי הגעה לתור. להסרת החסימה פנה לעסק.'
+    : (blockedReason
+      ? `החשבון שלך חסום לקביעת תורים. סיבה: ${blockedReason}. פנה לעסק.`
+      : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.');
+
   if (currentUser?.is_blocked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
@@ -318,6 +519,9 @@ export default function Booking() {
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
           <h2 className="text-xl font-black mb-2">לא ניתן לקבוע תור</h2>
           <p className="text-muted-foreground text-sm mb-5">
+            {blockedMessage}
+          </p>
+          <p className="hidden">
             {currentUser.blockedReason || currentUser.blocked_reason
               ? `החשבון שלך חסום לקביעת תורים. סיבה: ${currentUser.blockedReason || currentUser.blocked_reason}. פנה לעסק.`
               : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.'}
@@ -434,7 +638,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -443,7 +647,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name === 'עיצוב זקן').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -452,7 +656,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name === 'חבילת פרימיום').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -494,7 +698,7 @@ export default function Booking() {
                 workingHours={workingHours}
                 blockedDates={blockedDates}
                 selectedDate={selectedDate}
-                onSelect={(d) => { setSelectedDate(d); setSelectedTime(null); setSelectedTimeGroup(null); }}
+                onSelect={(d) => { setSelectedDate(d); setSelectedTime(null); setSelectedTimeGroup(null); setWaitingListOpen(false); setWaitingListMessage(''); }}
               />
 
               {/* Time selection */}
@@ -506,10 +710,13 @@ export default function Booking() {
                   <p className="text-xs text-muted-foreground mb-4">ניתן לבחור יותר מאפשרות אחת!</p>
 
                   {availableSlots.length === 0 ? (
-                    <div className="glass rounded-2xl p-6 text-center">
-                      <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-muted-foreground text-sm">{emptyAvailabilityMessage}</p>
-                    </div>
+                    <>
+                      <div className="glass rounded-2xl p-6 text-center">
+                        <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-muted-foreground text-sm">{emptyAvailabilityMessage}</p>
+                      </div>
+                      {waitingListPanel}
+                    </>
                   ) : (
                     <>
                       {/* Time-of-day group selector */}
@@ -563,6 +770,7 @@ export default function Booking() {
                           </div>
                         </div>
                       )}
+                      {!selectedTime && waitingListPanel}
                     </>
                   )}
                 </motion.div>
@@ -607,6 +815,39 @@ export default function Booking() {
               <div className="glass-gold rounded-2xl p-3 mb-4 flex items-center gap-2">
                 <BellRing className="w-4 h-4 text-primary flex-shrink-0" />
                 <p className="text-xs text-muted-foreground">תקבל תזכורת WhatsApp 24 שעות ו-2 שעות לפני התור</p>
+              </div>
+              {(currentUser?.requiresNoShowPayment || currentUser?.noShowPaymentAmount > 0) && (
+                <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 mb-4 text-sm">
+                  <p className="font-bold text-yellow-100 mb-1">נדרש תיאום תשלום לפני התור</p>
+                  <p className="text-muted-foreground leading-6">
+                    לפי מדיניות העסק, נדרש תשלום של 50% ממחיר התספורת עקב ביטול ללא הודעה מראש / אי הגעה.
+                    אין גבייה באפליקציה כרגע, יש ליצור קשר עם הספר להסדרת התשלום.
+                  </p>
+                  {currentUser?.noShowPaymentAmount > 0 && (
+                    <p className="text-primary font-black mt-2">סכום: ₪{currentUser.noShowPaymentAmount}</p>
+                  )}
+                </div>
+              )}
+              <div className="glass rounded-2xl p-4 mb-4">
+                <h3 className="font-bold text-sm mb-2">מדיניות העסק</h3>
+                <p className="text-xs text-muted-foreground whitespace-pre-line leading-6">
+                  {businessSettings?.bookingPolicyText || `חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!
+*יש לבחור תור לתספורת במידה ובחרת עם גזירות.
+*איחורים מעל 10 דקות לא יתקבלו.
+*במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.`}
+                </p>
+                <label className="mt-3 flex items-center gap-2 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={policyAccepted}
+                    onChange={event => {
+                      setPolicyAccepted(event.target.checked);
+                      if (event.target.checked) setBookingError('');
+                    }}
+                    className="accent-primary w-5 h-5"
+                  />
+                  אני מאשר/ת את מדיניות העסק
+                </label>
               </div>
               <div className="mb-5">
                 <label className="text-sm font-medium text-muted-foreground mb-2 block">הערות (אופציונלי)</label>

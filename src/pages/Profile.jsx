@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Phone, Edit3, History, Star, Heart, Settings } from 'lucide-react';
+import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Phone, Edit3, History, Star, Calendar, Settings } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
@@ -77,7 +77,7 @@ export default function Profile() {
       <div className="grid grid-cols-2 gap-3 px-4 mb-4">
         {[
           { icon: AlertTriangle, label: 'אזהרות', value: currentUser?.warning_count || 0, color: 'text-yellow-400' },
-          { icon: History, label: 'ביקורים', value: visits, color: 'text-blue-400' },
+          { icon: History, label: 'ביקורים', value: visits, color: 'text-primary' },
         ].map((stat) => {
           const StatIcon = stat.icon;
           return (
@@ -135,7 +135,7 @@ export default function Profile() {
             <div className="space-y-2">
               {[
                 { icon: Star, label: 'ביקורות שלי', path: '/reviews', desc: 'כתוב ביקורת' },
-                { icon: Heart, label: 'קבע תור', path: '/booking', desc: 'שירותים פופולריים' },
+                { icon: Calendar, label: 'קבע תור', path: '/booking', desc: 'שירותים פופולריים' },
                 ...(isAdmin ? [{ icon: User, label: 'לוח ניהול', path: '/admin', desc: 'ניהול העסק' }] : []),
               ].map((item) => {
                 const ItemIcon = item.icon;

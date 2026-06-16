@@ -11,6 +11,7 @@ import {
   normalizeIsraeliPhoneNumber,
   resetFirebasePhoneRecaptcha,
   signInFirebaseAdmin,
+  signInFirebaseAdminWithPhoneCode,
   startFirebasePhoneVerification,
 } from '@/lib/firebase';
 import {
@@ -49,8 +50,16 @@ export default function OTPLogin() {
   const [resendAttempts, setResendAttempts] = useState(0);
 
   // Admin login
+  const [adminLoginMethod, setAdminLoginMethod] = useState('email');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [adminPhone, setAdminPhone] = useState('');
+  const [adminNormalizedPhone, setAdminNormalizedPhone] = useState('');
+  const [adminPhoneOtp, setAdminPhoneOtp] = useState('');
+  const [adminPhoneStep, setAdminPhoneStep] = useState('phone');
+  const adminConfirmationResultRef = useRef(null);
+  const adminSendingOtpRef = useRef(false);
+  const adminVerificationInFlightRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
@@ -219,14 +228,95 @@ export default function OTPLogin() {
       });
 
       if (signInError?.code === 'admin/not-authorized') {
-        setError('החשבון קיים, אך אינו מוגדר כמנהל פעיל ב-Firestore.');
+        setError('אין לך הרשאת מנהל.');
       } else if (signInError?.message?.includes('Missing Vercel build-time environment variables')) {
-        setError('Firebase אינו מוגדר ב-Vercel. יש להגדיר משתני סביבה ולפרוס מחדש.');
+        setError('אירעה תקלה זמנית. נסה שוב.');
       } else {
-        setError('התחברות Firebase נכשלה. ודא שחשבון המנהל קיים ומורשה.');
+        setError('אירעה תקלה זמנית. נסה שוב.');
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAdminSendPhoneOTP = async (event) => {
+    if (event?.currentTarget) event.currentTarget.disabled = true;
+    if (
+      adminSendingOtpRef.current
+      || smsLoading
+      || adminVerificationInFlightRef.current
+      || adminConfirmationResultRef.current
+    ) {
+      if (adminConfirmationResultRef.current) setAdminPhoneStep('otp');
+      return;
+    }
+
+    adminSendingOtpRef.current = true;
+    setSmsLoading(true);
+    setError('');
+    try {
+      const normalizedAdminPhone = normalizeIsraeliPhoneNumber(adminPhone);
+      setAdminNormalizedPhone(normalizedAdminPhone);
+      console.info('[Firebase Phone Auth] starting admin SMS flow');
+      const result = await startFirebasePhoneVerification(normalizedAdminPhone);
+      adminConfirmationResultRef.current = result.confirmationResult;
+      setAdminPhoneOtp('');
+      setAdminPhoneStep('otp');
+      console.info('[Admin Auth] OTP sent', {
+        phoneNumberPresent: Boolean(result.phoneNumber),
+        reusedExistingConfirmation: result.reused === true,
+      });
+    } catch (phoneAuthError) {
+      console.error('[Firebase] Admin SMS verification failed', {
+        code: phoneAuthError?.code || 'unknown',
+        message: phoneAuthError?.message || 'Unknown Firebase error',
+      });
+      setError(getPhoneAuthErrorMessage(phoneAuthError));
+    } finally {
+      adminSendingOtpRef.current = false;
+      setSmsLoading(false);
+    }
+  };
+
+  const handleAdminVerifyPhoneOTP = async () => {
+    if (adminVerificationInFlightRef.current || adminSendingOtpRef.current) return;
+    if (adminPhoneOtp.length !== 6) {
+      setError('יש להזין קוד אימות בן 6 ספרות');
+      return;
+    }
+
+    adminVerificationInFlightRef.current = true;
+    setVerificationLoading(true);
+    setError('');
+    try {
+      const { user: firebaseUser, profile } = await signInFirebaseAdminWithPhoneCode(
+        adminConfirmationResultRef.current,
+        adminPhoneOtp,
+      );
+      loginUser({
+        name: profile.name || 'מנהל',
+        email: profile.email || firebaseUser.email || '',
+        phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber || '',
+        uid: firebaseUser.uid,
+        isAdmin: true,
+      });
+      navigate('/admin');
+    } catch (signInError) {
+      console.error('[Firebase] Admin phone sign-in failed', {
+        code: signInError?.code || 'unknown',
+        reason: signInError?.reason || 'unknown',
+        message: signInError?.message || 'Unknown Firebase error',
+      });
+      if (signInError?.code === 'admin/not-authorized') {
+        adminConfirmationResultRef.current = null;
+        setAdminPhoneStep('phone');
+      }
+      setError(signInError?.code === 'admin/not-authorized'
+        ? 'אין לך הרשאת מנהל.'
+        : getPhoneAuthErrorMessage(signInError));
+    } finally {
+      adminVerificationInFlightRef.current = false;
+      setVerificationLoading(false);
     }
   };
 
@@ -285,41 +375,146 @@ export default function OTPLogin() {
                   <p className="text-xs text-muted-foreground">גישת מנהל בלבד. לקוחות אינם יכולים להשתמש בממשק זה.</p>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground mb-2 block">אימייל</label>
-                  <div className="relative">
-                    <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <input
-                      type="email"
-                      value={adminEmail}
-                      onChange={e => setAdminEmail(e.target.value)}
-                      placeholder="admin@ostbarber.com"
-                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                      dir="ltr"
-                    />
-                  </div>
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary/60 p-1">
+                  <button
+                    type="button"
+                    onClick={() => { setAdminLoginMethod('email'); setError(''); }}
+                    className={`rounded-xl py-2 text-sm font-bold transition-colors ${adminLoginMethod === 'email' ? 'bg-primary text-black' : 'text-muted-foreground'}`}
+                  >
+                    אימייל
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdminLoginMethod('phone'); setError(''); }}
+                    className={`rounded-xl py-2 text-sm font-bold transition-colors ${adminLoginMethod === 'phone' ? 'bg-primary text-black' : 'text-muted-foreground'}`}
+                  >
+                    SMS
+                  </button>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground mb-2 block">סיסמה</label>
-                  <div className="relative">
-                    <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <input
-                      type="password"
-                      value={adminPassword}
-                      onChange={e => setAdminPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                      onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
-                    />
-                  </div>
-                </div>
+                {adminLoginMethod === 'email' && (
+                  <>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground mb-2 block">אימייל</label>
+                      <div className="relative">
+                        <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <input
+                          type="email"
+                          value={adminEmail}
+                          onChange={e => setAdminEmail(e.target.value)}
+                          placeholder="admin@ostbarber.com"
+                          className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                          dir="ltr"
+                        />
+                      </div>
+                    </div>
 
-                {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground mb-2 block">סיסמה</label>
+                      <div className="relative">
+                        <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <input
+                          type="password"
+                          value={adminPassword}
+                          onChange={e => setAdminPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                          onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+                        />
+                      </div>
+                    </div>
 
-                <GoldButton onClick={handleAdminLogin} size="lg" className="w-full" disabled={loading}>
-                  {loading ? 'מתחבר...' : 'כניסה למערכת ניהול'}
-                </GoldButton>
+                    {error && <p className="text-destructive text-sm text-center">{error}</p>}
+
+                    <GoldButton onClick={handleAdminLogin} size="lg" className="w-full" disabled={loading}>
+                      {loading ? 'מתחבר...' : 'כניסה למערכת ניהול'}
+                    </GoldButton>
+                  </>
+                )}
+
+                {adminLoginMethod === 'phone' && (
+                  <>
+                    {adminPhoneStep === 'phone' ? (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground mb-2 block">טלפון מנהל</label>
+                        <div className="relative">
+                          <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                          <input
+                            type="tel"
+                            autoComplete="tel"
+                            value={adminPhone}
+                            disabled={Boolean(adminConfirmationResultRef.current)}
+                            onChange={event => {
+                              setAdminPhone(event.target.value);
+                              setAdminNormalizedPhone('');
+                            }}
+                            placeholder="054-0000000"
+                            className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                            dir="rtl"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="text-center">
+                          <ShieldCheck className="w-12 h-12 text-primary mx-auto mb-2" />
+                          <p className="text-muted-foreground text-sm">קוד אימות נשלח ב-SMS</p>
+                          <p className="text-muted-foreground/70 text-xs mt-1" dir="ltr">{adminNormalizedPhone}</p>
+                        </div>
+                        <input
+                          type="text"
+                          autoComplete="one-time-code"
+                          inputMode="numeric"
+                          name="admin-one-time-code"
+                          value={adminPhoneOtp}
+                          onChange={event => setAdminPhoneOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                          onPaste={(event) => {
+                            const pastedCode = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+                            if (!pastedCode) return;
+                            event.preventDefault();
+                            setAdminPhoneOtp(pastedCode);
+                          }}
+                          placeholder="הזן קוד 6 ספרות"
+                          className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-center text-2xl font-bold tracking-widest placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                          maxLength={6}
+                        />
+                      </div>
+                    )}
+
+                    {error && <p className="text-destructive text-sm text-center">{error}</p>}
+
+                    {adminPhoneStep === 'phone' ? (
+                      <GoldButton
+                        onClick={handleAdminSendPhoneOTP}
+                        size="lg"
+                        className="w-full"
+                        disabled={smsLoading || verificationLoading || Boolean(adminConfirmationResultRef.current)}
+                      >
+                        {smsLoading ? 'שולח...' : 'שלח קוד מנהל'}
+                      </GoldButton>
+                    ) : (
+                      <GoldButton
+                        onClick={handleAdminVerifyPhoneOTP}
+                        size="lg"
+                        className="w-full"
+                        disabled={verificationLoading || smsLoading}
+                      >
+                        {verificationLoading ? 'מאמת...' : 'כניסה לניהול'}
+                      </GoldButton>
+                    )}
+
+                    {adminPhoneStep === 'otp' && (
+                      <button
+                        type="button"
+                        disabled={smsLoading || verificationLoading}
+                        onClick={() => setAdminPhoneStep('phone')}
+                        className="flex items-center gap-1 text-muted-foreground text-sm mx-auto"
+                      >
+                        <ArrowRight className="w-4 h-4" /> חזרה לטלפון
+                      </button>
+                    )}
+                  </>
+                )}
 
                 <button
                   onClick={switchToCustomer}

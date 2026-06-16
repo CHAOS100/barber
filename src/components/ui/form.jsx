@@ -5,6 +5,7 @@ import { Controller, FormProvider, useFormContext } from "react-hook-form";
 
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
+import { getUserFacingErrorMessage } from "@/lib/userFacingErrors"
 
 const Form = FormProvider
 
@@ -104,7 +105,7 @@ FormDescription.displayName = "FormDescription"
 
 const FormMessage = React.forwardRef(({ className, children, ...props }, ref) => {
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message) : children
+  const body = error ? getUserFacingErrorMessage(error) : children
 
   if (!body) {
     return null

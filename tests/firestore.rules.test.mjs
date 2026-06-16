@@ -164,6 +164,33 @@ before(async () => {
       category: 'gallery',
       active: false,
     });
+    await setDoc(doc(firestore, 'waitingList', 'customer-a-wait'), {
+      customerId: 'customer-a',
+      customerName: 'Test Customer',
+      phoneNumber: '+972500000000',
+      date: '2026-06-20',
+      preferenceType: 'whole_day',
+      serviceId: 'active-service',
+      serviceName: 'Haircut',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      notifiedAt: null,
+      expiresAt: null,
+    });
+    await setDoc(doc(firestore, 'waitingList', 'customer-b-wait'), {
+      customerId: 'customer-b',
+      customerName: 'Other Customer',
+      phoneNumber: '+972511111111',
+      date: '2026-06-20',
+      preferenceType: 'exact_time',
+      exactTime: '10:00',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      notifiedAt: null,
+      expiresAt: null,
+    });
   });
 });
 
@@ -310,6 +337,71 @@ test('active admins can read notification jobs but cannot create them from the c
     sentAt: null,
     error: null,
   }));
+});
+
+test('phone customer can create, read, and cancel only their own waiting list entries', async () => {
+  const firestore = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+
+  await assertSucceeds(setDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+    customerId: 'customer-a',
+    customerName: 'Test Customer',
+    phoneNumber: '+972500000000',
+    date: '2026-06-21',
+    preferenceType: 'time_range',
+    startTime: '09:00',
+    endTime: '12:00',
+    serviceId: 'active-service',
+    serviceName: 'Haircut',
+    status: 'active',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    notifiedAt: null,
+    expiresAt: null,
+  }));
+  await assertSucceeds(getDoc(doc(firestore, 'waitingList', 'customer-a-wait')));
+  await assertFails(getDoc(doc(firestore, 'waitingList', 'customer-b-wait')));
+  await assertFails(setDoc(doc(firestore, 'waitingList', 'customer-a-for-other'), {
+    customerId: 'customer-b',
+    customerName: 'Wrong Customer',
+    phoneNumber: '+972500000000',
+    date: '2026-06-21',
+    preferenceType: 'whole_day',
+    status: 'active',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+    status: 'cancelled',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+    status: 'notified',
+    updatedAt: serverTimestamp(),
+  }));
+});
+
+test('active admin can read, update, and delete waiting list entries', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'waitingList', 'admin-managed-wait'), {
+      customerId: 'customer-a',
+      customerName: 'Test Customer',
+      phoneNumber: '+972500000000',
+      date: '2026-06-22',
+      preferenceType: 'day_part',
+      dayPart: 'morning',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  });
+
+  const firestore = testEnvironment.authenticatedContext('active-admin').firestore();
+  await assertSucceeds(getDocs(collection(firestore, 'waitingList')));
+  await assertSucceeds(updateDoc(doc(firestore, 'waitingList', 'admin-managed-wait'), {
+    status: 'cancelled',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(deleteDoc(doc(firestore, 'waitingList', 'admin-managed-wait')));
 });
 
 test('phone customer can read only users/{auth.uid}', async () => {

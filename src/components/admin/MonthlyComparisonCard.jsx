@@ -74,10 +74,10 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
         {/* Appointments */}
         <div className="dark-card rounded-xl p-3">
           <div className="flex items-center gap-1.5 mb-1">
-            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+            <Calendar className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs text-muted-foreground">תורים</span>
           </div>
-          <div className="text-xl font-black text-blue-400">{thisMonth.appointments}</div>
+          <div className="text-xl font-black text-primary">{thisMonth.appointments}</div>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-xs text-muted-foreground">vs {lastMonth.appointments}</span>
             <GrowthBadge current={thisMonth.appointments} previous={lastMonth.appointments} />
