@@ -14,22 +14,13 @@ import {
   findActiveCustomerAppointment,
   isCustomerBlocked,
 } from './bookingPolicy.js';
+import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
 
 const db = () => getFirestore();
 
-const requireAuth = (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required.');
-  return request.auth;
-};
+const requireAuth = requireCallableAuth;
 
-const requireCustomer = (request) => {
-  const auth = requireAuth(request);
-  const provider = auth.token.firebase?.sign_in_provider;
-  if (provider !== 'phone') {
-    throw new HttpsError('permission-denied', 'Firebase Phone Authentication is required.');
-  }
-  return auth;
-};
+const requireCustomer = (request) => requirePhoneCustomerAuth(request);
 
 const requireAdmin = async (request) => {
   const auth = requireAuth(request);
@@ -259,7 +250,7 @@ const validateCustomer = (snapshot, auth) => {
     !snapshot.exists
     || customer?.role !== 'customer'
     || customer?.uid !== auth.uid
-    || customer?.phoneNumber !== auth.token.phone_number
+    || customer?.phoneNumber !== auth.phoneNumber
   ) {
     throw new HttpsError('failed-precondition', 'A valid customer profile is required.', {
       code: 'customer/profile-missing',
@@ -302,7 +293,7 @@ const buildCustomerAppointment = (requested, customer, service, barber, customer
   }, customerId, 'pending');
 
 export const createCustomerAppointment = onCall(async (request) => {
-  const auth = requireCustomer(request);
+  const auth = await requireCustomer(request);
   const requested = normalizeAppointment(request.data, auth.uid, 'pending');
   const ref = db().collection('appointments').doc();
 
@@ -363,7 +354,7 @@ export const createCustomerAppointment = onCall(async (request) => {
 });
 
 export const replaceCustomerAppointment = onCall(async (request) => {
-  const auth = requireCustomer(request);
+  const auth = await requireCustomer(request);
   const activeAppointmentId = text(request.data?.activeAppointmentId);
   if (!activeAppointmentId) {
     throw new HttpsError('invalid-argument', 'activeAppointmentId is required.');
@@ -489,7 +480,7 @@ export const createAdminAppointment = onCall(async (request) => {
 });
 
 const updateAppointment = async (request, adminOnly) => {
-  const auth = adminOnly ? await requireAdmin(request) : requireCustomer(request);
+  const auth = adminOnly ? await requireAdmin(request) : await requireCustomer(request);
   const appointmentId = text(request.data.appointmentId);
   if (!appointmentId) throw new HttpsError('invalid-argument', 'appointmentId is required.');
 

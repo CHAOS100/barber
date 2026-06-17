@@ -1,22 +1,9 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { requirePhoneCustomerAuth } from './auth.js';
 
 const db = () => getFirestore();
-
-const requirePhoneCustomer = (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Authentication is required.');
-  }
-
-  const provider = request.auth.token.firebase?.sign_in_provider;
-  const phoneNumber = String(request.auth.token.phone_number || '').trim();
-  if (provider !== 'phone' || !phoneNumber) {
-    throw new HttpsError('permission-denied', 'Firebase Phone Authentication is required.');
-  }
-
-  return { uid: request.auth.uid, phoneNumber };
-};
 
 const requiredName = (value, field) => {
   const name = String(value || '').trim();
@@ -40,7 +27,7 @@ const getProfilesByPhone = (transaction, phoneNumber) =>
   transaction.get(db().collection('users').where('phoneNumber', '==', phoneNumber).limit(2));
 
 export const completeCustomerLogin = onCall(async (request) => {
-  const auth = requirePhoneCustomer(request);
+  const auth = await requirePhoneCustomerAuth(request);
 
   const result = await db().runTransaction(async (transaction) => {
     const matches = await getProfilesByPhone(transaction, auth.phoneNumber);
@@ -69,7 +56,7 @@ export const completeCustomerLogin = onCall(async (request) => {
 });
 
 export const registerCustomerProfile = onCall(async (request) => {
-  const auth = requirePhoneCustomer(request);
+  const auth = await requirePhoneCustomerAuth(request);
   const firstName = requiredName(request.data?.firstName, 'firstName');
   const lastName = requiredName(request.data?.lastName, 'lastName');
 

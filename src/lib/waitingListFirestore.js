@@ -14,6 +14,7 @@ import {
   ensureFirebaseCustomer,
   firebaseAuth,
   firebaseProjectId,
+  getFirebaseUserPhoneNumber,
   getFirestoreDb,
 } from '@/lib/firebase';
 import { getCurrentCustomerProfile } from '@/lib/customerProfilesFirestore';
@@ -60,7 +61,7 @@ export const createWaitingListEntry = async (input) => {
   const payload = cleanOptionalFields({
     customerId: firebaseUser.uid,
     customerName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
-    phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber,
+    phoneNumber: profile.phoneNumber || getFirebaseUserPhoneNumber(firebaseUser),
     date: input.date,
     preferenceType,
     exactTime: preferenceType === 'exact_time' ? input.exactTime : undefined,

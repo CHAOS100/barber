@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "861100216939",
+    "project_id": "ost-barber-app",
+    "storage_bucket": "ost-barber-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:861100216939:android:82ada91403e4aed490972e",
+        "android_client_info": {
+          "package_name": "com.example.barber_booking_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTW4OCrnKGDxV0yNGH67LWubHxiAgGiMk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:861100216939:android:bf77d54cf1462e3690972e",
+        "android_client_info": {
+          "package_name": "com.ostbarber.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTW4OCrnKGDxV0yNGH67LWubHxiAgGiMk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -12,6 +12,7 @@ import {
   resetFirebasePhoneRecaptcha,
   signInFirebaseAdmin,
   signInFirebaseAdminWithPhoneCode,
+  signInFirebaseAdminWithVerifiedPhoneUser,
   startFirebasePhoneVerification,
 } from '@/lib/firebase';
 import {
@@ -75,6 +76,27 @@ export default function OTPLogin() {
   }, [step, resendCooldown]);
 
   // ─── Customer OTP ──────────────────────────────────────────────
+  const completeCustomerFirebaseLogin = async (firebaseUser) => {
+    console.info('[Customer Auth] OTP confirmed', { uid: firebaseUser.uid });
+
+    const existingProfile = await findAuthenticatedUserProfile();
+    if (!existingProfile) {
+      setStep('registration');
+      setError('');
+      return;
+    }
+
+    const profile = await completeExistingCustomerLogin();
+    if (!profile) {
+      setStep('registration');
+      setError('');
+      return;
+    }
+
+    loginUser(customerProfileToSession(profile));
+    navigate(nextPath);
+  };
+
   const handleSendOTP = async (isResend = false, triggerButton = null) => {
     if (isSendingOtpRef.current || smsLoading || verificationInFlightRef.current) return;
     if (!isResend && confirmationResultRef.current) {
@@ -103,11 +125,19 @@ export default function OTPLogin() {
 
       console.info('[Firebase Phone Auth] starting customer SMS flow', { isResend });
       const result = await startFirebasePhoneVerification(customerPhone, { isResend });
-      confirmationResultRef.current = result.confirmationResult;
       console.info('[Customer Auth] OTP sent', {
         phoneNumberPresent: Boolean(result.phoneNumber),
         reusedExistingConfirmation: result.reused === true,
+        provider: result.provider || 'web',
+        autoVerified: result.autoVerified === true,
       });
+
+      if (result.firebaseUser) {
+        await completeCustomerFirebaseLogin(result.firebaseUser);
+        return;
+      }
+
+      confirmationResultRef.current = result.confirmationResult;
 
       setOtp('');
       setStep('otp');
@@ -142,24 +172,7 @@ export default function OTPLogin() {
 
     try {
       const firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
-      console.info('[Customer Auth] OTP confirmed', { uid: firebaseUser.uid });
-
-      const existingProfile = await findAuthenticatedUserProfile();
-      if (!existingProfile) {
-        setStep('registration');
-        setError('');
-        return;
-      }
-
-      const profile = await completeExistingCustomerLogin();
-      if (!profile) {
-        setStep('registration');
-        setError('');
-        return;
-      }
-
-      loginUser(customerProfileToSession(profile));
-      navigate(nextPath);
+      await completeCustomerFirebaseLogin(firebaseUser);
     } catch (phoneAuthError) {
       console.error('[Firebase] Customer phone code verification failed', {
         code: phoneAuthError?.code || 'unknown',
@@ -259,13 +272,31 @@ export default function OTPLogin() {
       setAdminNormalizedPhone(normalizedAdminPhone);
       console.info('[Firebase Phone Auth] starting admin SMS flow');
       const result = await startFirebasePhoneVerification(normalizedAdminPhone);
-      adminConfirmationResultRef.current = result.confirmationResult;
-      setAdminPhoneOtp('');
-      setAdminPhoneStep('otp');
       console.info('[Admin Auth] OTP sent', {
         phoneNumberPresent: Boolean(result.phoneNumber),
         reusedExistingConfirmation: result.reused === true,
+        provider: result.provider || 'web',
+        autoVerified: result.autoVerified === true,
       });
+
+      if (result.firebaseUser) {
+        const { user: firebaseUser, profile } = await signInFirebaseAdminWithVerifiedPhoneUser(
+          result.firebaseUser,
+        );
+        loginUser({
+          name: profile.name || 'מנהל',
+          email: profile.email || firebaseUser.email || '',
+          phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber || '',
+          uid: firebaseUser.uid,
+          isAdmin: true,
+        });
+        navigate('/admin');
+        return;
+      }
+
+      adminConfirmationResultRef.current = result.confirmationResult;
+      setAdminPhoneOtp('');
+      setAdminPhoneStep('otp');
     } catch (phoneAuthError) {
       console.error('[Firebase] Admin SMS verification failed', {
         code: phoneAuthError?.code || 'unknown',

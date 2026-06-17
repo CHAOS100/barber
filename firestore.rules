@@ -8,7 +8,10 @@ service cloud.firestore {
 
     function isPhoneCustomer() {
       return signedIn()
-        && request.auth.token.firebase.sign_in_provider == 'phone';
+        && (
+          request.auth.token.firebase.sign_in_provider == 'phone'
+          || request.auth.token.native_phone_auth == true
+        );
     }
 
     function isAdmin() {
@@ -80,7 +83,16 @@ service cloud.firestore {
 
       allow create: if ownsUserDocument(userId)
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.phoneNumber == request.auth.token.phone_number
+        && (
+          (
+            request.auth.token.firebase.sign_in_provider == 'phone'
+            && request.resource.data.phoneNumber == request.auth.token.phone_number
+          )
+          || (
+            request.auth.token.native_phone_auth == true
+            && request.resource.data.phoneNumber == request.auth.token.native_phone_number
+          )
+        )
         && request.resource.data.role == 'customer'
         && request.resource.data.visitsCount == 0
         && request.resource.data.completedAppointments == 0
@@ -196,7 +208,16 @@ service cloud.firestore {
 
       allow create: if isPhoneCustomer()
         && request.resource.data.customerId == request.auth.uid
-        && request.resource.data.phoneNumber == request.auth.token.phone_number
+        && (
+          (
+            request.auth.token.firebase.sign_in_provider == 'phone'
+            && request.resource.data.phoneNumber == request.auth.token.phone_number
+          )
+          || (
+            request.auth.token.native_phone_auth == true
+            && request.resource.data.phoneNumber == request.auth.token.native_phone_number
+          )
+        )
         && request.resource.data.customerName is string
         && request.resource.data.customerName.size() > 0
         && request.resource.data.date is string

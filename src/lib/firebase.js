@@ -4,13 +4,16 @@ import {
   getAuth,
   RecaptchaVerifier,
   setPersistence,
+  signInWithCustomToken,
   signInWithPhoneNumber,
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { logoutUser, userStore } from './userStore';
 
 const FIREBASE_APP_NAME = 'ost-barber-web';
@@ -21,6 +24,8 @@ export const PHONE_RECAPTCHA_CONTAINER_ID = 'firebase-phone-recaptcha';
 const PHONE_SMS_COOLDOWN_MS = 60_000;
 const MAX_PHONE_SMS_RESEND_ATTEMPTS = 2;
 const PHONE_SMS_GUARD_STORAGE_KEY = 'ost_phone_sms_guard';
+const NATIVE_PHONE_AUTH_PROVIDER = 'capacitor-native-phone';
+const NATIVE_PHONE_BRIDGE_STORAGE_KEY = 'ost_native_phone_bridge_user';
 
 const firebaseEnvironment = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -112,6 +117,8 @@ let activePhoneConfirmationResult;
 let activePhoneConfirmationNumber = '';
 let phoneSmsCooldownUntil = 0;
 let phoneSmsResendAttempts = 0;
+let nativePhoneListenerHandles = [];
+let nativePhoneBridgeUser = null;
 
 const firebaseConfigurationError = () => new Error(
   `Firebase is not configured from valid Vercel build-time environment variables. Missing: ${
@@ -146,6 +153,11 @@ export const prepareFirebaseAuth = async () => {
   await setPersistence(firebaseAuth, browserLocalPersistence);
   await firebaseAuth.authStateReady();
 };
+
+export const isCapacitorAndroidNative = () => (
+  Capacitor.isNativePlatform()
+  && Capacitor.getPlatform() === 'android'
+);
 
 export const normalizeIsraeliPhoneNumber = (phoneNumber) => {
   const normalized = String(phoneNumber || '').replace(/[^\d+]/g, '');
@@ -204,6 +216,72 @@ const clearPhoneSmsGuard = () => {
   } catch {
     // Nothing else is required when sessionStorage is unavailable.
   }
+};
+
+const loadNativePhoneBridgeUser = () => {
+  if (nativePhoneBridgeUser) return nativePhoneBridgeUser;
+  try {
+    const stored = JSON.parse(localStorage.getItem(NATIVE_PHONE_BRIDGE_STORAGE_KEY) || 'null');
+    if (stored?.uid && stored?.phoneNumber) {
+      nativePhoneBridgeUser = {
+        uid: String(stored.uid),
+        phoneNumber: String(stored.phoneNumber),
+      };
+    }
+  } catch {
+    // The bridge is refreshed from the token when localStorage is unavailable.
+  }
+  return nativePhoneBridgeUser;
+};
+
+const saveNativePhoneBridgeUser = (uid, phoneNumber) => {
+  nativePhoneBridgeUser = {
+    uid: String(uid || ''),
+    phoneNumber: String(phoneNumber || ''),
+  };
+  try {
+    localStorage.setItem(NATIVE_PHONE_BRIDGE_STORAGE_KEY, JSON.stringify(nativePhoneBridgeUser));
+  } catch {
+    // In-memory bridge is enough for the current session.
+  }
+};
+
+const clearNativePhoneBridgeUser = () => {
+  nativePhoneBridgeUser = null;
+  try {
+    localStorage.removeItem(NATIVE_PHONE_BRIDGE_STORAGE_KEY);
+  } catch {
+    // Nothing else is required when localStorage is unavailable.
+  }
+};
+
+export const getFirebaseUserPhoneNumber = (user = firebaseAuth?.currentUser) => {
+  if (!user) return '';
+  const directPhone = String(user.phoneNumber || '').trim();
+  if (directPhone) return directPhone;
+  const bridgedUser = loadNativePhoneBridgeUser();
+  return bridgedUser?.uid === user.uid ? bridgedUser.phoneNumber : '';
+};
+
+export const resolveFirebaseUserPhoneNumber = async (user = firebaseAuth?.currentUser) => {
+  const directPhone = getFirebaseUserPhoneNumber(user);
+  if (directPhone) return directPhone;
+  if (!user) return '';
+
+  try {
+    const tokenResult = await user.getIdTokenResult();
+    const bridgedPhone = String(tokenResult.claims?.native_phone_number || '').trim();
+    if (bridgedPhone) {
+      saveNativePhoneBridgeUser(user.uid, bridgedPhone);
+      return bridgedPhone;
+    }
+  } catch (error) {
+    console.warn('[Firebase Phone Auth] Failed to resolve bridged phone number', {
+      code: error?.code || 'unknown',
+    });
+  }
+
+  return '';
 };
 
 const ensurePhoneRecaptchaContainer = () => {
@@ -309,6 +387,199 @@ export const clearFirebasePhoneRecaptcha = (reason = 'manual-clear') => {
   console.info('[Firebase Phone Auth] Recaptcha cleared', { reason, hadVerifier });
 };
 
+const clearNativePhoneAuthListeners = async (reason = 'cleanup') => {
+  const handles = nativePhoneListenerHandles;
+  nativePhoneListenerHandles = [];
+  if (handles.length === 0) return;
+
+  await Promise.all(handles.map(async (handle) => {
+    try {
+      await handle?.remove?.();
+    } catch (error) {
+      console.warn('[Firebase Phone Auth] Native listener cleanup failed', {
+        reason,
+        code: error?.code || 'unknown',
+      });
+    }
+  }));
+  console.info('[Firebase Phone Auth] Native phone listeners cleared', {
+    reason,
+    count: handles.length,
+  });
+};
+
+const nativePhoneAuthError = (eventOrError, fallbackCode = 'auth/native-phone-verification-failed') => {
+  const rawMessage = String(eventOrError?.message || eventOrError || 'Native phone verification failed.');
+  const message = rawMessage || 'Native phone verification failed.';
+  const lowerMessage = message.toLowerCase();
+  let code = eventOrError?.code || fallbackCode;
+
+  if (lowerMessage.includes('invalid') && lowerMessage.includes('phone')) {
+    code = 'auth/invalid-phone-number';
+  } else if (lowerMessage.includes('too many') || lowerMessage.includes('quota')) {
+    code = 'auth/too-many-requests';
+  } else if (lowerMessage.includes('network') || lowerMessage.includes('connection')) {
+    code = 'auth/network-request-failed';
+  } else if (lowerMessage.includes('expired')) {
+    code = 'auth/code-expired';
+  } else if (lowerMessage.includes('verification code')) {
+    code = 'auth/invalid-verification-code';
+  }
+
+  return Object.assign(new Error(message), { code });
+};
+
+const bridgeNativePhoneAuthToWeb = async (reason = 'native-phone-auth') => {
+  await prepareFirebaseAuth();
+
+  const nativeTokenResult = await FirebaseAuthentication.getIdToken({ forceRefresh: true });
+  const nativeIdToken = String(nativeTokenResult?.token || '');
+  if (!nativeIdToken) {
+    throw Object.assign(
+      new Error('Native Firebase Auth ID token is missing.'),
+      { code: 'auth/missing-native-id-token' },
+    );
+  }
+
+  const callable = httpsCallable(getFirebaseFunctions(), 'createWebCustomTokenFromNativeAuth');
+  const bridgeResult = await callable({ idToken: nativeIdToken });
+  const data = /** @type {{ customToken?: string, uid?: string, phoneNumber?: string }} */ (
+    bridgeResult.data || {}
+  );
+  const customToken = String(data.customToken || '');
+  const bridgedPhoneNumber = String(data.phoneNumber || '');
+
+  if (!customToken || !data.uid || !bridgedPhoneNumber) {
+    throw Object.assign(
+      new Error('Native phone auth bridge returned an invalid response.'),
+      { code: 'auth/native-bridge-invalid-response' },
+    );
+  }
+
+  const webCredential = await signInWithCustomToken(firebaseAuth, customToken);
+  saveNativePhoneBridgeUser(webCredential.user.uid, bridgedPhoneNumber);
+  customerAuthPromise = null;
+
+  console.info('[Firebase Phone Auth] Native Android auth bridged to Firebase Web SDK', {
+    reason,
+    uid: webCredential.user.uid,
+    phoneMasked: maskPhoneNumber(bridgedPhoneNumber),
+    projectId: firebaseProjectId,
+  });
+
+  return webCredential.user;
+};
+
+const startNativeFirebasePhoneVerification = async (
+  normalizedPhoneNumber,
+  { isResend = false } = {},
+) => {
+  await prepareFirebaseAuth();
+  await clearNativePhoneAuthListeners('before-native-phone-start');
+
+  try {
+    await FirebaseAuthentication.setLanguageCode({ languageCode: 'he' });
+  } catch (error) {
+    console.warn('[Firebase Phone Auth] Native language setup failed', {
+      code: error?.code || 'unknown',
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = async (callback) => {
+      if (settled) return;
+      settled = true;
+      try {
+        await callback();
+      } finally {
+        await clearNativePhoneAuthListeners('native-phone-request-settled');
+      }
+    };
+
+    const attachListenersAndStart = async () => {
+      nativePhoneListenerHandles = await Promise.all([
+        FirebaseAuthentication.addListener('phoneCodeSent', (event) => {
+          settle(async () => {
+            const verificationId = String(event?.verificationId || '');
+            if (!verificationId) {
+              reject(Object.assign(
+                new Error('Native phone verification ID is missing.'),
+                { code: 'auth/missing-verification-id' },
+              ));
+              return;
+            }
+
+            const nativeSession = {
+              provider: NATIVE_PHONE_AUTH_PROVIDER,
+              verificationId,
+              phoneNumber: normalizedPhoneNumber,
+            };
+
+            console.info('[Firebase Phone Auth] Native Android SMS request succeeded', {
+              verificationIdPresent: true,
+              phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+              isResend,
+            });
+
+            resolve({
+              confirmationResult: nativeSession,
+              phoneNumber: normalizedPhoneNumber,
+              provider: NATIVE_PHONE_AUTH_PROVIDER,
+              reused: false,
+            });
+          });
+        }),
+        FirebaseAuthentication.addListener('phoneVerificationCompleted', () => {
+          settle(async () => {
+            try {
+              const firebaseUser = await bridgeNativePhoneAuthToWeb('native-auto-verification');
+              resolve({
+                confirmationResult: {
+                  provider: NATIVE_PHONE_AUTH_PROVIDER,
+                  autoVerified: true,
+                  phoneNumber: normalizedPhoneNumber,
+                },
+                phoneNumber: normalizedPhoneNumber,
+                provider: NATIVE_PHONE_AUTH_PROVIDER,
+                reused: false,
+                autoVerified: true,
+                firebaseUser,
+              });
+            } catch (error) {
+              reject(error);
+            }
+          });
+        }),
+        FirebaseAuthentication.addListener('phoneVerificationFailed', (event) => {
+          settle(async () => {
+            reject(nativePhoneAuthError(event));
+          });
+        }),
+      ]);
+
+      console.log('REAL FIREBASE SMS REQUEST SENT');
+      console.info('[Firebase Phone Auth] Native Android SMS request started', {
+        phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        isResend,
+        resendCode: isResend,
+      });
+
+      await FirebaseAuthentication.signInWithPhoneNumber({
+        phoneNumber: normalizedPhoneNumber,
+        resendCode: isResend,
+        timeout: 60,
+      });
+    };
+
+    attachListenersAndStart().catch((error) => {
+      settle(async () => {
+        reject(nativePhoneAuthError(error));
+      });
+    });
+  });
+};
+
 export const startFirebasePhoneVerification = async (phoneNumber, { isResend = false } = {}) => {
   const normalizedPhoneNumber = normalizeIsraeliPhoneNumber(phoneNumber);
   loadPhoneSmsGuard();
@@ -376,6 +647,7 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
     console.info('[Firebase Phone Auth] SMS request started', {
       phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
       isResend,
+      platform: isCapacitorAndroidNative() ? 'capacitor-android' : 'web',
     });
 
     try {
@@ -384,6 +656,18 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
       console.info('[Firebase Phone Auth] phone normalized', {
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
       });
+
+      if (isCapacitorAndroidNative()) {
+        const nativeResult = await startNativeFirebasePhoneVerification(normalizedPhoneNumber, { isResend });
+        activePhoneConfirmationResult = nativeResult.confirmationResult;
+        activePhoneConfirmationNumber = normalizedPhoneNumber;
+        if (nativeResult.firebaseUser) {
+          customerAuthPromise = null;
+          clearPhoneSmsGuard();
+        }
+        return nativeResult;
+      }
+
       const verifier = await getOrCreatePhoneRecaptchaVerifier();
       if (phoneRecaptchaWasUsed) resetRenderedPhoneRecaptcha('sms-request-reuse');
       phoneRecaptchaWasUsed = true;
@@ -433,9 +717,26 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
   console.info('[Firebase Phone Auth] verification code submitted', {
     codeLength: String(code || '').trim().length,
     verificationIdPresent: Boolean(confirmationResult.verificationId),
+    provider: confirmationResult.provider || 'web',
   });
 
   try {
+    if (confirmationResult.provider === NATIVE_PHONE_AUTH_PROVIDER) {
+      const result = await FirebaseAuthentication.confirmVerificationCode({
+        verificationId: confirmationResult.verificationId,
+        verificationCode: String(code || '').trim(),
+      });
+      const user = await bridgeNativePhoneAuthToWeb('native-manual-code');
+      customerAuthPromise = null;
+      clearPhoneSmsGuard();
+      console.info('[Firebase Phone Auth] native phone verification completed', {
+        uid: user.uid,
+        nativeUserPresent: Boolean(result?.user),
+        phoneMasked: maskPhoneNumber(getFirebaseUserPhoneNumber(user)),
+      });
+      return user;
+    }
+
     const credential = await confirmationResult.confirm(String(code || '').trim());
     customerAuthPromise = null;
     clearPhoneSmsGuard();
@@ -479,6 +780,9 @@ export const getPhoneAuthErrorMessage = (error) => {
     'auth/code-expired': 'הקוד פג תוקף. שלח קוד חדש.',
     'auth/invalid-app-credential': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/invalid-phone-number': 'יש להזין מספר טלפון ישראלי תקין.',
+    'auth/missing-native-id-token': 'אימות הטלפון נכשל. נסה שוב.',
+    'auth/native-bridge-invalid-response': 'אימות הטלפון נכשל. נסה שוב.',
+    'auth/native-phone-verification-failed': 'אימות הטלפון נכשל. נסה שוב.',
     'auth/network-request-failed': 'בעיה בחיבור. נסה שוב.',
     'auth/sms-cooldown-active': 'יש להמתין לפני שליחת קוד נוסף.',
     'auth/sms-session-phone-mismatch': 'כבר נשלח קוד למספר אחר. יש להשלים את האימות הקיים.',
@@ -621,7 +925,8 @@ export const ensureFirebaseCustomer = async () => {
     customerAuthPromise = (async () => {
       await prepareFirebaseAuth();
       const user = firebaseAuth.currentUser;
-      if (!user?.phoneNumber || user.isAnonymous) {
+      const phoneNumber = await resolveFirebaseUserPhoneNumber(user);
+      if (!phoneNumber || user?.isAnonymous) {
         if (userStore.getState().currentUser?.isAdmin !== true) {
           logoutUser();
         }
@@ -635,6 +940,7 @@ export const ensureFirebaseCustomer = async () => {
         projectId: firebaseProjectId,
         uid: user.uid,
         provider: 'phone',
+        nativeBridge: user.phoneNumber ? false : true,
       });
 
       return user;
@@ -680,24 +986,39 @@ export const signInFirebaseAdmin = async (email, password) => {
   return { user: credential.user, profile: adminProfile };
 };
 
-export const signInFirebaseAdminWithPhoneCode = async (confirmationResult, code) => {
-  const firebaseUser = await confirmFirebasePhoneCode(confirmationResult, code);
+export const signInFirebaseAdminWithVerifiedPhoneUser = async (firebaseUser) => {
   customerAuthPromise = null;
   const adminProfile = await validateAdminDocument(firebaseUser);
 
   console.info('[Firebase] Active admin authenticated with phone', {
     projectId: firebaseProjectId,
     uid: firebaseUser.uid,
-    phoneMasked: maskPhoneNumber(firebaseUser.phoneNumber),
+    phoneMasked: maskPhoneNumber(getFirebaseUserPhoneNumber(firebaseUser)),
   });
 
   return { user: firebaseUser, profile: adminProfile };
 };
 
+export const signInFirebaseAdminWithPhoneCode = async (confirmationResult, code) => {
+  const firebaseUser = await confirmFirebasePhoneCode(confirmationResult, code);
+  return signInFirebaseAdminWithVerifiedPhoneUser(firebaseUser);
+};
+
 export const signOutFirebaseSession = async () => {
   customerAuthPromise = null;
+  clearNativePhoneBridgeUser();
   clearPhoneSmsGuard();
   clearFirebasePhoneRecaptcha('sign-out');
+  if (isCapacitorAndroidNative()) {
+    await clearNativePhoneAuthListeners('sign-out');
+    try {
+      await FirebaseAuthentication.signOut();
+    } catch (error) {
+      console.warn('[Firebase Phone Auth] Native sign-out failed', {
+        code: error?.code || 'unknown',
+      });
+    }
+  }
   if (firebaseAuth?.currentUser) {
     await signOut(firebaseAuth);
   }

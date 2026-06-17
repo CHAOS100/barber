@@ -1,21 +1,13 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
 
 const db = () => getFirestore();
 const text = (value) => String(value || '').trim();
 
-const requireAuth = (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required.');
-  return request.auth;
-};
+const requireAuth = requireCallableAuth;
 
-const requireCustomer = (request) => {
-  const auth = requireAuth(request);
-  if (auth.token.firebase?.sign_in_provider !== 'phone') {
-    throw new HttpsError('permission-denied', 'Firebase Phone Authentication is required.');
-  }
-  return auth;
-};
+const requireCustomer = (request) => requirePhoneCustomerAuth(request);
 
 const requireAdmin = async (request) => {
   const auth = requireAuth(request);
@@ -43,7 +35,7 @@ const normalizeReviewText = (value) => {
 };
 
 export const createCustomerReview = onCall(async (request) => {
-  const auth = requireCustomer(request);
+  const auth = await requireCustomer(request);
   const appointmentId = text(request.data?.appointmentId);
   const rating = normalizeRating(request.data?.rating);
   const reviewText = normalizeReviewText(request.data?.text);

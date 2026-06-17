@@ -13,6 +13,7 @@ import {
   ensureFirebaseCustomer,
   getFirebaseFunctions,
   getFirestoreDb,
+  resolveFirebaseUserPhoneNumber,
 } from '@/lib/firebase';
 
 const mapProfile = (snapshot) => {
@@ -67,7 +68,7 @@ export const customerProfileToSession = (profile) => ({
 
 export const findAuthenticatedUserProfile = async () => {
   const firebaseUser = await ensureFirebaseCustomer();
-  const phoneNumber = firebaseUser.phoneNumber;
+  const phoneNumber = await resolveFirebaseUserPhoneNumber(firebaseUser);
   const snapshot = await getDoc(doc(getFirestoreDb(), 'users', firebaseUser.uid));
 
   console.info('[Customer Auth] user profile read complete', {
@@ -110,13 +111,14 @@ export const completeExistingCustomerLogin = async () => {
 
 export const getCurrentCustomerProfile = async () => {
   const firebaseUser = await ensureFirebaseCustomer();
+  const phoneNumber = await resolveFirebaseUserPhoneNumber(firebaseUser);
   const snapshot = await getDoc(doc(getFirestoreDb(), 'users', firebaseUser.uid));
   if (!snapshot.exists()) return null;
 
   const profile = mapProfile(snapshot);
   if (
     profile.uid !== firebaseUser.uid
-    || profile.phoneNumber !== firebaseUser.phoneNumber
+    || profile.phoneNumber !== phoneNumber
     || profile.role !== 'customer'
   ) {
     throw Object.assign(new Error('Customer profile does not match Firebase Authentication.'), {
@@ -142,8 +144,11 @@ export const subscribeToCurrentCustomerProfile = (onData, onError) => {
   let cancelled = false;
 
   ensureFirebaseCustomer()
-    .then((firebaseUser) => {
+    .then(async (firebaseUser) => {
       if (cancelled) return;
+      const phoneNumber = await resolveFirebaseUserPhoneNumber(firebaseUser);
+      if (cancelled) return;
+
       unsubscribe = onSnapshot(doc(getFirestoreDb(), 'users', firebaseUser.uid), (snapshot) => {
         if (!snapshot.exists()) {
           onData(null);
@@ -152,7 +157,7 @@ export const subscribeToCurrentCustomerProfile = (onData, onError) => {
         const profile = mapProfile(snapshot);
         if (
           profile.uid !== firebaseUser.uid
-          || profile.phoneNumber !== firebaseUser.phoneNumber
+          || profile.phoneNumber !== phoneNumber
           || profile.role !== 'customer'
         ) {
           onError(Object.assign(new Error('Customer profile does not match Firebase Authentication.'), {

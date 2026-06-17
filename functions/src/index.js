@@ -16,6 +16,9 @@ import {
 import { NotificationJobService } from './notifications/notificationService.js';
 import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
 export {
+  createWebCustomTokenFromNativeAuth,
+} from './auth.js';
+export {
   createAdminAppointment,
   createCustomerAppointment,
   deleteAdminAppointment,
