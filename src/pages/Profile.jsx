@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { User, AlertTriangle, Bell, LogOut, ChevronLeft, Phone, Edit3, History, Star, Calendar, Settings } from 'lucide-react';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useCustomerMessages } from '@/hooks/useCustomerMessages';
 import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
 import SettingsTab from '../components/profile/SettingsTab';
@@ -19,7 +20,7 @@ export default function Profile() {
   const [activeTab, setActiveTab] = useState('info');
   const [personalEditRequest, setPersonalEditRequest] = useState(0);
 
-  const unreadCount = 0;
+  const { unreadCount } = useCustomerMessages();
   const visits = currentUser?.visitsCount ?? currentUser?.total_appointments ?? 0;
 
   const openPersonalSettings = () => {

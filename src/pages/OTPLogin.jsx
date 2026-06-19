@@ -31,7 +31,7 @@ const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_RESEND_ATTEMPTS = 2;
 const WHATSAPP_NUMBER = '054-2244542';
 const WHATSAPP_URL = 'https://wa.me/972542244542';
-const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין. לדוגמה: 0585035021';
+const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין';
 
 /**
  * @typedef {{ name?: string, email?: string, phoneNumber?: string }} AdminProfile
@@ -49,19 +49,17 @@ const normalizePhoneForOtp = (rawInput, context) => {
     const normalizedPhone = normalizeIsraeliPhoneNumber(rawInput);
     console.info('[Firebase Phone Auth] phone input validation', {
       context,
-      rawInput: String(rawInput || ''),
-      normalizedPhone,
-      platform: phoneAuthPlatform(),
+      inputLength: String(rawInput || '').length,
       validationResult: true,
+      platform: phoneAuthPlatform(),
     });
     return normalizedPhone;
   } catch (error) {
     console.warn('[Firebase Phone Auth] phone input validation', {
       context,
-      rawInput: String(rawInput || ''),
-      normalizedPhone: null,
-      platform: phoneAuthPlatform(),
+      inputLength: String(rawInput || '').length,
       validationResult: false,
+      platform: phoneAuthPlatform(),
       code: getErrorCode(error) === 'unknown' ? 'auth/invalid-phone-number' : getErrorCode(error),
     });
     throw error;
@@ -432,8 +430,8 @@ export default function OTPLogin() {
   };
 
   return (
-    <div className="auth-viewport min-h-screen bg-background flex flex-col" dir="rtl">
-      <div className="flex-1 flex flex-col items-center justify-start sm:justify-center px-6 py-6 sm:py-12 overflow-y-auto">
+    <div className="min-h-[100dvh] bg-background flex flex-col" dir="rtl">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -539,7 +537,7 @@ export default function OTPLogin() {
                               setAdminPhone(event.target.value);
                               setAdminNormalizedPhone('');
                             }}
-                            placeholder="0585035021"
+                            placeholder="050 000 0000"
                             className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                             dir="ltr"
                             style={{ textAlign: 'left' }}
@@ -640,12 +638,15 @@ export default function OTPLogin() {
                         setPhone(event.target.value);
                         setNormalizedPhone('');
                       }}
-                      placeholder="0585035021"
+                      placeholder="050 000 0000"
                       className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                       dir="ltr"
                       style={{ textAlign: 'left' }}
                     />
                   </div>
+                  <p className="text-muted-foreground text-xs mt-1.5 text-right">
+                    הזן מספר טלפון ישראלי לקבלת קוד אימות
+                  </p>
                 </div>
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
                 <GoldButton

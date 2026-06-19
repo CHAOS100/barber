@@ -2,24 +2,77 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
+  AlertTriangle,
   Armchair,
   BadgeCheck,
+  Ban,
+  Bell,
+  Calendar,
   ChevronLeft,
   Clock,
   Coffee,
+  CreditCard,
+  Info,
   MessageCircle,
+  MessageSquare,
   Navigation,
   PhoneCall,
   Share2,
   Shield,
+  ShieldAlert,
+  Sparkles,
   Star,
 } from 'lucide-react';
 import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
 import { useActiveServicesRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
+import { useCustomerMessages } from '@/hooks/useCustomerMessages';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
+
+// ── Notification mini-card (home screen preview) ──────────────────────────────
+
+const HOME_SEVERITY = {
+  info: { Icon: Info, iconClass: 'text-blue-400', bgClass: 'bg-blue-400/10', borderClass: 'border-blue-400/20', dotClass: 'bg-blue-400' },
+  success: { Icon: Sparkles, iconClass: 'text-[#93E3BD]', bgClass: 'bg-[#93E3BD]/10', borderClass: 'border-[#93E3BD]/20', dotClass: 'bg-[#93E3BD]' },
+  warning: { Icon: AlertTriangle, iconClass: 'text-yellow-400', bgClass: 'bg-yellow-400/10', borderClass: 'border-yellow-400/20', dotClass: 'bg-yellow-400' },
+  danger: { Icon: ShieldAlert, iconClass: 'text-red-400', bgClass: 'bg-red-400/10', borderClass: 'border-red-400/20', dotClass: 'bg-red-400' },
+};
+
+const HOME_TYPE_ICON = {
+  free_slot: Calendar,
+  appointment: Calendar,
+  payment_request: CreditCard,
+  block: Ban,
+  warning: AlertTriangle,
+  broadcast: MessageSquare,
+  admin_custom: MessageSquare,
+  system: Info,
+};
+
+function HomeMessageCard({ msg }) {
+  const sev = HOME_SEVERITY[msg.severity] || HOME_SEVERITY.info;
+  const DisplayIcon = HOME_TYPE_ICON[msg.type] || sev.Icon;
+
+  return (
+    <div className={`rounded-2xl border px-3.5 py-3 flex items-center gap-3 ${sev.bgClass} ${sev.borderClass}`}>
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${sev.bgClass} border ${sev.borderClass}`}>
+        <DisplayIcon className={`w-4 h-4 ${sev.iconClass}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          {!msg.isRead && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${sev.dotClass}`} />}
+          <span className="font-black text-xs text-foreground truncate">{msg.title}</span>
+        </div>
+        <p className="text-muted-foreground text-[11px] leading-relaxed line-clamp-1 mt-0.5">
+          {msg.message}
+        </p>
+      </div>
+      <ChevronLeft className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+    </div>
+  );
+}
 
 const COVER_IMAGE = "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=900&q=90";
 
@@ -40,6 +93,8 @@ export default function Home() {
   const { data: services } = useActiveServicesRealtime();
   const { reviews } = usePublishedReviewsRealtime();
   const { photos } = usePublishedGalleryRealtime();
+  const { messages: customerMessages, unreadCount: msgUnreadCount, isLoggedIn } = useCustomerMessages();
+  const previewMessages = customerMessages.slice(0, 3);
   const averageRating = reviews.length
     ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
     : 0;
@@ -129,6 +184,53 @@ export default function Home() {
             <span className="text-xs text-foreground font-medium">שיחה</span>
           </motion.button>
         </div>
+
+        {/* Customer notifications strip */}
+        <AnimatePresence>
+          {isLoggedIn && previewMessages.length > 0 && (
+            <motion.div
+              key="notif-strip"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="overflow-hidden mb-4"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-black">הודעות</span>
+                  {msgUnreadCount > 0 && (
+                    <span className="gold-gradient text-black text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
+                      {msgUnreadCount}
+                    </span>
+                  )}
+                </div>
+                <Link
+                  to="/notifications"
+                  className="text-primary text-xs font-medium flex items-center gap-0.5"
+                >
+                  הכל
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+              <div className="space-y-2">
+                {previewMessages.map((msg, i) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.06, duration: 0.22 }}
+                    onClick={() => navigate('/notifications')}
+                    className="cursor-pointer press-scale"
+                  >
+                    <HomeMessageCard msg={msg} />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Tabs */}
         <div className="flex gap-1 glass rounded-2xl p-1 mb-5">
