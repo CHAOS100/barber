@@ -7,9 +7,14 @@ import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
 import {
   confirmFirebasePhoneCode,
+  getErrorCode,
+  getErrorMessage,
+  getErrorNumber,
   getPhoneAuthErrorMessage,
+  isCapacitorAndroidNative,
   normalizeIsraeliPhoneNumber,
   resetFirebasePhoneRecaptcha,
+  serializeFirebaseError,
   signInFirebaseAdmin,
   signInFirebaseAdminWithPhoneCode,
   signInFirebaseAdminWithVerifiedPhoneUser,
@@ -26,6 +31,69 @@ const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_RESEND_ATTEMPTS = 2;
 const WHATSAPP_NUMBER = '054-2244542';
 const WHATSAPP_URL = 'https://wa.me/972542244542';
+const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין. לדוגמה: 0585035021';
+
+/**
+ * @typedef {{ name?: string, email?: string, phoneNumber?: string }} AdminProfile
+ */
+
+const phoneAuthPlatform = () => (isCapacitorAndroidNative() ? 'native' : 'web');
+
+/**
+ * @param {string} rawInput
+ * @param {string} context
+ * @returns {string}
+ */
+const normalizePhoneForOtp = (rawInput, context) => {
+  try {
+    const normalizedPhone = normalizeIsraeliPhoneNumber(rawInput);
+    console.info('[Firebase Phone Auth] phone input validation', {
+      context,
+      rawInput: String(rawInput || ''),
+      normalizedPhone,
+      platform: phoneAuthPlatform(),
+      validationResult: true,
+    });
+    return normalizedPhone;
+  } catch (error) {
+    console.warn('[Firebase Phone Auth] phone input validation', {
+      context,
+      rawInput: String(rawInput || ''),
+      normalizedPhone: null,
+      platform: phoneAuthPlatform(),
+      validationResult: false,
+      code: getErrorCode(error) === 'unknown' ? 'auth/invalid-phone-number' : getErrorCode(error),
+    });
+    throw error;
+  }
+};
+
+/** @param {unknown} error */
+const getPhoneLoginErrorMessage = (error) => (
+  getErrorCode(error) === 'auth/invalid-phone-number'
+    ? INVALID_PHONE_MESSAGE
+    : getPhoneAuthErrorMessage(error)
+);
+
+/**
+ * @param {import('firebase/auth').User} firebaseUser
+ * @param {AdminProfile | null | undefined} profile
+ */
+const buildAdminSession = (firebaseUser, profile) => {
+  if (!profile) {
+    throw Object.assign(new Error('Admin profile is missing.'), {
+      code: 'admin/profile-missing',
+    });
+  }
+
+  return {
+    name: profile.name || 'מנהל',
+    email: profile.email || firebaseUser.email || '',
+    phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber || '',
+    uid: firebaseUser.uid,
+    isAdmin: true,
+  };
+};
 
 export default function OTPLogin() {
   const navigate = useNavigate();
@@ -76,6 +144,7 @@ export default function OTPLogin() {
   }, [step, resendCooldown]);
 
   // ─── Customer OTP ──────────────────────────────────────────────
+  /** @param {import('firebase/auth').User} firebaseUser */
   const completeCustomerFirebaseLogin = async (firebaseUser) => {
     console.info('[Customer Auth] OTP confirmed', { uid: firebaseUser.uid });
 
@@ -97,6 +166,10 @@ export default function OTPLogin() {
     navigate(nextPath);
   };
 
+  /**
+   * @param {boolean} [isResend]
+   * @param {HTMLButtonElement | null} [triggerButton]
+   */
   const handleSendOTP = async (isResend = false, triggerButton = null) => {
     if (isSendingOtpRef.current || smsLoading || verificationInFlightRef.current) return;
     if (!isResend && confirmationResultRef.current) {
@@ -113,8 +186,8 @@ export default function OTPLogin() {
 
     try {
       const customerPhone = isResend && normalizedPhone
-        ? normalizedPhone
-        : normalizeIsraeliPhoneNumber(phone);
+        ? normalizePhoneForOtp(normalizedPhone, 'customer-login-resend')
+        : normalizePhoneForOtp(phone, 'customer-login');
       setNormalizedPhone(customerPhone);
       cooldownUntilRef.current = Date.now() + (RESEND_COOLDOWN_SECONDS * 1000);
       if (isResend) {
@@ -123,7 +196,10 @@ export default function OTPLogin() {
         setResendCooldown(RESEND_COOLDOWN_SECONDS);
       }
 
-      console.info('[Firebase Phone Auth] starting customer SMS flow', { isResend });
+      console.info('[Firebase Phone Auth] starting customer SMS flow', {
+        isResend,
+        platform: phoneAuthPlatform(),
+      });
       const result = await startFirebasePhoneVerification(customerPhone, { isResend });
       console.info('[Customer Auth] OTP sent', {
         phoneNumberPresent: Boolean(result.phoneNumber),
@@ -147,16 +223,14 @@ export default function OTPLogin() {
         setResendAttempts(0);
       }
     } catch (phoneAuthError) {
-      console.error('[Firebase] Customer SMS verification failed', {
-        code: phoneAuthError?.code || 'unknown',
-        message: phoneAuthError?.message || 'Unknown Firebase error',
-      });
-      if (phoneAuthError?.code === 'auth/sms-cooldown-active') {
-        const remainingSeconds = Math.ceil(Number(phoneAuthError.cooldownRemainingMs || 0) / 1000);
+      const serializedError = serializeFirebaseError(phoneAuthError, 'Unknown Firebase error');
+      console.error('[Firebase] Customer SMS verification failed', serializedError);
+      if (getErrorCode(phoneAuthError) === 'auth/sms-cooldown-active') {
+        const remainingSeconds = Math.ceil(getErrorNumber(phoneAuthError, 'cooldownRemainingMs') / 1000);
         cooldownUntilRef.current = Date.now() + (remainingSeconds * 1000);
         setResendCooldown(remainingSeconds);
       }
-      setError(getPhoneAuthErrorMessage(phoneAuthError));
+      setError(getPhoneLoginErrorMessage(phoneAuthError));
     } finally {
       isSendingOtpRef.current = false;
       setSmsLoading(false);
@@ -174,11 +248,11 @@ export default function OTPLogin() {
       const firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
       await completeCustomerFirebaseLogin(firebaseUser);
     } catch (phoneAuthError) {
-      console.error('[Firebase] Customer phone code verification failed', {
-        code: phoneAuthError?.code || 'unknown',
-        message: phoneAuthError?.message || 'Unknown Firebase error',
-      });
-      const code = String(phoneAuthError?.code || '');
+      console.error(
+        '[Firebase] Customer phone code verification failed',
+        serializeFirebaseError(phoneAuthError, 'Unknown Firebase error'),
+      );
+      const code = getErrorCode(phoneAuthError);
       setError(
         code.startsWith('customer/') || code.startsWith('functions/')
           ? 'אימות המספר הצליח, אך טעינת פרופיל הלקוח נכשלה. יש לפנות למנהל המערכת.'
@@ -206,12 +280,12 @@ export default function OTPLogin() {
       loginUser(customerProfileToSession(profile));
       navigate(nextPath);
     } catch (registrationError) {
-      console.error('[Customer Auth] registration failed', {
-        code: registrationError?.code || 'unknown',
-        message: registrationError?.message || 'Unknown registration error',
-      });
+      console.error(
+        '[Customer Auth] registration failed',
+        serializeFirebaseError(registrationError, 'Unknown registration error'),
+      );
       setError(
-        registrationError?.code === 'functions/already-exists'
+        getErrorCode(registrationError) === 'functions/already-exists'
           ? 'כבר קיים חשבון עבור מספר הטלפון הזה. יש לחזור ולהתחבר מחדש.'
           : 'יצירת החשבון נכשלה. יש לנסות שוב.',
       );
@@ -227,22 +301,17 @@ export default function OTPLogin() {
     setLoading(true);
     try {
       const { user: firebaseUser, profile } = await signInFirebaseAdmin(adminEmail.trim(), adminPassword);
-      loginUser({
-        name: profile.name || 'מנהל',
-        email: profile.email || firebaseUser.email,
-        uid: firebaseUser.uid,
-        isAdmin: true,
-      });
+      loginUser(buildAdminSession(firebaseUser, profile));
       navigate('/admin');
     } catch (signInError) {
-      console.error('[Firebase] Admin sign-in failed', {
-        code: signInError?.code || 'unknown',
-        message: signInError?.message || 'Unknown Firebase error',
-      });
+      console.error(
+        '[Firebase] Admin sign-in failed',
+        serializeFirebaseError(signInError, 'Unknown Firebase error'),
+      );
 
-      if (signInError?.code === 'admin/not-authorized') {
+      if (getErrorCode(signInError) === 'admin/not-authorized') {
         setError('אין לך הרשאת מנהל.');
-      } else if (signInError?.message?.includes('Missing Vercel build-time environment variables')) {
+      } else if (getErrorMessage(signInError, '').includes('Missing Vercel build-time environment variables')) {
         setError('אירעה תקלה זמנית. נסה שוב.');
       } else {
         setError('אירעה תקלה זמנית. נסה שוב.');
@@ -252,6 +321,7 @@ export default function OTPLogin() {
     }
   };
 
+  /** @param {React.MouseEvent<HTMLButtonElement>} [event] */
   const handleAdminSendPhoneOTP = async (event) => {
     if (event?.currentTarget) event.currentTarget.disabled = true;
     if (
@@ -268,9 +338,11 @@ export default function OTPLogin() {
     setSmsLoading(true);
     setError('');
     try {
-      const normalizedAdminPhone = normalizeIsraeliPhoneNumber(adminPhone);
+      const normalizedAdminPhone = normalizePhoneForOtp(adminPhone, 'admin-phone-login');
       setAdminNormalizedPhone(normalizedAdminPhone);
-      console.info('[Firebase Phone Auth] starting admin SMS flow');
+      console.info('[Firebase Phone Auth] starting admin SMS flow', {
+        platform: phoneAuthPlatform(),
+      });
       const result = await startFirebasePhoneVerification(normalizedAdminPhone);
       console.info('[Admin Auth] OTP sent', {
         phoneNumberPresent: Boolean(result.phoneNumber),
@@ -283,13 +355,7 @@ export default function OTPLogin() {
         const { user: firebaseUser, profile } = await signInFirebaseAdminWithVerifiedPhoneUser(
           result.firebaseUser,
         );
-        loginUser({
-          name: profile.name || 'מנהל',
-          email: profile.email || firebaseUser.email || '',
-          phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber || '',
-          uid: firebaseUser.uid,
-          isAdmin: true,
-        });
+        loginUser(buildAdminSession(firebaseUser, profile));
         navigate('/admin');
         return;
       }
@@ -298,11 +364,11 @@ export default function OTPLogin() {
       setAdminPhoneOtp('');
       setAdminPhoneStep('otp');
     } catch (phoneAuthError) {
-      console.error('[Firebase] Admin SMS verification failed', {
-        code: phoneAuthError?.code || 'unknown',
-        message: phoneAuthError?.message || 'Unknown Firebase error',
-      });
-      setError(getPhoneAuthErrorMessage(phoneAuthError));
+      console.error(
+        '[Firebase] Admin SMS verification failed',
+        serializeFirebaseError(phoneAuthError, 'Unknown Firebase error'),
+      );
+      setError(getPhoneLoginErrorMessage(phoneAuthError));
     } finally {
       adminSendingOtpRef.current = false;
       setSmsLoading(false);
@@ -324,25 +390,18 @@ export default function OTPLogin() {
         adminConfirmationResultRef.current,
         adminPhoneOtp,
       );
-      loginUser({
-        name: profile.name || 'מנהל',
-        email: profile.email || firebaseUser.email || '',
-        phoneNumber: profile.phoneNumber || firebaseUser.phoneNumber || '',
-        uid: firebaseUser.uid,
-        isAdmin: true,
-      });
+      loginUser(buildAdminSession(firebaseUser, profile));
       navigate('/admin');
     } catch (signInError) {
-      console.error('[Firebase] Admin phone sign-in failed', {
-        code: signInError?.code || 'unknown',
-        reason: signInError?.reason || 'unknown',
-        message: signInError?.message || 'Unknown Firebase error',
-      });
-      if (signInError?.code === 'admin/not-authorized') {
+      console.error(
+        '[Firebase] Admin phone sign-in failed',
+        serializeFirebaseError(signInError, 'Unknown Firebase error'),
+      );
+      if (getErrorCode(signInError) === 'admin/not-authorized') {
         adminConfirmationResultRef.current = null;
         setAdminPhoneStep('phone');
       }
-      setError(signInError?.code === 'admin/not-authorized'
+      setError(getErrorCode(signInError) === 'admin/not-authorized'
         ? 'אין לך הרשאת מנהל.'
         : getPhoneAuthErrorMessage(signInError));
     } finally {
@@ -432,7 +491,7 @@ export default function OTPLogin() {
                         <input
                           type="email"
                           value={adminEmail}
-                          onChange={e => setAdminEmail(e.target.value)}
+                          onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setAdminEmail(event.target.value)}
                           placeholder="admin@ostbarber.com"
                           className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                           dir="ltr"
@@ -447,10 +506,10 @@ export default function OTPLogin() {
                         <input
                           type="password"
                           value={adminPassword}
-                          onChange={e => setAdminPassword(e.target.value)}
+                          onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setAdminPassword(event.target.value)}
                           placeholder="••••••••"
                           className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                          onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+                          onKeyDown={(/** @type {React.KeyboardEvent<HTMLInputElement>} */ event) => event.key === 'Enter' && handleAdminLogin()}
                         />
                       </div>
                     </div>
@@ -472,16 +531,18 @@ export default function OTPLogin() {
                           <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                           <input
                             type="tel"
+                            inputMode="tel"
                             autoComplete="tel"
                             value={adminPhone}
                             disabled={Boolean(adminConfirmationResultRef.current)}
-                            onChange={event => {
+                            onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => {
                               setAdminPhone(event.target.value);
                               setAdminNormalizedPhone('');
                             }}
-                            placeholder="054-0000000"
-                            className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                            dir="rtl"
+                            placeholder="0585035021"
+                            className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                            dir="ltr"
+                            style={{ textAlign: 'left' }}
                           />
                         </div>
                       </div>
@@ -498,8 +559,8 @@ export default function OTPLogin() {
                           inputMode="numeric"
                           name="admin-one-time-code"
                           value={adminPhoneOtp}
-                          onChange={event => setAdminPhoneOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                          onPaste={(event) => {
+                          onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setAdminPhoneOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                          onPaste={(/** @type {React.ClipboardEvent<HTMLInputElement>} */ event) => {
                             const pastedCode = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
                             if (!pastedCode) return;
                             event.preventDefault();
@@ -571,22 +632,24 @@ export default function OTPLogin() {
                     <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <input
                       type="tel"
+                      inputMode="tel"
                       autoComplete="tel"
                       value={phone}
                       disabled={Boolean(confirmationResultRef.current)}
-                      onChange={e => {
-                        setPhone(e.target.value);
+                      onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => {
+                        setPhone(event.target.value);
                         setNormalizedPhone('');
                       }}
-                      placeholder="054-0000000"
-                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-right placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-                      dir="rtl"
+                      placeholder="0585035021"
+                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                      dir="ltr"
+                      style={{ textAlign: 'left' }}
                     />
                   </div>
                 </div>
                 {error && <p className="text-destructive text-sm text-center">{error}</p>}
                 <GoldButton
-                  onClick={(event) => handleSendOTP(false, event.currentTarget)}
+                  onClick={(/** @type {React.MouseEvent<HTMLButtonElement>} */ event) => handleSendOTP(false, event.currentTarget)}
                   size="lg"
                   className="w-full"
                   disabled={smsLoading || verificationLoading}
@@ -631,8 +694,8 @@ export default function OTPLogin() {
                   inputMode="numeric"
                   name="one-time-code"
                   value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  onPaste={(event) => {
+                  onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onPaste={(/** @type {React.ClipboardEvent<HTMLInputElement>} */ event) => {
                     const pastedCode = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
                     if (!pastedCode) return;
                     event.preventDefault();
@@ -655,7 +718,7 @@ export default function OTPLogin() {
                   ) : (
                     <button
                       type="button"
-                      onClick={(event) => handleSendOTP(true, event.currentTarget)}
+                      onClick={(/** @type {React.MouseEvent<HTMLButtonElement>} */ event) => handleSendOTP(true, event.currentTarget)}
                       disabled={smsLoading || verificationLoading || resendCooldown > 0}
                       className="text-primary text-sm font-bold disabled:text-muted-foreground disabled:cursor-not-allowed"
                     >
@@ -711,7 +774,7 @@ export default function OTPLogin() {
                   <input
                     type="text"
                     value={firstName}
-                    onChange={event => setFirstName(event.target.value)}
+                    onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setFirstName(event.target.value)}
                     autoComplete="given-name"
                     className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-right focus:outline-none focus:border-primary transition-colors"
                     dir="rtl"
@@ -722,7 +785,7 @@ export default function OTPLogin() {
                   <input
                     type="text"
                     value={lastName}
-                    onChange={event => setLastName(event.target.value)}
+                    onChange={(/** @type {React.ChangeEvent<HTMLInputElement>} */ event) => setLastName(event.target.value)}
                     autoComplete="family-name"
                     className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-right focus:outline-none focus:border-primary transition-colors"
                     dir="rtl"
