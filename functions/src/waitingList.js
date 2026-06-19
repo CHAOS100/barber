@@ -23,6 +23,32 @@ const isValidIsraeliPhone = (phone) => {
     || /^\+9725\d{8}$/.test(value);
 };
 
+const buildManualInAppNotification = (waitingListId, entry) => {
+  const requestedTime = entry.exactTime
+    || entry.availableStartTime
+    || entry.startTime
+    || '';
+
+  return {
+    type: 'free_slot',
+    severity: 'success',
+    title: 'התפנה תור מתאים',
+    message: requestedTime
+      ? `התפנה תור ב־OST BARBER בתאריך ${entry.date} בשעה ${requestedTime}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
+      : `ייתכן שהתפנה תור ב־OST BARBER בתאריך ${entry.date}. היכנס לאפליקציה כדי לבדוק זמינות.`,
+    targetType: 'single_customer',
+    targetCustomerId: entry.customerId || null,
+    targetPhone: entry.phoneNumber || null,
+    status: 'unread',
+    source: 'waiting_list_manual',
+    appointmentId: entry.availableAppointmentId || null,
+    waitingListId,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    expiresAt: null,
+  };
+};
+
 const setCorsHeaders = (request, response) => {
   const origin = request.get('origin') || '';
   if (ALLOWED_ORIGINS.has(origin)) {
@@ -107,6 +133,14 @@ const handleManualNotify = async (request) => {
   };
 
   await notificationJobs().enqueue([notificationJobForStorage]);
+
+  if (entry.customerId) {
+    await db()
+      .collection('customerNotifications')
+      .doc(entry.customerId)
+      .collection('notifications')
+      .add(buildManualInAppNotification(waitingListId, entry));
+  }
 
   if (smsResult.providerConfigured === true && smsResult.sent !== true) {
     await reference.update({

@@ -34,7 +34,7 @@ import GoldButton from '../components/ui/GoldButton';
 // ── Notification mini-card (home screen preview) ──────────────────────────────
 
 const HOME_SEVERITY = {
-  info: { Icon: Info, iconClass: 'text-blue-400', bgClass: 'bg-blue-400/10', borderClass: 'border-blue-400/20', dotClass: 'bg-blue-400' },
+  info: { Icon: Info, iconClass: 'text-[#93E3BD]', bgClass: 'bg-[#93E3BD]/10', borderClass: 'border-[#93E3BD]/20', dotClass: 'bg-[#93E3BD]' },
   success: { Icon: Sparkles, iconClass: 'text-[#93E3BD]', bgClass: 'bg-[#93E3BD]/10', borderClass: 'border-[#93E3BD]/20', dotClass: 'bg-[#93E3BD]' },
   warning: { Icon: AlertTriangle, iconClass: 'text-yellow-400', bgClass: 'bg-yellow-400/10', borderClass: 'border-yellow-400/20', dotClass: 'bg-yellow-400' },
   danger: { Icon: ShieldAlert, iconClass: 'text-red-400', bgClass: 'bg-red-400/10', borderClass: 'border-red-400/20', dotClass: 'bg-red-400' },
@@ -187,7 +187,7 @@ export default function Home() {
 
         {/* Customer notifications strip */}
         <AnimatePresence>
-          {isLoggedIn && previewMessages.length > 0 && (
+          {isLoggedIn && (
             <motion.div
               key="notif-strip"
               initial={{ opacity: 0, height: 0 }}
@@ -199,7 +199,7 @@ export default function Home() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Bell className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-black">הודעות</span>
+                  <span className="text-sm font-black">הודעות ועדכונים</span>
                   {msgUnreadCount > 0 && (
                     <span className="gold-gradient text-black text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
                       {msgUnreadCount}
@@ -214,20 +214,26 @@ export default function Home() {
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </Link>
               </div>
-              <div className="space-y-2">
-                {previewMessages.map((msg, i) => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.06, duration: 0.22 }}
-                    onClick={() => navigate('/notifications')}
-                    className="cursor-pointer press-scale"
-                  >
-                    <HomeMessageCard msg={msg} />
-                  </motion.div>
-                ))}
-              </div>
+              {previewMessages.length === 0 ? (
+                <div className="glass rounded-2xl px-4 py-3 text-center text-xs text-muted-foreground">
+                  אין הודעות חדשות כרגע
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {previewMessages.map((msg, i) => (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.06, duration: 0.22 }}
+                      onClick={() => navigate('/notifications')}
+                      className="cursor-pointer press-scale"
+                    >
+                      <HomeMessageCard msg={msg} />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

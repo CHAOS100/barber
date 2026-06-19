@@ -1,31 +1,13 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
-  subscribeToCustomerAdminMessages,
-  subscribeToCustomerWaitingListAlerts,
-} from '@/lib/customerMessagesFirestore';
-
-// ─── Read tracking via localStorage ─────────────────────────────────────────
-
-const lsKey = (uid) => `ost_read_msgs_${uid}`;
-
-const loadReadSet = (uid) => {
-  if (!uid) return new Set();
-  try { return new Set(JSON.parse(localStorage.getItem(lsKey(uid))) || []); }
-  catch { return new Set(); }
-};
-
-const persistReadSet = (uid, set) => {
-  if (!uid) return;
-  try {
-    localStorage.setItem(lsKey(uid), JSON.stringify([...set].slice(-300)));
-  } catch {}
-};
-
-// ─── Profile-derived notices (no Firestore read needed) ─────────────────────
+  markCustomerNotificationRead,
+  markCustomerNotificationsRead,
+  subscribeToCurrentCustomerNotifications,
+} from '@/lib/customerNotificationsFirestore';
 
 const buildProfileNotices = (user) => {
-  if (!user) return [];
+  if (!user || user.isAdmin === true) return [];
   const notices = [];
 
   if (user.blocked === true || user.is_blocked === true) {
@@ -36,10 +18,12 @@ const buildProfileNotices = (user) => {
       title: 'החשבון חסום להזמנות',
       message: reason
         ? `סיבה: ${reason}`
-        : 'חשבונך חסום מלקבוע תורים. לפרטים, פנה אלינו ישירות.',
+        : 'חשבונך חסום מקביעת תורים. לפרטים, פנה לעסק.',
       severity: 'danger',
       source: 'profile',
       createdAt: null,
+      isRead: false,
+      canDismiss: false,
     });
   }
 
@@ -50,11 +34,13 @@ const buildProfileNotices = (user) => {
       type: 'payment_request',
       title: 'נדרש טיפול לפני הזמנה חדשה',
       message: amount > 0
-        ? `נדרש תשלום של ₪${amount} עבור אי-הגעה קודמת לפני שניתן לקבוע תור חדש.`
+        ? `נדרש תשלום של ₪${amount} עבור אי-הגעה קודמת לפני קביעת תור חדש.`
         : 'נדרש תשלום עבור אי-הגעה קודמת לפני קביעת תור חדש.',
       severity: 'warning',
       source: 'profile',
       createdAt: null,
+      isRead: false,
+      canDismiss: false,
     });
   }
 
@@ -64,98 +50,96 @@ const buildProfileNotices = (user) => {
       id: 'profile_warning',
       type: 'warning',
       title: 'אזהרה בחשבון',
-      message: `צברת ${warnings} ${warnings === 1 ? 'אזהרה' : 'אזהרות'}. ביטול ללא הודעה מראש עלול לגרור תשלום מראש בתורים הבאים.`,
+      message: `צברת ${warnings} ${warnings === 1 ? 'אזהרה' : 'אזהרות'}. ביטול ללא הודעה מראש עלול לגרור תשלום בתורים הבאים.`,
       severity: 'warning',
       source: 'profile',
       createdAt: null,
+      isRead: false,
+      canDismiss: false,
     });
   }
 
   return notices;
 };
 
-// ─── Hook ────────────────────────────────────────────────────────────────────
+const newestFirst = (left, right) => {
+  if (left.source === 'profile' && right.source !== 'profile') return -1;
+  if (right.source === 'profile' && left.source !== 'profile') return 1;
+  if (left.isRead !== right.isRead) return left.isRead ? 1 : -1;
+  const leftTime = left.createdAt?.toMillis?.() || 0;
+  const rightTime = right.createdAt?.toMillis?.() || 0;
+  return rightTime - leftTime;
+};
 
 export function useCustomerMessages() {
   const { currentUser } = useCurrentUser();
   const uid = currentUser?.uid || null;
+  const isAdmin = currentUser?.isAdmin === true;
+  const [notifications, setNotifications] = useState([]);
 
-  const [readSet, setReadSet] = useState(() => loadReadSet(uid));
-  const [adminMsgs, setAdminMsgs] = useState([]);
-  const [waitingAlerts, setWaitingAlerts] = useState([]);
-
-  // Reload readSet when uid changes (login/logout)
-  useEffect(() => { setReadSet(loadReadSet(uid)); }, [uid]);
-
-  // Admin messages subscription (graceful permission-denied)
   useEffect(() => {
-    if (!uid) { setAdminMsgs([]); return; }
-    return subscribeToCustomerAdminMessages(uid, setAdminMsgs, (err) => {
-      console.warn('[useCustomerMessages] admin messages error:', String(err?.code || err?.message || 'unknown'));
-    });
-  }, [uid]);
+    if (!uid || isAdmin) {
+      setNotifications([]);
+      return undefined;
+    }
 
-  // Waiting list alerts subscription
-  useEffect(() => {
-    if (!uid) { setWaitingAlerts([]); return; }
-    return subscribeToCustomerWaitingListAlerts(setWaitingAlerts, (err) => {
-      console.warn('[useCustomerMessages] waiting list alerts error:', String(err?.code || err?.message || 'unknown'));
-    });
-  }, [uid]);
+    return subscribeToCurrentCustomerNotifications(
+      setNotifications,
+      (error) => {
+        console.warn('[useCustomerMessages] customer notifications listener failed', JSON.stringify({
+          code: error?.code || 'unknown',
+          message: error?.message || 'Unknown notification listener error',
+        }));
+        setNotifications([]);
+      },
+    );
+  }, [isAdmin, uid]);
 
-  // Profile notices derived from session — always fresh
   const profileNotices = useMemo(() => buildProfileNotices(currentUser), [currentUser]);
 
-  // Merge all sources and annotate with read status
-  const messages = useMemo(() => {
-    const all = [
-      // Profile notices: always unread, non-dismissible (cleared when profile changes)
-      ...profileNotices.map((n) => ({ ...n, isRead: false, canDismiss: false })),
-      // Waiting list alerts: dismissible via localStorage read tracking
-      ...waitingAlerts.map((a) => ({ ...a, isRead: readSet.has(a.id), canDismiss: true })),
-      // Admin messages: non-dismissible (admin controls lifecycle)
-      ...adminMsgs.map((m) => ({ ...m, isRead: readSet.has(m.id), canDismiss: false })),
-    ];
-
-    return all.sort((a, b) => {
-      // Profile notices always first
-      if (a.source === 'profile' && b.source !== 'profile') return -1;
-      if (b.source === 'profile' && a.source !== 'profile') return 1;
-      // Unread before read
-      if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
-      // Newest first
-      const at = a.createdAt?.toMillis?.() || 0;
-      const bt = b.createdAt?.toMillis?.() || 0;
-      return bt - at;
-    });
-  }, [profileNotices, waitingAlerts, adminMsgs, readSet]);
+  const messages = useMemo(() => (
+    [...profileNotices, ...notifications].sort(newestFirst)
+  ), [notifications, profileNotices]);
 
   const unreadCount = useMemo(
-    () => messages.filter((m) => !m.isRead).length,
+    () => messages.filter((message) => !message.isRead).length,
     [messages],
   );
 
-  // Mark a single message as read (profile notices are excluded)
-  const markAsRead = (msgId) => {
-    if (!uid || !msgId || msgId.startsWith('profile_')) return;
-    setReadSet((prev) => {
-      const next = new Set(prev);
-      next.add(msgId);
-      persistReadSet(uid, next);
-      return next;
-    });
-  };
+  const markAsRead = useCallback(async (messageId) => {
+    if (!uid || !messageId || String(messageId).startsWith('profile_')) return;
+    try {
+      await markCustomerNotificationRead(messageId);
+    } catch (error) {
+      console.warn('[useCustomerMessages] mark notification read failed', JSON.stringify({
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown notification update error',
+      }));
+    }
+  }, [uid]);
 
-  // Mark all non-profile messages as read
-  const markAllAsRead = () => {
+  const markAllAsRead = useCallback(async () => {
     if (!uid) return;
-    setReadSet((prev) => {
-      const next = new Set(prev);
-      messages.forEach((m) => { if (!m.id.startsWith('profile_')) next.add(m.id); });
-      persistReadSet(uid, next);
-      return next;
-    });
-  };
+    const ids = messages
+      .filter((message) => !message.isRead && !String(message.id).startsWith('profile_'))
+      .map((message) => message.id);
+    if (ids.length === 0) return;
 
-  return { messages, unreadCount, markAsRead, markAllAsRead, isLoggedIn: Boolean(uid) };
+    try {
+      await markCustomerNotificationsRead(ids);
+    } catch (error) {
+      console.warn('[useCustomerMessages] mark all notifications read failed', JSON.stringify({
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown notification update error',
+      }));
+    }
+  }, [messages, uid]);
+
+  return {
+    messages,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    isLoggedIn: Boolean(uid && !isAdmin),
+  };
 }

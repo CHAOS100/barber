@@ -109,6 +109,35 @@ const waitingListMatches = (entry, appointment) => {
   return entry.preferenceType === 'whole_day';
 };
 
+const buildWaitingListInAppNotification = (entry, appointment, appointmentId) => {
+  const startTime = appointment.startTime || appointment.time || entry.availableStartTime || entry.exactTime || '';
+  const serviceName = appointment.serviceName || appointment.service_name || entry.serviceName || '';
+  const details = [
+    appointment.date ? `תאריך ${appointment.date}` : '',
+    startTime ? `בשעה ${startTime}` : '',
+    serviceName ? `עבור ${serviceName}` : '',
+  ].filter(Boolean).join(' ');
+
+  return {
+    type: 'free_slot',
+    severity: 'success',
+    title: 'התפנה תור מתאים',
+    message: details
+      ? `התפנה תור ב־OST BARBER ${details}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
+      : 'התפנה תור שמתאים לבקשה שלך. היכנס לאפליקציה כדי לבדוק זמינות.',
+    targetType: 'single_customer',
+    targetCustomerId: entry.customerId || null,
+    targetPhone: entry.phoneNumber || null,
+    status: 'unread',
+    source: 'waiting_list',
+    appointmentId,
+    waitingListId: entry.id,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    expiresAt: null,
+  };
+};
+
 const slotIsStillAvailable = async (appointmentId, appointment) => {
   const snapshot = await getFirestore()
     .collection('appointments')
@@ -190,6 +219,14 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
         availableAppointmentId: appointmentId,
         availableStartTime: after.startTime,
       });
+      if (entry.customerId) {
+        const notificationRef = getFirestore()
+          .collection('customerNotifications')
+          .doc(entry.customerId)
+          .collection('notifications')
+          .doc();
+        batch.set(notificationRef, buildWaitingListInAppNotification(entry, after, appointmentId));
+      }
     });
     await batch.commit();
   },

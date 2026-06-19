@@ -33,6 +33,10 @@ service cloud.firestore {
       return isPhoneCustomer() && resource.data.customerId == request.auth.uid;
     }
 
+    function ownsCustomerNotification(customerId) {
+      return isPhoneCustomer() && request.auth.uid == customerId;
+    }
+
     function hasValidCustomerNames(data) {
       return data.firstName is string
         && data.firstName.size() > 0
@@ -196,6 +200,25 @@ service cloud.firestore {
         || resource.data.status == 'published'
         || (isPhoneCustomer() && resource.data.customerId == request.auth.uid);
       allow create, update, delete: if false;
+    }
+
+    match /customerNotifications/{customerId} {
+      allow read: if isAdmin() || ownsCustomerNotification(customerId);
+      allow create, update, delete: if false;
+
+      match /notifications/{notificationId} {
+        allow read: if isAdmin() || ownsCustomerNotification(customerId);
+        allow create, update, delete: if isAdmin();
+
+        allow update: if ownsCustomerNotification(customerId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'readAt',
+            'hiddenAt',
+            'updatedAt'
+          ])
+          && request.resource.data.status in ['unread', 'read', 'hidden'];
+      }
     }
 
     match /gallery/{photoId} {

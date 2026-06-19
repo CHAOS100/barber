@@ -47,21 +47,21 @@ const phoneAuthPlatform = () => (isCapacitorAndroidNative() ? 'native' : 'web');
 const normalizePhoneForOtp = (rawInput, context) => {
   try {
     const normalizedPhone = normalizeIsraeliPhoneNumber(rawInput);
-    console.info('[Firebase Phone Auth] phone input validation', {
+    console.info('[Firebase Phone Auth] phone input validation', JSON.stringify({
       context,
       inputLength: String(rawInput || '').length,
       validationResult: true,
       platform: phoneAuthPlatform(),
-    });
+    }));
     return normalizedPhone;
   } catch (error) {
-    console.warn('[Firebase Phone Auth] phone input validation', {
+    console.warn('[Firebase Phone Auth] phone input validation', JSON.stringify({
       context,
       inputLength: String(rawInput || '').length,
       validationResult: false,
       platform: phoneAuthPlatform(),
       code: getErrorCode(error) === 'unknown' ? 'auth/invalid-phone-number' : getErrorCode(error),
-    });
+    }));
     throw error;
   }
 };
@@ -144,7 +144,7 @@ export default function OTPLogin() {
   // ─── Customer OTP ──────────────────────────────────────────────
   /** @param {import('firebase/auth').User} firebaseUser */
   const completeCustomerFirebaseLogin = async (firebaseUser) => {
-    console.info('[Customer Auth] OTP confirmed', { uid: firebaseUser.uid });
+    console.info('[Customer Auth] OTP confirmed', JSON.stringify({ uid: firebaseUser.uid }));
 
     const existingProfile = await findAuthenticatedUserProfile();
     if (!existingProfile) {
@@ -194,17 +194,17 @@ export default function OTPLogin() {
         setResendCooldown(RESEND_COOLDOWN_SECONDS);
       }
 
-      console.info('[Firebase Phone Auth] starting customer SMS flow', {
+      console.info('[Firebase Phone Auth] starting customer SMS flow', JSON.stringify({
         isResend,
         platform: phoneAuthPlatform(),
-      });
+      }));
       const result = await startFirebasePhoneVerification(customerPhone, { isResend });
-      console.info('[Customer Auth] OTP sent', {
+      console.info('[Customer Auth] OTP sent', JSON.stringify({
         phoneNumberPresent: Boolean(result.phoneNumber),
         reusedExistingConfirmation: result.reused === true,
         provider: result.provider || 'web',
         autoVerified: result.autoVerified === true,
-      });
+      }));
 
       if (result.firebaseUser) {
         await completeCustomerFirebaseLogin(result.firebaseUser);
@@ -222,7 +222,7 @@ export default function OTPLogin() {
       }
     } catch (phoneAuthError) {
       const serializedError = serializeFirebaseError(phoneAuthError, 'Unknown Firebase error');
-      console.error('[Firebase] Customer SMS verification failed', serializedError);
+      console.error('[Firebase] Customer SMS verification failed', JSON.stringify(serializedError));
       if (getErrorCode(phoneAuthError) === 'auth/sms-cooldown-active') {
         const remainingSeconds = Math.ceil(getErrorNumber(phoneAuthError, 'cooldownRemainingMs') / 1000);
         cooldownUntilRef.current = Date.now() + (remainingSeconds * 1000);
@@ -338,16 +338,16 @@ export default function OTPLogin() {
     try {
       const normalizedAdminPhone = normalizePhoneForOtp(adminPhone, 'admin-phone-login');
       setAdminNormalizedPhone(normalizedAdminPhone);
-      console.info('[Firebase Phone Auth] starting admin SMS flow', {
+      console.info('[Firebase Phone Auth] starting admin SMS flow', JSON.stringify({
         platform: phoneAuthPlatform(),
-      });
+      }));
       const result = await startFirebasePhoneVerification(normalizedAdminPhone);
-      console.info('[Admin Auth] OTP sent', {
+      console.info('[Admin Auth] OTP sent', JSON.stringify({
         phoneNumberPresent: Boolean(result.phoneNumber),
         reusedExistingConfirmation: result.reused === true,
         provider: result.provider || 'web',
         autoVerified: result.autoVerified === true,
-      });
+      }));
 
       if (result.firebaseUser) {
         const { user: firebaseUser, profile } = await signInFirebaseAdminWithVerifiedPhoneUser(
@@ -430,8 +430,8 @@ export default function OTPLogin() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col" dir="rtl">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 overflow-y-auto">
+    <div className="auth-viewport bg-background flex flex-col" dir="rtl">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -537,7 +537,7 @@ export default function OTPLogin() {
                               setAdminPhone(event.target.value);
                               setAdminNormalizedPhone('');
                             }}
-                            placeholder="050 000 0000"
+                            placeholder="טלפון מנהל"
                             className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                             dir="ltr"
                             style={{ textAlign: 'left' }}
@@ -638,7 +638,7 @@ export default function OTPLogin() {
                         setPhone(event.target.value);
                         setNormalizedPhone('');
                       }}
-                      placeholder="050 000 0000"
+                      placeholder="מספר טלפון"
                       className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                       dir="ltr"
                       style={{ textAlign: 'left' }}

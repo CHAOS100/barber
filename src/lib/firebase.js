@@ -350,9 +350,9 @@ export const resolveFirebaseUserPhoneNumber = async (user = firebaseAuth?.curren
       return bridgedPhone;
     }
   } catch (error) {
-    console.warn('[Firebase Phone Auth] Failed to resolve bridged phone number', {
+    console.warn('[Firebase Phone Auth] Failed to resolve bridged phone number', JSON.stringify({
       code: getErrorCode(error),
-    });
+    }));
   }
 
   return '';
@@ -383,15 +383,15 @@ const resetRenderedPhoneRecaptcha = (reason = 'reuse') => {
   try {
     const grecaptcha = /** @type {any} */ (window).grecaptcha;
     grecaptcha?.reset?.(phoneRecaptchaWidgetId);
-    console.info('[Firebase Phone Auth] Recaptcha reset', {
+    console.info('[Firebase Phone Auth] Recaptcha reset', JSON.stringify({
       reason,
       widgetId: phoneRecaptchaWidgetId,
-    });
+    }));
   } catch (error) {
-    console.warn('[Firebase Phone Auth] Recaptcha reset failed', {
+    console.warn('[Firebase Phone Auth] Recaptcha reset failed', JSON.stringify({
       reason,
       ...serializeFirebaseError(error, 'Unknown reCAPTCHA error'),
-    });
+    }));
   }
 };
 
@@ -400,10 +400,10 @@ const getOrCreatePhoneRecaptchaVerifier = async () => {
   ensurePhoneRecaptchaContainer();
 
   if (phoneRecaptchaVerifier) {
-    console.info('[Firebase Phone Auth] Recaptcha reused', {
+    console.info('[Firebase Phone Auth] Recaptcha reused', JSON.stringify({
       widgetId: phoneRecaptchaWidgetId ?? null,
       rendered: Boolean(phoneRecaptchaRenderPromise),
-    });
+    }));
     await phoneRecaptchaRenderPromise;
     return phoneRecaptchaVerifier;
   }
@@ -423,11 +423,11 @@ const getOrCreatePhoneRecaptchaVerifier = async () => {
   phoneRecaptchaRenderPromise = phoneRecaptchaVerifier.render()
     .then((widgetId) => {
       phoneRecaptchaWidgetId = widgetId;
-      console.info('[Firebase Phone Auth] Recaptcha initialized', {
+      console.info('[Firebase Phone Auth] Recaptcha initialized', JSON.stringify({
         widgetId,
         mode: 'invisible',
         containerId: PHONE_RECAPTCHA_CONTAINER_ID,
-      });
+      }));
       return widgetId;
     })
     .catch((error) => {
@@ -450,17 +450,17 @@ export const clearFirebasePhoneRecaptcha = (reason = 'manual-clear') => {
   try {
     phoneRecaptchaVerifier?.clear();
   } catch (error) {
-    console.warn('[Firebase Phone Auth] Recaptcha clear failed', {
+    console.warn('[Firebase Phone Auth] Recaptcha clear failed', JSON.stringify({
       reason,
       code: getErrorCode(error),
-    });
+    }));
   }
   phoneRecaptchaVerifier = null;
   phoneRecaptchaWidgetId = null;
   phoneRecaptchaRenderPromise = null;
   phoneRecaptchaWasUsed = false;
   document.getElementById(PHONE_RECAPTCHA_CONTAINER_ID)?.replaceChildren();
-  console.info('[Firebase Phone Auth] Recaptcha cleared', { reason, hadVerifier });
+  console.info('[Firebase Phone Auth] Recaptcha cleared', JSON.stringify({ reason, hadVerifier }));
 };
 
 /** @param {string} [reason] */
@@ -473,16 +473,16 @@ const clearNativePhoneAuthListeners = async (reason = 'cleanup') => {
     try {
       await handle?.remove?.();
     } catch (error) {
-      console.warn('[Firebase Phone Auth] Native listener cleanup failed', {
+      console.warn('[Firebase Phone Auth] Native listener cleanup failed', JSON.stringify({
         reason,
         code: getErrorCode(error),
-      });
+      }));
     }
   }));
-  console.info('[Firebase Phone Auth] Native phone listeners cleared', {
+  console.info('[Firebase Phone Auth] Native phone listeners cleared', JSON.stringify({
     reason,
     count: handles.length,
-  });
+  }));
 };
 
 /** @param {unknown} eventOrError @param {string} [fallbackCode] */
@@ -535,9 +535,9 @@ const getNativeFirebaseCurrentUser = async () => {
       return null;
     }
 
-    console.warn('[Firebase Phone Auth] Native current user check failed', {
+    console.warn('[Firebase Phone Auth] Native current user check failed', JSON.stringify({
       code: getErrorCode(error),
-    });
+    }));
     return null;
   }
 };
@@ -612,12 +612,12 @@ const bridgeNativePhoneAuthToWeb = async (reason = 'native-phone-auth') => {
   saveNativePhoneBridgeUser(webCredential.user.uid, bridgedPhoneNumber);
   customerAuthPromise = null;
 
-  console.info('[Firebase Phone Auth] Native Android auth bridged to Firebase Web SDK', {
+  console.info('[Firebase Phone Auth] Native Android auth bridged to Firebase Web SDK', JSON.stringify({
     reason,
     uid: webCredential.user.uid,
     phoneMasked: maskPhoneNumber(bridgedPhoneNumber),
     projectId: firebaseProjectId,
-  });
+  }));
 
   return webCredential.user;
 };
@@ -636,9 +636,9 @@ const startNativeFirebasePhoneVerification = async (
   try {
     await FirebaseAuthentication.setLanguageCode({ languageCode: 'he' });
   } catch (error) {
-    console.warn('[Firebase Phone Auth] Native language setup failed', {
+    console.warn('[Firebase Phone Auth] Native language setup failed', JSON.stringify({
       code: getErrorCode(error),
-    });
+    }));
   }
 
   return new Promise((resolve, reject) => {
@@ -673,11 +673,11 @@ const startNativeFirebasePhoneVerification = async (
             phoneNumber: normalizedPhoneNumber,
           };
 
-          console.info('[Firebase Phone Auth] Native Android SMS request succeeded', {
+          console.info('[Firebase Phone Auth] Native Android SMS request succeeded', JSON.stringify({
             verificationIdPresent: true,
             phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
             isResend,
-          });
+          }));
 
           resolve({
             confirmationResult: nativeSession,
@@ -737,11 +737,11 @@ const startNativeFirebasePhoneVerification = async (
       ]);
 
       console.log('REAL FIREBASE SMS REQUEST SENT');
-      console.info('[Firebase Phone Auth] Native Android SMS request started', {
+      console.info('[Firebase Phone Auth] Native Android SMS request started', JSON.stringify({
         phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         isResend,
         resendCode: isResend,
-      });
+      }));
 
       await FirebaseAuthentication.signInWithPhoneNumber({
         phoneNumber: normalizedPhoneNumber,
@@ -788,9 +788,9 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
 
   const cooldownRemainingMs = phoneSmsCooldownUntil - Date.now();
   if (cooldownRemainingMs > 0) {
-    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: cooldown active', {
+    console.warn('[Firebase Phone Auth] duplicate SMS request blocked: cooldown active', JSON.stringify({
       cooldownRemainingMs,
-    });
+    }));
     throw phoneSmsGuardError(
       'auth/sms-cooldown-active',
       'SMS request cooldown is active.',
@@ -814,30 +814,30 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
     );
   }
 
-  console.info('[Firebase Phone Auth] phone submitted', {
+  console.info('[Firebase Phone Auth] phone submitted', JSON.stringify({
     phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
     hostname: window.location.hostname,
     projectId: firebaseProjectId,
     isResend,
-  });
+  }));
 
   phoneSmsCooldownUntil = Date.now() + PHONE_SMS_COOLDOWN_MS;
   if (isResend) phoneSmsResendAttempts += 1;
   savePhoneSmsGuard();
 
   phoneSmsRequestPromise = (async () => {
-    console.info('[Firebase Phone Auth] SMS request started', {
+    console.info('[Firebase Phone Auth] SMS request started', JSON.stringify({
       phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
       isResend,
       platform: isCapacitorAndroidNative() ? 'capacitor-android' : 'web',
-    });
+    }));
 
     try {
       await prepareFirebaseAuth();
       firebaseAuth.languageCode = 'he';
-      console.info('[Firebase Phone Auth] phone normalized', {
+      console.info('[Firebase Phone Auth] phone normalized', JSON.stringify({
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
-      });
+      }));
 
       if (isCapacitorAndroidNative()) {
         const nativeResult = await startNativeFirebasePhoneVerification(normalizedPhoneNumber, { isResend });
@@ -855,10 +855,10 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
       phoneRecaptchaWasUsed = true;
 
       console.log('REAL FIREBASE SMS REQUEST SENT');
-      console.info('[Firebase Phone Auth] real SMS request details', {
+      console.info('[Firebase Phone Auth] real SMS request details', JSON.stringify({
         phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         isResend,
-      });
+      }));
       const confirmationResult = await signInWithPhoneNumber(
         firebaseAuth,
         normalizedPhoneNumber,
@@ -866,17 +866,17 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
       );
       activePhoneConfirmationResult = confirmationResult;
       activePhoneConfirmationNumber = normalizedPhoneNumber;
-      console.info('[Firebase Phone Auth] SMS request succeeded', {
+      console.info('[Firebase Phone Auth] SMS request succeeded', JSON.stringify({
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         verificationIdPresent: Boolean(confirmationResult.verificationId),
-      });
+      }));
       return { confirmationResult, phoneNumber: normalizedPhoneNumber, reused: false };
     } catch (error) {
-      console.error('[Firebase Phone Auth] SMS request failed', {
+      console.error('[Firebase Phone Auth] SMS request failed', JSON.stringify({
         ...serializeFirebaseError(error, 'Unknown Firebase error'),
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         recaptchaWidgetId: phoneRecaptchaWidgetId ?? null,
-      });
+      }));
       resetRenderedPhoneRecaptcha('sms-request-failed');
       throw error;
     }
@@ -896,11 +896,11 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
     );
   }
 
-  console.info('[Firebase Phone Auth] verification code submitted', {
+  console.info('[Firebase Phone Auth] verification code submitted', JSON.stringify({
     codeLength: String(code || '').trim().length,
     verificationIdPresent: Boolean(confirmationResult.verificationId),
     provider: confirmationResult.provider || 'web',
-  });
+  }));
 
   try {
     if (confirmationResult.provider === NATIVE_PHONE_AUTH_PROVIDER) {
@@ -923,11 +923,11 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
       }
       customerAuthPromise = null;
       clearPhoneSmsGuard();
-      console.info('[Firebase Phone Auth] native phone verification completed', {
+      console.info('[Firebase Phone Auth] native phone verification completed', JSON.stringify({
         uid: user.uid,
         nativeUserPresent: Boolean(result?.user),
         phoneMasked: maskPhoneNumber(getFirebaseUserPhoneNumber(user)),
-      });
+      }));
       return user;
     }
 
@@ -935,15 +935,15 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
     customerAuthPromise = null;
     clearPhoneSmsGuard();
     clearFirebasePhoneRecaptcha('otp-confirmed');
-    console.info('[Firebase Phone Auth] phone verification completed', {
+    console.info('[Firebase Phone Auth] phone verification completed', JSON.stringify({
       uid: credential.user.uid,
       phoneMasked: maskPhoneNumber(credential.user.phoneNumber),
-    });
+    }));
     return credential.user;
   } catch (error) {
-    console.error('[Firebase Phone Auth] code verification failed', {
+    console.error('[Firebase Phone Auth] code verification failed', JSON.stringify({
       ...serializeFirebaseError(error, 'Unknown Firebase error'),
-    });
+    }));
     throw error;
   }
 };
@@ -1219,9 +1219,9 @@ export const signOutFirebaseSession = async () => {
       await FirebaseAuthentication.signOut();
     } catch (error) {
       if (!isNativeSignedOutError(error)) {
-        console.warn('[Firebase Phone Auth] Native sign-out failed', {
+        console.warn('[Firebase Phone Auth] Native sign-out failed', JSON.stringify({
           code: getErrorCode(error),
-        });
+        }));
       }
     }
   }

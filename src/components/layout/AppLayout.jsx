@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import BottomNav from './BottomNav';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import GoldButton from '@/components/ui/GoldButton';
+import CustomerNotificationPopup from '@/components/notifications/CustomerNotificationPopup';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -34,6 +35,7 @@ export default function AppLayout() {
       <main className="app-content">
         <Outlet />
       </main>
+      <CustomerNotificationPopup />
       <BottomNav />
     </div>
   );
