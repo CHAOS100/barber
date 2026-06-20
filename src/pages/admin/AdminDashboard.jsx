@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, ChevronLeft, Scissors, BarChart3, Settings, UserRoundCog, Star, Image, Eye, MessageSquareText, ListChecks } from 'lucide-react';
+import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, Ban, Bell, ChevronLeft, CreditCard, Scissors, BarChart3, Settings, UserRoundCog, Star, Image, Eye, MessageSquareText, ListChecks } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { BARBER_PHOTO } from '../../lib/businessConfig';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -17,21 +17,46 @@ import { useAllServicesRealtime } from '@/hooks/useBookingData';
 import { useAdminReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
 import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from '@/lib/dashboardStats';
+import { isCriticalCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { currentUser, isAdmin, enterAdminPreview } = useCurrentUser();
+  const { isAdmin, enterAdminPreview } = useCurrentUser();
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime(isAdmin);
   const { data: services } = useAllServicesRealtime();
   const { reviews } = useAdminReviewsRealtime(isAdmin);
   const { customers } = useCustomerProfilesRealtime(isAdmin);
   const [moveError, setMoveError] = React.useState('');
+  const [customerNotifications, setCustomerNotifications] = React.useState([]);
   const stats = React.useMemo(
     () => calculateAdminStats(appointments, customers, services, reviews),
     [appointments, customers, services, reviews],
   );
   const weeklyData = React.useMemo(() => buildWeeklyAppointments(appointments), [appointments]);
   const popularServices = React.useMemo(() => buildServiceUsage(appointments), [appointments]);
+  const unreadCriticalNotificationsCount = React.useMemo(() => (
+    customerNotifications.filter((notification) => (
+      !notification.isRead && isCriticalCustomerNotification(notification)
+    )).length
+  ), [customerNotifications]);
+
+  React.useEffect(() => {
+    if (!isAdmin) {
+      setCustomerNotifications([]);
+      return undefined;
+    }
+
+    return subscribeToAdminCustomerNotifications(
+      setCustomerNotifications,
+      (error) => {
+        console.warn('[Firestore] Admin customer notification stats listener failed', JSON.stringify({
+          code: error?.code || 'unknown',
+          message: error?.message || 'Unknown notification stats listener error',
+        }));
+        setCustomerNotifications([]);
+      },
+    );
+  }, [isAdmin]);
 
   const moveAppointment = async (appointment, startTime) => {
     setMoveError('');
@@ -122,6 +147,10 @@ export default function AdminDashboard() {
             { icon: Calendar, label: 'הושלמו', value: stats.completedAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'בוטלו', value: stats.cancelledAppointments, color: 'text-red-400', bg: 'bg-red-400/20' },
             { icon: AlertTriangle, label: 'לא הגיעו', value: stats.noShowAppointments, color: 'text-orange-400', bg: 'bg-orange-400/20' },
+            { icon: AlertTriangle, label: 'אזהרות לקוחות', value: stats.warningCount, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
+            { icon: Ban, label: 'לקוחות חסומים', value: stats.blockedCustomersCount, color: 'text-red-400', bg: 'bg-red-400/20' },
+            { icon: CreditCard, label: 'דרישות תשלום', value: stats.paymentRequiredCustomersCount, color: 'text-yellow-300', bg: 'bg-yellow-400/20' },
+            { icon: Bell, label: 'קריטיות שלא נקראו', value: unreadCriticalNotificationsCount, color: 'text-primary', bg: 'bg-primary/20' },
           ].map((stat, i) => {
             const StatIcon = stat.icon;
             return (

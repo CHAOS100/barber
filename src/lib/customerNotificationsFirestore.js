@@ -1,6 +1,7 @@
 import {
   Timestamp,
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -30,6 +31,7 @@ export const CUSTOMER_NOTIFICATION_TYPES = [
   'warning',
   'block',
   'payment_request',
+  'no_show_payment_required',
   'system',
 ];
 
@@ -48,6 +50,7 @@ export const CUSTOMER_NOTIFICATION_TARGET_TYPES = [
 
 const ACTIVE_NOTIFICATION_STATUSES = new Set(['unread', 'read']);
 const MAX_BATCH_WRITES = 400;
+const CRITICAL_NOTIFICATION_TYPES = new Set(['block', 'payment_request', 'no_show_payment_required']);
 
 const cleanString = (value) => String(value || '').trim();
 
@@ -71,15 +74,24 @@ const normalizeExpiresAt = (value) => {
   return Timestamp.fromDate(parsed);
 };
 
+export const isCriticalCustomerNotification = (notification) => (
+  CRITICAL_NOTIFICATION_TYPES.has(notification?.type)
+  || (notification?.type === 'warning' && notification?.requiresAction === true)
+);
+
 const mapNotificationDoc = (snapshot) => {
   const data = snapshot.data();
   const status = data.status || 'unread';
+  const isCritical = isCriticalCustomerNotification(data);
   return {
     id: snapshot.id,
+    customerId: snapshot.ref.parent.parent?.id || data.targetCustomerId || null,
+    path: snapshot.ref.path,
     ...data,
     status,
     isRead: status === 'read' || Boolean(data.readAt),
-    canDismiss: status !== 'hidden',
+    isCritical,
+    canDismiss: status !== 'hidden' && !isCritical,
   };
 };
 
@@ -121,15 +133,23 @@ const buildAdminPayload = (input, target, adminUid) => {
     title,
     message,
     severity,
+    requiresAction: input.requiresAction === true || CRITICAL_NOTIFICATION_TYPES.has(type),
     targetType,
     targetCustomerId: target.customerId || null,
     targetPhone: target.phoneNumber || input.targetPhone || null,
     status: 'unread',
     source: 'admin',
+    messageBatchId: cleanString(input.messageBatchId) || null,
     createdBy: adminUid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     expiresAt: normalizeExpiresAt(input.expiresAt),
+    readAt: null,
+    readBy: null,
+    readByName: null,
+    readByPhone: null,
+    hiddenAt: null,
+    hiddenBy: null,
   };
 };
 
@@ -206,6 +226,10 @@ const commitNotificationWrites = async (targets, input, adminUid) => {
     });
   }
 
+  const messageBatchId = cleanString(input.messageBatchId)
+    || doc(collection(getFirestoreDb(), 'customerNotificationBatches')).id;
+  const payloadInput = { ...input, messageBatchId };
+
   let createdCount = 0;
   for (let start = 0; start < targets.length; start += MAX_BATCH_WRITES) {
     const batchTargets = targets.slice(start, start + MAX_BATCH_WRITES);
@@ -213,7 +237,7 @@ const commitNotificationWrites = async (targets, input, adminUid) => {
 
     batchTargets.forEach((target) => {
       const notificationRef = doc(customerNotificationCollection(target.customerId));
-      batch.set(notificationRef, buildAdminPayload(input, target, adminUid));
+      batch.set(notificationRef, buildAdminPayload(payloadInput, target, adminUid));
       createdCount += 1;
     });
 
@@ -226,9 +250,10 @@ const commitNotificationWrites = async (targets, input, adminUid) => {
     type: input.type,
     severity: input.severity,
     createdCount,
+    messageBatchId,
   }));
 
-  return { createdCount };
+  return { createdCount, messageBatchId };
 };
 
 export const createAdminCustomerNotification = async (input) => {
@@ -306,26 +331,60 @@ export const subscribeToCurrentCustomerNotifications = (onData, onError) => {
   };
 };
 
+const getCurrentCustomerReceipt = async (firebaseUser) => {
+  const profileSnapshot = await getDoc(doc(getFirestoreDb(), 'users', firebaseUser.uid));
+  const profile = profileSnapshot.exists() ? profileSnapshot.data() : {};
+  const firstName = cleanString(profile.firstName);
+  const lastName = cleanString(profile.lastName);
+  const fallbackName = cleanString(profile.name || profile.displayName);
+  const fullName = cleanString(`${firstName} ${lastName}`) || fallbackName || null;
+
+  return {
+    uid: firebaseUser.uid,
+    name: fullName,
+    phone: cleanString(profile.phoneNumber || profile.phone || firebaseUser.phoneNumber) || null,
+  };
+};
+
+const readReceiptFields = (receipt) => ({
+  status: 'read',
+  readAt: serverTimestamp(),
+  readBy: receipt.uid,
+  readByName: receipt.name,
+  readByPhone: receipt.phone,
+  updatedAt: serverTimestamp(),
+});
+
 export const markCustomerNotificationRead = async (notificationId) => {
   const firebaseUser = await ensureFirebaseCustomer();
   const id = cleanString(notificationId);
   if (!id) return;
+  const receipt = await getCurrentCustomerReceipt(firebaseUser);
 
-  await updateDoc(doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id), {
-    status: 'read',
-    readAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await updateDoc(
+    doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id),
+    readReceiptFields(receipt),
+  );
 };
 
 export const hideCustomerNotification = async (notificationId) => {
   const firebaseUser = await ensureFirebaseCustomer();
   const id = cleanString(notificationId);
   if (!id) return;
+  const notificationRef = doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id);
+  const notificationSnapshot = await getDoc(notificationRef);
+  if (!notificationSnapshot.exists()) return;
 
-  await updateDoc(doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id), {
+  if (isCriticalCustomerNotification(notificationSnapshot.data())) {
+    throw Object.assign(new Error('לא ניתן למחוק התראה חשובה. אפשר לסמן שקראת אותה בלבד.'), {
+      code: 'customer-notifications/critical-cannot-dismiss',
+    });
+  }
+
+  await updateDoc(notificationRef, {
     status: 'hidden',
     hiddenAt: serverTimestamp(),
+    hiddenBy: firebaseUser.uid,
     updatedAt: serverTimestamp(),
   });
 };
@@ -334,15 +393,15 @@ export const markCustomerNotificationsRead = async (notificationIds) => {
   const firebaseUser = await ensureFirebaseCustomer();
   const ids = [...new Set((notificationIds || []).map(cleanString).filter(Boolean))];
   if (ids.length === 0) return;
+  const receipt = await getCurrentCustomerReceipt(firebaseUser);
 
   for (let start = 0; start < ids.length; start += MAX_BATCH_WRITES) {
     const batch = writeBatch(getFirestoreDb());
     ids.slice(start, start + MAX_BATCH_WRITES).forEach((id) => {
-      batch.update(doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id), {
-        status: 'read',
-        readAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      batch.update(
+        doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id),
+        readReceiptFields(receipt),
+      );
     });
     await batch.commit();
   }
@@ -366,6 +425,47 @@ export const updateCustomerNotificationStatus = async (notificationId, status) =
     hiddenAt: null,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const subscribeToAdminCustomerNotifications = (onData, onError) => {
+  let unsubscribe = () => {};
+  let cancelled = false;
+
+  ensureFirebaseAdmin()
+    .then((adminUser) => {
+      if (cancelled) return;
+
+      unsubscribe = onSnapshot(
+        collectionGroup(getFirestoreDb(), 'notifications'),
+        (snapshot) => {
+          const notifications = snapshot.docs
+            .filter((notificationSnapshot) => (
+              notificationSnapshot.ref.parent.parent?.parent?.id === 'customerNotifications'
+            ))
+            .map(mapNotificationDoc)
+            .sort((left, right) => {
+              const leftTime = left.createdAt?.toMillis?.() || 0;
+              const rightTime = right.createdAt?.toMillis?.() || 0;
+              return rightTime - leftTime;
+            });
+
+          console.info('[Firestore] Admin customer notifications snapshot received', JSON.stringify({
+            projectId: firebaseProjectId,
+            uid: adminUser.uid,
+            size: snapshot.size,
+          }));
+
+          onData(notifications);
+        },
+        onError,
+      );
+    })
+    .catch(onError);
+
+  return () => {
+    cancelled = true;
+    unsubscribe();
+  };
 };
 
 export const getCurrentAdminUidForNotifications = () => firebaseAuth.currentUser?.uid || null;

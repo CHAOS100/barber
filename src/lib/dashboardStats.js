@@ -16,6 +16,22 @@ export const calculateAdminStats = (appointments, customers, services, reviews, 
   const todayAppointments = appointments.filter((item) => item.date === today);
   const monthAppointments = appointments.filter((item) => String(item.date || '').startsWith(month));
   const byStatus = (status) => appointments.filter((item) => item.status === status).length;
+  const warningCount = customers.reduce((total, customer) => {
+    const numericWarnings = Number(customer.warningCount ?? customer.warning_count ?? 0);
+    const textWarnings = customer.warning || (Array.isArray(customer.warnings) && customer.warnings.length > 0);
+    return total + numericWarnings + (numericWarnings === 0 && textWarnings ? 1 : 0);
+  }, 0);
+  const blockedCustomersCount = customers.filter((customer) => (
+    customer.blocked === true || customer.isBlocked === true || customer.is_blocked === true
+  )).length;
+  const paymentRequiredCustomersCount = customers.filter((customer) => (
+    customer.requiresNoShowPayment === true
+    || customer.requires_no_show_payment === true
+    || Number(customer.noShowPaymentAmount ?? customer.no_show_payment_amount ?? 0) > 0
+  )).length;
+  const customerNoShowCount = customers.reduce((total, customer) => (
+    total + Number(customer.noShowCount ?? customer.no_show_count ?? 0)
+  ), 0);
 
   return {
     revenue: appointments.reduce((total, item) => total + revenueFor(item), 0),
@@ -30,6 +46,10 @@ export const calculateAdminStats = (appointments, customers, services, reviews, 
     customersCount: customers.length,
     servicesCount: services.length,
     reviewsCount: reviews.length,
+    warningCount,
+    blockedCustomersCount,
+    paymentRequiredCustomersCount,
+    customerNoShowCount,
   };
 };
 

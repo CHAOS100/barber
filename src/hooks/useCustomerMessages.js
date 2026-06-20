@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
+  hideCustomerNotification,
   markCustomerNotificationRead,
   markCustomerNotificationsRead,
   subscribeToCurrentCustomerNotifications,
@@ -24,6 +25,7 @@ const buildProfileNotices = (user) => {
       createdAt: null,
       isRead: false,
       canDismiss: false,
+      isCritical: true,
     });
   }
 
@@ -41,6 +43,7 @@ const buildProfileNotices = (user) => {
       createdAt: null,
       isRead: false,
       canDismiss: false,
+      isCritical: true,
     });
   }
 
@@ -56,6 +59,7 @@ const buildProfileNotices = (user) => {
       createdAt: null,
       isRead: false,
       canDismiss: false,
+      isCritical: true,
     });
   }
 
@@ -135,11 +139,24 @@ export function useCustomerMessages() {
     }
   }, [messages, uid]);
 
+  const dismissMessage = useCallback(async (messageId) => {
+    if (!uid || !messageId || String(messageId).startsWith('profile_')) return;
+    try {
+      await hideCustomerNotification(messageId);
+    } catch (error) {
+      console.warn('[useCustomerMessages] dismiss notification failed', JSON.stringify({
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown notification dismiss error',
+      }));
+    }
+  }, [uid]);
+
   return {
     messages,
     unreadCount,
     markAsRead,
     markAllAsRead,
+    dismissMessage,
     isLoggedIn: Boolean(uid && !isAdmin),
   };
 }

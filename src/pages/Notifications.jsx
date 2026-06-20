@@ -13,6 +13,7 @@ import {
   MessageSquare,
   ShieldAlert,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
@@ -52,6 +53,7 @@ const TYPE_ICON = {
   free_slot: Calendar,
   appointment: Calendar,
   payment_request: CreditCard,
+  no_show_payment_required: CreditCard,
   block: Ban,
   warning: AlertTriangle,
   broadcast: MessageSquare,
@@ -81,19 +83,28 @@ function MessageIcon({ message }) {
   );
 }
 
-function MessageCard({ message, onOpen, onMarkRead }) {
+const canMarkMessageRead = (message) => !message.isRead && !String(message.id).startsWith('profile_');
+
+function MessageCard({ message, onOpen, onMarkRead, onDismiss }) {
   const severity = SEVERITY[message.severity] || SEVERITY.info;
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
+      role="button"
+      tabIndex={0}
       layout
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       onClick={() => onOpen(message)}
-      className={`w-full rounded-2xl border p-4 text-right transition-colors duration-200 ${severity.bgClass} ${severity.borderClass} ${message.isRead ? 'opacity-70' : ''}`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen(message);
+        }
+      }}
+      className={`w-full cursor-pointer rounded-2xl border p-4 text-right transition-colors duration-200 press-scale ${severity.bgClass} ${severity.borderClass} ${message.isRead ? 'opacity-70' : 'notification-unread-card'}`}
     >
       <div className="flex items-start gap-3">
         <MessageIcon message={message} />
@@ -118,37 +129,67 @@ function MessageCard({ message, onOpen, onMarkRead }) {
             {message.message}
           </p>
 
-          {!message.isRead && message.canDismiss && (
-            <span
-              onClick={(event) => {
-                event.stopPropagation();
-                onMarkRead(message.id);
-              }}
-              className={`mt-2 inline-flex items-center gap-1 text-[11px] font-bold opacity-80 hover:opacity-100 transition-opacity ${severity.iconClass}`}
-            >
-              <CheckCheck className="w-3 h-3" />
-              סמן כנקרא
-            </span>
-          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {canMarkMessageRead(message) && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMarkRead(message.id);
+                }}
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-black transition-opacity press-scale ${severity.borderClass} ${severity.iconClass}`}
+              >
+                <CheckCheck className="w-3 h-3" />
+                קראתי
+              </button>
+            )}
+
+            {message.canDismiss && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDismiss(message.id);
+                }}
+                className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-black text-muted-foreground transition-opacity press-scale"
+              >
+                <Trash2 className="w-3 h-3" />
+                מחק התראה
+              </button>
+            )}
+
+            {message.isCritical && !message.canDismiss && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-yellow-400/20 bg-yellow-400/10 px-3 py-1.5 text-[11px] font-bold text-yellow-300">
+                התראה חשובה נשארת גלויה עד טיפול העסק
+              </span>
+            )}
+          </div>
         </div>
       </div>
-    </motion.button>
+    </motion.div>
   );
 }
 
 export default function Notifications() {
   const navigate = useNavigate();
-  const { messages, unreadCount, markAsRead, markAllAsRead } = useCustomerMessages();
+  const { messages, unreadCount, markAsRead, markAllAsRead, dismissMessage } = useCustomerMessages();
   const [selectedMessage, setSelectedMessage] = React.useState(null);
-  const hasDismissibleUnread = messages.some(
-    (message) => !message.isRead && message.canDismiss,
-  );
+  const hasUnreadMessages = messages.some(canMarkMessageRead);
 
-  const openMessage = async (message) => {
+  const openMessage = (message) => {
     setSelectedMessage(message);
-    if (!message.isRead && message.canDismiss) {
-      await markAsRead(message.id);
-    }
+  };
+
+  const markSelectedRead = async () => {
+    if (!selectedMessage) return;
+    await markAsRead(selectedMessage.id);
+    setSelectedMessage(null);
+  };
+
+  const dismissSelected = async () => {
+    if (!selectedMessage) return;
+    await dismissMessage(selectedMessage.id);
+    setSelectedMessage(null);
   };
 
   return (
@@ -160,18 +201,18 @@ export default function Notifications() {
           </button>
           <h1 className="font-black text-lg flex-1">הודעות ועדכונים</h1>
           {unreadCount > 0 && (
-            <span className="glass-gold text-primary text-xs font-bold px-2.5 py-1 rounded-full">
+            <span className="glass-gold text-primary text-xs font-bold px-2.5 py-1 rounded-full notification-alive">
               {unreadCount} חדשות
             </span>
           )}
-          {hasDismissibleUnread && (
+          {hasUnreadMessages && (
             <button
               type="button"
               onClick={markAllAsRead}
               className="flex items-center gap-1 text-primary text-xs font-bold press-scale"
             >
               <CheckCheck className="w-3.5 h-3.5" />
-              נקרא הכל
+              קראתי הכל
             </button>
           )}
         </div>
@@ -197,6 +238,7 @@ export default function Notifications() {
                 message={message}
                 onOpen={openMessage}
                 onMarkRead={markAsRead}
+                onDismiss={dismissMessage}
               />
             ))
           )}
@@ -243,13 +285,40 @@ export default function Notifications() {
               <p className="mt-4 text-sm text-muted-foreground leading-7 whitespace-pre-line">
                 {selectedMessage.message}
               </p>
-              <button
-                type="button"
-                onClick={() => setSelectedMessage(null)}
-                className="mt-5 w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale"
-              >
-                הבנתי
-              </button>
+
+              {selectedMessage.isCritical && (
+                <div className="mt-4 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs leading-5 text-yellow-200">
+                  זו התראה חשובה. אפשר לסמן שקראת אותה, אבל היא תישאר זמינה עד שהעסק יסיר או יעדכן את הדרישה.
+                </div>
+              )}
+
+              <div className="mt-5 grid gap-3">
+                {canMarkMessageRead(selectedMessage) && (
+                  <button
+                    type="button"
+                    onClick={markSelectedRead}
+                    className="w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale"
+                  >
+                    קראתי
+                  </button>
+                )}
+                {selectedMessage.canDismiss && (
+                  <button
+                    type="button"
+                    onClick={dismissSelected}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-black text-muted-foreground press-scale"
+                  >
+                    מחק התראה
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedMessage(null)}
+                  className="w-full rounded-2xl border border-primary/20 bg-primary/10 py-3 text-sm font-black text-primary press-scale"
+                >
+                  סגור
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

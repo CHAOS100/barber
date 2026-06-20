@@ -44,6 +44,7 @@ const HOME_TYPE_ICON = {
   free_slot: Calendar,
   appointment: Calendar,
   payment_request: CreditCard,
+  no_show_payment_required: CreditCard,
   block: Ban,
   warning: AlertTriangle,
   broadcast: MessageSquare,
@@ -56,7 +57,7 @@ function HomeMessageCard({ msg }) {
   const DisplayIcon = HOME_TYPE_ICON[msg.type] || sev.Icon;
 
   return (
-    <div className={`rounded-2xl border px-3.5 py-3 flex items-center gap-3 ${sev.bgClass} ${sev.borderClass}`}>
+    <div className={`rounded-2xl border px-3.5 py-3 flex items-center gap-3 ${sev.bgClass} ${sev.borderClass} ${!msg.isRead ? 'notification-unread-card' : ''}`}>
       <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${sev.bgClass} border ${sev.borderClass}`}>
         <DisplayIcon className={`w-4 h-4 ${sev.iconClass}`} />
       </div>
@@ -196,7 +197,7 @@ export default function Home() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
               className="overflow-hidden mb-4"
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className={`flex items-center justify-between mb-2 ${msgUnreadCount > 0 ? 'notification-alive rounded-2xl px-2 py-1 -mx-2' : ''}`}>
                 <div className="flex items-center gap-2">
                   <Bell className="w-4 h-4 text-primary" />
                   <span className="text-sm font-black">הודעות ועדכונים</span>

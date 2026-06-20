@@ -21,6 +21,7 @@ const IMPORTANT_TYPES = new Set([
   'warning',
   'block',
   'payment_request',
+  'no_show_payment_required',
   'admin_custom',
   'broadcast',
 ]);
@@ -63,6 +64,7 @@ const TYPE_ICON = {
   free_slot: Calendar,
   appointment: Calendar,
   payment_request: CreditCard,
+  no_show_payment_required: CreditCard,
   block: Ban,
   warning: AlertTriangle,
   broadcast: Bell,
@@ -180,7 +182,7 @@ export default function CustomerNotificationPopup() {
                 className="rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale flex items-center justify-center gap-2"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                הבנתי
+                קראתי
               </button>
               <button
                 type="button"

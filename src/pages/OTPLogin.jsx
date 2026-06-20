@@ -39,6 +39,15 @@ const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין';
 
 const phoneAuthPlatform = () => (isCapacitorAndroidNative() ? 'native' : 'web');
 
+const GoogleVerificationNotice = () => (
+  <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-xs leading-5 text-muted-foreground">
+    <p className="font-bold text-primary">מאמתים את האפליקציה מול Google...</p>
+    <p>
+      במכשירי Android ייתכן שייפתח חלון אימות קצר. בסיום האימות תחזור לאפליקציה והקוד יישלח ב-SMS.
+    </p>
+  </div>
+);
+
 /**
  * @param {string} rawInput
  * @param {string} context
@@ -248,7 +257,7 @@ export default function OTPLogin() {
     } catch (phoneAuthError) {
       console.error(
         '[Firebase] Customer phone code verification failed',
-        serializeFirebaseError(phoneAuthError, 'Unknown Firebase error'),
+        JSON.stringify(serializeFirebaseError(phoneAuthError, 'Unknown Firebase error')),
       );
       const code = getErrorCode(phoneAuthError);
       setError(
@@ -280,7 +289,7 @@ export default function OTPLogin() {
     } catch (registrationError) {
       console.error(
         '[Customer Auth] registration failed',
-        serializeFirebaseError(registrationError, 'Unknown registration error'),
+        JSON.stringify(serializeFirebaseError(registrationError, 'Unknown registration error')),
       );
       setError(
         getErrorCode(registrationError) === 'functions/already-exists'
@@ -304,7 +313,7 @@ export default function OTPLogin() {
     } catch (signInError) {
       console.error(
         '[Firebase] Admin sign-in failed',
-        serializeFirebaseError(signInError, 'Unknown Firebase error'),
+        JSON.stringify(serializeFirebaseError(signInError, 'Unknown Firebase error')),
       );
 
       if (getErrorCode(signInError) === 'admin/not-authorized') {
@@ -364,7 +373,7 @@ export default function OTPLogin() {
     } catch (phoneAuthError) {
       console.error(
         '[Firebase] Admin SMS verification failed',
-        serializeFirebaseError(phoneAuthError, 'Unknown Firebase error'),
+        JSON.stringify(serializeFirebaseError(phoneAuthError, 'Unknown Firebase error')),
       );
       setError(getPhoneLoginErrorMessage(phoneAuthError));
     } finally {
@@ -393,7 +402,7 @@ export default function OTPLogin() {
     } catch (signInError) {
       console.error(
         '[Firebase] Admin phone sign-in failed',
-        serializeFirebaseError(signInError, 'Unknown Firebase error'),
+        JSON.stringify(serializeFirebaseError(signInError, 'Unknown Firebase error')),
       );
       if (getErrorCode(signInError) === 'admin/not-authorized') {
         adminConfirmationResultRef.current = null;
@@ -431,15 +440,15 @@ export default function OTPLogin() {
 
   return (
     <div className="auth-viewport bg-background flex flex-col" dir="rtl">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6 overflow-y-auto">
+      <div className="auth-login-shell">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-sm"
         >
           {/* Header */}
-          <div className="text-center mb-6 sm:mb-10">
-            <img src={BARBER_PHOTO} alt="OST Barber" className="w-24 h-24 rounded-2xl border-2 border-primary object-cover gold-shadow mx-auto mb-4" />
+          <div className="text-center mb-5 sm:mb-7">
+            <img src={BARBER_PHOTO} alt="OST Barber" className="w-20 h-20 rounded-2xl border-2 border-primary object-cover gold-shadow mx-auto mb-3" />
             <h1 className="text-3xl font-black tracking-tight">OST BARBER</h1>
             <p className="text-muted-foreground mt-1">
               {mode === 'admin' ? 'כניסת מנהל' : 'כניסה לחשבון'}
@@ -574,14 +583,17 @@ export default function OTPLogin() {
                     {error && <p className="text-destructive text-sm text-center">{error}</p>}
 
                     {adminPhoneStep === 'phone' ? (
-                      <GoldButton
-                        onClick={handleAdminSendPhoneOTP}
-                        size="lg"
-                        className="w-full"
-                        disabled={smsLoading || verificationLoading || Boolean(adminConfirmationResultRef.current)}
-                      >
-                        {smsLoading ? 'שולח...' : 'שלח קוד מנהל'}
-                      </GoldButton>
+                      <>
+                        <GoldButton
+                          onClick={handleAdminSendPhoneOTP}
+                          size="lg"
+                          className="w-full"
+                          disabled={smsLoading || verificationLoading || Boolean(adminConfirmationResultRef.current)}
+                        >
+                          {smsLoading ? 'שולח...' : 'שלח קוד מנהל'}
+                        </GoldButton>
+                        {smsLoading && phoneAuthPlatform() === 'native' && <GoogleVerificationNotice />}
+                      </>
                     ) : (
                       <GoldButton
                         onClick={handleAdminVerifyPhoneOTP}
@@ -661,6 +673,7 @@ export default function OTPLogin() {
                       ? 'חזרה להזנת הקוד'
                       : 'שלח קוד אימות'}
                 </GoldButton>
+                {smsLoading && phoneAuthPlatform() === 'native' && <GoogleVerificationNotice />}
 
                 {/* Admin link */}
                 <div className="text-center pt-2">

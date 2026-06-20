@@ -4,17 +4,19 @@ import { useMutation } from '@tanstack/react-query';
 import {
   ArrowRight,
   Bell,
+  CheckCheck,
   MessageSquareText,
   Phone,
   Plus,
   Send,
+  ShieldAlert,
   UserRound,
   Users,
   X,
 } from 'lucide-react';
 import { subscribeToAdminNotificationJobs } from '@/lib/notificationJobsFirestore';
 import { subscribeToAllCustomerProfiles } from '@/lib/customerProfilesFirestore';
-import { createAdminCustomerNotification } from '@/lib/customerNotificationsFirestore';
+import { createAdminCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
@@ -42,6 +44,7 @@ const MESSAGE_TYPE_OPTIONS = [
   { value: 'warning', label: 'אזהרה' },
   { value: 'block', label: 'הודעת חסימה' },
   { value: 'payment_request', label: 'דרישת תשלום / אי הגעה' },
+  { value: 'no_show_payment_required', label: 'תשלום נדרש עקב אי-הגעה' },
   { value: 'appointment', label: 'עדכון תור' },
   { value: 'system', label: 'עדכון מערכת' },
 ];
@@ -68,7 +71,13 @@ const INITIAL_FORM = {
   title: '',
   message: '',
   expiresAt: '',
+  requiresAction: false,
 };
+
+const MESSAGE_TYPE_LABELS = MESSAGE_TYPE_OPTIONS.reduce((labels, option) => ({
+  ...labels,
+  [option.value]: option.label,
+}), {});
 
 const formatTimestamp = (timestamp) => {
   if (!timestamp?.toDate) return '-';
@@ -233,6 +242,20 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
             />
           </label>
 
+          {form.type === 'warning' && (
+            <label className="flex items-start gap-3 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={form.requiresAction}
+                onChange={(event) => setForm((prev) => ({ ...prev, requiresAction: event.target.checked }))}
+                className="mt-1 accent-[#93E3BD]"
+              />
+              <span>
+                זו אזהרה שדורשת טיפול. הלקוח יוכל לסמן שקרא אותה, אבל לא למחוק אותה עד שהעסק יטפל בה.
+              </span>
+            </label>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -251,6 +274,7 @@ export default function AdminMessages() {
   const navigate = useNavigate();
   const [jobs, setJobs] = React.useState([]);
   const [customers, setCustomers] = React.useState([]);
+  const [customerNotifications, setCustomerNotifications] = React.useState([]);
   const [error, setError] = React.useState('');
   const [modalOpen, setModalOpen] = React.useState(false);
   const [form, setForm] = React.useState(INITIAL_FORM);
@@ -275,6 +299,55 @@ export default function AdminMessages() {
       }));
     },
   ), []);
+
+  React.useEffect(() => subscribeToAdminCustomerNotifications(
+    setCustomerNotifications,
+    (listenerError) => {
+      console.warn('[Firestore] Admin customer notifications listener failed', JSON.stringify({
+        code: listenerError?.code || 'unknown',
+        message: listenerError?.message || 'Unknown customer notifications listener error',
+      }));
+    },
+  ), []);
+
+  const inAppMessageSummaries = React.useMemo(() => {
+    const byBatch = new Map();
+
+    customerNotifications.forEach((notification) => {
+      const key = notification.messageBatchId || notification.id;
+      const current = byBatch.get(key) || {
+        id: key,
+        title: notification.title || 'הודעה ללא כותרת',
+        type: notification.type || 'system',
+        severity: notification.severity || 'info',
+        targetType: notification.targetType || 'single_customer',
+        createdAt: notification.createdAt || null,
+        receivedCount: 0,
+        readCount: 0,
+        latestReadAt: null,
+        sampleCustomerName: '',
+        sampleCustomerPhone: '',
+      };
+
+      current.receivedCount += 1;
+      if (notification.isRead) current.readCount += 1;
+
+      const readMs = notification.readAt?.toMillis?.() || 0;
+      const currentLatestMs = current.latestReadAt?.toMillis?.() || 0;
+      if (readMs > currentLatestMs) current.latestReadAt = notification.readAt;
+
+      current.sampleCustomerName = current.sampleCustomerName || notification.readByName || '';
+      current.sampleCustomerPhone = current.sampleCustomerPhone || notification.readByPhone || notification.targetPhone || '';
+
+      byBatch.set(key, current);
+    });
+
+    return [...byBatch.values()].sort((left, right) => {
+      const leftTime = left.createdAt?.toMillis?.() || 0;
+      const rightTime = right.createdAt?.toMillis?.() || 0;
+      return rightTime - leftTime;
+    });
+  }, [customerNotifications]);
 
   const createMessageMutation = useMutation({
     mutationFn: createAdminCustomerNotification,
@@ -351,6 +424,80 @@ export default function AdminMessages() {
             {error}
           </div>
         )}
+
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-black">הודעות בתוך האפליקציה</h2>
+            <span className="text-xs text-muted-foreground">{customerNotifications.length} הודעות לקוח</span>
+          </div>
+
+          {inAppMessageSummaries.length === 0 ? (
+            <div className="glass rounded-3xl p-8 text-center">
+              <Bell className="w-12 h-12 text-primary mx-auto mb-3" />
+              <h3 className="font-black text-lg mb-1">אין עדיין הודעות בתוך האפליקציה</h3>
+              <p className="text-muted-foreground text-sm">
+                הודעות שתשלח ללקוחות וקריאות שלהן יופיעו כאן.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {inAppMessageSummaries.slice(0, 20).map((summary) => {
+                const readPercent = summary.receivedCount > 0
+                  ? Math.round((summary.readCount / summary.receivedCount) * 100)
+                  : 0;
+                const isSingleCustomer = summary.receivedCount === 1;
+
+                return (
+                  <div key={summary.id} className="dark-card rounded-2xl p-4">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-black truncate">{summary.title}</h3>
+                          {summary.severity === 'danger' && <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                          {MESSAGE_TYPE_LABELS[summary.type] || 'הודעת מערכת'} · {formatTimestamp(summary.createdAt)}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-primary/15 text-primary px-3 py-1 text-xs font-bold whitespace-nowrap">
+                        {readPercent}% נקראו
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="glass rounded-xl p-3">
+                        <span className="block text-muted-foreground text-xs mb-1">קיבלו</span>
+                        <span className="font-black">{summary.receivedCount}</span>
+                      </div>
+                      <div className="glass rounded-xl p-3">
+                        <span className="block text-muted-foreground text-xs mb-1">קראו</span>
+                        <span className="font-black text-primary inline-flex items-center gap-1">
+                          <CheckCheck className="w-4 h-4" />
+                          {summary.readCount}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isSingleCustomer && (
+                      <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-muted-foreground leading-5">
+                        {summary.readCount > 0 ? (
+                          <>
+                            הלקוח קרא את ההודעה
+                            {summary.latestReadAt ? ` ב־${formatTimestamp(summary.latestReadAt)}` : ''}
+                            {summary.sampleCustomerName ? ` · ${summary.sampleCustomerName}` : ''}
+                            {summary.sampleCustomerPhone ? ` · ${summary.sampleCustomerPhone}` : ''}
+                          </>
+                        ) : (
+                          'הלקוח עדיין לא סימן שקרא את ההודעה.'
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div>
           <h2 className="font-black mb-3">תור הודעות חיצוניות</h2>

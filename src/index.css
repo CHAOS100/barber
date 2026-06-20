@@ -112,13 +112,26 @@ body:has([role="dialog"]) {
 }
 
 .auth-viewport {
-  min-height: var(--app-viewport-height);
-  padding-top: var(--safe-area-top);
-  padding-bottom: var(--safe-area-bottom);
+  min-height: 100dvh;
+  height: var(--visible-viewport-height);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.auth-login-shell {
+  min-height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 24px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  scrollbar-gutter: stable;
 }
 
 .auth-step-frame {
-  min-height: 430px;
+  min-height: 0;
 }
 
 .firebase-phone-recaptcha-container {
@@ -133,8 +146,10 @@ body:has([role="dialog"]) {
 }
 
 @media (max-height: 720px) {
-  .auth-step-frame {
-    min-height: 390px;
+  .auth-login-shell {
+    align-items: flex-start;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   }
 }
 
@@ -169,6 +184,34 @@ body:has([role="dialog"]) {
 
 .gold-glow {
   box-shadow: 0 0 20px rgba(147, 227, 189, 0.3), 0 4px 16px rgba(147, 227, 189, 0.2);
+}
+
+.notification-alive {
+  animation: notification-breathe 2.4s ease-in-out infinite;
+}
+
+.notification-unread-card {
+  position: relative;
+  box-shadow: 0 0 0 1px rgba(147, 227, 189, 0.12), 0 10px 28px rgba(147, 227, 189, 0.08);
+}
+
+.notification-unread-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at 18% 12%, rgba(147, 227, 189, 0.18), transparent 34%);
+  opacity: 0.75;
+}
+
+@keyframes notification-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(147, 227, 189, 0.16);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(147, 227, 189, 0);
+  }
 }
 
 .dark-card {

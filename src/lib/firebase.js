@@ -137,14 +137,14 @@ export const isFirebaseConfigured =
   && invalidFirebaseEnvironmentVariables.length === 0;
 export const firebaseProjectId = firebaseConfig.projectId || 'not-configured';
 
-console.info('[Firebase] Runtime configuration', firebaseRuntimeConfig);
+console.info('[Firebase] Runtime configuration', JSON.stringify(firebaseRuntimeConfig));
 
 if (missingFirebaseEnvironmentVariables.length > 0 || invalidFirebaseEnvironmentVariables.length > 0) {
-  console.error('[Firebase] Invalid Vercel environment configuration', {
+  console.error('[Firebase] Invalid Vercel environment configuration', JSON.stringify({
     missing: missingFirebaseEnvironmentVariables,
     invalid: invalidFirebaseEnvironmentVariables,
     runtime: firebaseRuntimeConfig,
-  });
+  }));
 }
 
 const existingFirebaseApp = getApps().find((app) => app.name === FIREBASE_APP_NAME);
@@ -503,9 +503,55 @@ const nativePhoneAuthError = (eventOrError, fallbackCode = 'auth/native-phone-ve
     code = 'auth/code-expired';
   } else if (lowerMessage.includes('verification code')) {
     code = 'auth/invalid-verification-code';
+  } else if (
+    lowerMessage.includes('play integrity')
+    || lowerMessage.includes('app verification')
+    || lowerMessage.includes('appverification')
+    || lowerMessage.includes('invalid app credential')
+    || lowerMessage.includes('app-not-authorized')
+    || lowerMessage.includes('recaptcha')
+  ) {
+    code = 'auth/native-app-verification-failed';
   }
 
   return Object.assign(new Error(message), { code });
+};
+
+/** @param {unknown} eventOrError */
+const explainNativeAppVerificationFailure = (eventOrError) => {
+  const message = getErrorMessage(eventOrError, '').toLowerCase();
+  const code = getErrorCode(eventOrError);
+  const candidates = [];
+
+  if (
+    message.includes('play integrity')
+    || message.includes('app verification')
+    || message.includes('invalid app credential')
+    || message.includes('app-not-authorized')
+  ) {
+    candidates.push('missing-or-wrong-sha256-for-installed-signing-certificate');
+    candidates.push('app-not-installed-from-google-play-or-play-integrity-not-trusted');
+  }
+  if (message.includes('recaptcha') || message.includes('captcha')) {
+    candidates.push('firebase-android-sdk-used-recaptcha-fallback');
+    candidates.push('sha1-required-for-recaptcha-fallback-may-be-missing');
+  }
+  if (message.includes('play services') || message.includes('google play')) {
+    candidates.push('google-play-services-missing-disabled-or-outdated');
+  }
+  if (message.includes('api key') || message.includes('app credential')) {
+    candidates.push('api-key-restrictions-may-not-allow-firebaseapp-com');
+  }
+  if (code !== 'unknown') {
+    candidates.push(`firebase-error-code:${code}`);
+  }
+
+  return candidates.length > 0
+    ? [...new Set(candidates)]
+    : [
+      'firebase-native-app-verification-failed',
+      'check-sha1-sha256-package-name-google-services-json-and-play-integrity',
+    ];
 };
 
 /** @param {unknown} error */
@@ -630,7 +676,6 @@ const startNativeFirebasePhoneVerification = async (
   normalizedPhoneNumber,
   { isResend = false } = {},
 ) => {
-  await prepareFirebaseAuth();
   await clearNativePhoneAuthListeners('before-native-phone-start');
 
   try {
@@ -674,6 +719,8 @@ const startNativeFirebasePhoneVerification = async (
           };
 
           console.info('[Firebase Phone Auth] Native Android SMS request succeeded', JSON.stringify({
+            path: 'native',
+            fallbackUsed: false,
             verificationIdPresent: true,
             phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
             isResend,
@@ -726,7 +773,17 @@ const startNativeFirebasePhoneVerification = async (
       /** @param {unknown} event */
       const onPhoneVerificationFailed = (event) => {
         settle(async () => {
-          reject(nativePhoneAuthError(event));
+          const normalizedError = nativePhoneAuthError(event);
+          console.warn('[Firebase Phone Auth] Native Android verification failed', JSON.stringify({
+            platform: 'capacitor-android',
+            path: 'native',
+            firebaseMayUseBrowserFallback: true,
+            fallbackUsedByAppCode: false,
+            phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+            code: getErrorCode(normalizedError),
+            rootCauseCandidates: explainNativeAppVerificationFailure(event),
+          }));
+          reject(normalizedError);
         });
       };
 
@@ -738,6 +795,8 @@ const startNativeFirebasePhoneVerification = async (
 
       console.log('REAL FIREBASE SMS REQUEST SENT');
       console.info('[Firebase Phone Auth] Native Android SMS request started', JSON.stringify({
+        path: 'native',
+        fallbackUsed: false,
         phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         isResend,
         resendCode: isResend,
@@ -746,13 +805,24 @@ const startNativeFirebasePhoneVerification = async (
       await FirebaseAuthentication.signInWithPhoneNumber({
         phoneNumber: normalizedPhoneNumber,
         resendCode: isResend,
+        skipNativeAuth: false,
         timeout: 60,
       });
     };
 
     attachListenersAndStart().catch((error) => {
       settle(async () => {
-        reject(nativePhoneAuthError(error));
+        const normalizedError = nativePhoneAuthError(error);
+        console.warn('[Firebase Phone Auth] Native Android SMS start failed', JSON.stringify({
+          platform: 'capacitor-android',
+          path: 'native',
+          firebaseMayUseBrowserFallback: true,
+          fallbackUsedByAppCode: false,
+          phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+          code: getErrorCode(normalizedError),
+          rootCauseCandidates: explainNativeAppVerificationFailure(error),
+        }));
+        reject(normalizedError);
       });
     });
   });
@@ -826,20 +896,23 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
   savePhoneSmsGuard();
 
   phoneSmsRequestPromise = (async () => {
+    const useNativeAndroid = isCapacitorAndroidNative();
     console.info('[Firebase Phone Auth] SMS request started', JSON.stringify({
       phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
       isResend,
-      platform: isCapacitorAndroidNative() ? 'capacitor-android' : 'web',
+      platform: useNativeAndroid ? 'capacitor-android' : 'web',
+      path: useNativeAndroid ? 'native' : 'web',
+      fallbackUsed: false,
     }));
 
     try {
-      await prepareFirebaseAuth();
-      firebaseAuth.languageCode = 'he';
-      console.info('[Firebase Phone Auth] phone normalized', JSON.stringify({
-        normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
-      }));
-
-      if (isCapacitorAndroidNative()) {
+      if (useNativeAndroid) {
+        console.info('[Firebase Phone Auth] native path selected', JSON.stringify({
+          platform: 'capacitor-android',
+          path: 'native',
+          fallbackUsed: false,
+          phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        }));
         const nativeResult = await startNativeFirebasePhoneVerification(normalizedPhoneNumber, { isResend });
         activePhoneConfirmationResult = nativeResult.confirmationResult;
         activePhoneConfirmationNumber = normalizedPhoneNumber;
@@ -849,6 +922,16 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
         }
         return nativeResult;
       }
+
+      await prepareFirebaseAuth();
+      firebaseAuth.languageCode = 'he';
+      console.info('[Firebase Phone Auth] web path selected', JSON.stringify({
+        platform: 'web',
+        path: 'web',
+        recaptcha: 'invisible',
+        fallbackUsed: false,
+        phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+      }));
 
       const verifier = await getOrCreatePhoneRecaptchaVerifier();
       if (phoneRecaptchaWasUsed) resetRenderedPhoneRecaptcha('sms-request-reuse');
@@ -867,6 +950,8 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
       activePhoneConfirmationResult = confirmationResult;
       activePhoneConfirmationNumber = normalizedPhoneNumber;
       console.info('[Firebase Phone Auth] SMS request succeeded', JSON.stringify({
+        path: 'web',
+        fallbackUsed: false,
         normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
         verificationIdPresent: Boolean(confirmationResult.verificationId),
       }));
@@ -874,10 +959,15 @@ export const startFirebasePhoneVerification = async (phoneNumber, { isResend = f
     } catch (error) {
       console.error('[Firebase Phone Auth] SMS request failed', JSON.stringify({
         ...serializeFirebaseError(error, 'Unknown Firebase error'),
-        normalizedPhoneMasked: maskPhoneNumber(normalizedPhoneNumber),
-        recaptchaWidgetId: phoneRecaptchaWidgetId ?? null,
+        platform: useNativeAndroid ? 'capacitor-android' : 'web',
+        path: useNativeAndroid ? 'native' : 'web',
+        fallbackUsed: false,
+        phoneMasked: maskPhoneNumber(normalizedPhoneNumber),
+        recaptchaWidgetId: useNativeAndroid ? null : (phoneRecaptchaWidgetId ?? null),
       }));
-      resetRenderedPhoneRecaptcha('sms-request-failed');
+      if (!useNativeAndroid) {
+        resetRenderedPhoneRecaptcha('sms-request-failed');
+      }
       throw error;
     }
   })().finally(() => {
@@ -951,6 +1041,9 @@ export const confirmFirebasePhoneCode = async (confirmationResult, code) => {
 /** @param {unknown} error */
 export const getPhoneAuthErrorMessage = (error) => {
   const errorMessage = getErrorMessage(error, '').toLowerCase();
+  if (getErrorCode(error) === 'auth/native-app-verification-failed') {
+    return 'אימות האפליקציה נכשל. נסה שוב. אם זה חוזר, פנה לעסק.';
+  }
   if (errorMessage.includes('recaptcha has already been rendered')) {
     return 'אימות האבטחה נכשל. נסה שוב.';
   }
@@ -972,10 +1065,11 @@ export const getPhoneAuthErrorMessage = (error) => {
     'auth/recaptcha-expired': 'אימות האבטחה נכשל. נסה שוב.',
     'auth/billing-not-enabled': 'שליחת SMS אינה זמינה כרגע. פנה לעסק.',
     'auth/code-expired': 'הקוד פג תוקף. שלח קוד חדש.',
-    'auth/invalid-app-credential': 'אימות האבטחה נכשל. נסה שוב.',
-    'auth/invalid-phone-number': 'מספר הטלפון לא תקין. לדוגמה: 0585035021',
+    'auth/invalid-app-credential': 'אימות האפליקציה נכשל. נסה שוב. אם זה חוזר, פנה לעסק.',
+    'auth/invalid-phone-number': 'מספר הטלפון לא תקין',
     'auth/missing-native-id-token': 'אימות הטלפון נכשל. נסה שוב.',
     'auth/native-bridge-invalid-response': 'אימות הטלפון נכשל. נסה שוב.',
+    'auth/native-app-verification-failed': 'אימות האפליקציה נכשל. נסה שוב. אם זה חוזר, פנה לעסק.',
     'auth/native-phone-verification-failed': 'אימות הטלפון נכשל. נסה שוב.',
     'auth/native-user-not-signed-in': 'אימות הטלפון נכשל. נסה שוב.',
     'auth/network-request-failed': 'בעיה בחיבור. נסה שוב.',
@@ -1010,11 +1104,11 @@ const clearStaleLocalAdminSession = (reason) => {
   const localUser = userStore.getState().currentUser;
   if (localUser?.isAdmin !== true) return;
 
-  console.warn('[Firebase] Clearing stale local admin session', {
+  console.warn('[Firebase] Clearing stale local admin session', JSON.stringify({
     reason,
     localAdminUid: localUser.uid || null,
     firebaseCurrentUserUid: firebaseAuth?.currentUser?.uid || null,
-  });
+  }));
   logoutUser();
 };
 
@@ -1038,22 +1132,22 @@ const validateAdminDocument = async (user) => {
   const authProjectId = firebaseAuth.app.options.projectId || null;
   const firestoreProjectId = getFirestoreDb().app.options.projectId || null;
 
-  console.info('[Firebase] Admin authorization check', {
+  console.info('[Firebase] Admin authorization check', JSON.stringify({
     currentUserUid,
     requestedUserUid: user.uid,
     adminDocPath,
     authProjectId,
     firestoreProjectId,
-  });
+  }));
 
   if (currentUserUid !== user.uid) {
     const reason = 'firebase-current-user-uid-mismatch';
-    console.error('[Firebase] Admin authorization denied', {
+    console.error('[Firebase] Admin authorization denied', JSON.stringify({
       reason,
       currentUserUid,
       requestedUserUid: user.uid,
       adminDocPath,
-    });
+    }));
     clearStaleLocalAdminSession(reason);
     await signOut(firebaseAuth);
     throw unauthorizedAdminError(reason);
@@ -1064,14 +1158,14 @@ const validateAdminDocument = async (user) => {
     || firestoreProjectId !== EXPECTED_FIREBASE_PROJECT_ID
   ) {
     const reason = 'firebase-project-mismatch';
-    console.error('[Firebase] Admin authorization denied', {
+    console.error('[Firebase] Admin authorization denied', JSON.stringify({
       reason,
       expectedProjectId: EXPECTED_FIREBASE_PROJECT_ID,
       authProjectId,
       firestoreProjectId,
       currentUserUid,
       adminDocPath,
-    });
+    }));
     clearStaleLocalAdminSession(reason);
     await signOut(firebaseAuth);
     throw unauthorizedAdminError(reason);
@@ -1083,36 +1177,36 @@ const validateAdminDocument = async (user) => {
     // Force an authoritative server read so a stale browser cache cannot decide admin access.
     adminSnapshot = await getDocFromServer(doc(getFirestoreDb(), ADMIN_COLLECTION, user.uid));
   } catch (error) {
-    console.error('[Firebase] Admin document read failed', {
+    console.error('[Firebase] Admin document read failed', JSON.stringify({
       reason: 'admin-document-read-failed',
       currentUserUid,
       adminDocPath,
       projectId: firestoreProjectId,
       ...serializeFirebaseError(error, 'Unknown Firestore error'),
-    });
+    }));
     clearStaleLocalAdminSession('admin-document-read-failed');
     await signOut(firebaseAuth);
     throw error;
   }
 
   const adminProfile = adminSnapshot.exists() ? adminSnapshot.data() : null;
-  console.info('[Firebase] Admin authorization document received', {
+  console.info('[Firebase] Admin authorization document received', JSON.stringify({
     currentUserUid,
     adminDocPath,
     adminDocExists: adminSnapshot.exists(),
     adminDocData: adminProfile,
-  });
+  }));
 
   const rejectionReason = getAdminRejectionReason(adminSnapshot, adminProfile);
   if (rejectionReason) {
-    console.error('[Firebase] Admin authorization denied', {
+    console.error('[Firebase] Admin authorization denied', JSON.stringify({
       reason: rejectionReason,
       projectId: firestoreProjectId,
       currentUserUid,
       adminDocPath,
       adminDocExists: adminSnapshot.exists(),
       adminDocData: adminProfile,
-    });
+    }));
     clearStaleLocalAdminSession(rejectionReason);
     await signOut(firebaseAuth);
     throw unauthorizedAdminError(rejectionReason);
@@ -1137,12 +1231,12 @@ export const ensureFirebaseCustomer = async () => {
         );
       }
 
-      console.info('[Firebase] Customer authenticated', {
+      console.info('[Firebase] Customer authenticated', JSON.stringify({
         projectId: firebaseProjectId,
         uid: user.uid,
         provider: 'phone',
         nativeBridge: user.phoneNumber ? false : true,
-      });
+      }));
 
       return user;
     })().finally(() => {
@@ -1160,12 +1254,12 @@ export const ensureFirebaseAdmin = async () => {
     const reason = !firebaseAuth.currentUser
       ? 'firebase-current-user-missing'
       : 'firebase-current-user-is-anonymous';
-    console.error('[Firebase] Admin authorization denied', {
+    console.error('[Firebase] Admin authorization denied', JSON.stringify({
       reason,
       projectId: firebaseProjectId,
       currentUserUid: firebaseAuth.currentUser?.uid || null,
       localAdminUid: userStore.getState().currentUser?.uid || null,
-    });
+    }));
     clearStaleLocalAdminSession(reason);
     throw unauthorizedAdminError(reason);
   }
@@ -1181,9 +1275,9 @@ export const signInFirebaseAdmin = async (email, password) => {
   customerAuthPromise = null;
   const adminProfile = await validateAdminDocument(credential.user);
 
-  console.info('[Firebase] Active admin authenticated', {
+  console.info('[Firebase] Active admin authenticated', JSON.stringify({
     projectId: firebaseProjectId,
-  });
+  }));
 
   return { user: credential.user, profile: adminProfile };
 };
@@ -1193,11 +1287,11 @@ export const signInFirebaseAdminWithVerifiedPhoneUser = async (firebaseUser) => 
   customerAuthPromise = null;
   const adminProfile = await validateAdminDocument(firebaseUser);
 
-  console.info('[Firebase] Active admin authenticated with phone', {
+  console.info('[Firebase] Active admin authenticated with phone', JSON.stringify({
     projectId: firebaseProjectId,
     uid: firebaseUser.uid,
     phoneMasked: maskPhoneNumber(getFirebaseUserPhoneNumber(firebaseUser)),
-  });
+  }));
 
   return { user: firebaseUser, profile: adminProfile };
 };

@@ -37,6 +37,15 @@ service cloud.firestore {
       return isPhoneCustomer() && request.auth.uid == customerId;
     }
 
+    function isCriticalNotificationData(data) {
+      return data.type in ['block', 'payment_request', 'no_show_payment_required']
+        || (
+          data.type == 'warning'
+          && data.keys().hasAny(['requiresAction'])
+          && data.requiresAction == true
+        );
+    }
+
     function hasValidCustomerNames(data) {
       return data.firstName is string
         && data.firstName.size() > 0
@@ -214,10 +223,26 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status',
             'readAt',
+            'readBy',
+            'readByName',
+            'readByPhone',
             'hiddenAt',
+            'hiddenBy',
             'updatedAt'
           ])
-          && request.resource.data.status in ['unread', 'read', 'hidden'];
+          && request.resource.data.status in ['unread', 'read', 'hidden']
+          && (
+            (
+              request.resource.data.status == 'read'
+              && request.resource.data.readBy == request.auth.uid
+            )
+            || (
+              request.resource.data.status == 'hidden'
+              && !isCriticalNotificationData(resource.data)
+              && request.resource.data.hiddenBy == request.auth.uid
+            )
+            || request.resource.data.status == 'unread'
+          );
       }
     }
 
