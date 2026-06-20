@@ -54,8 +54,9 @@ export default function AdminRoute() {
   }
 
   if (!firebaseAuthorized) {
-    // Was admin (store says so) but Firebase check failed → re-authenticate as admin.
-    return <Navigate to="/login" replace state={{ next: location.pathname, admin: true }} />;
+    // Was admin (store says so) but Firebase check failed → re-authenticate through
+    // the explicit admin URL. Customer login must never infer admin mode from router state.
+    return <Navigate to="/login?admin=true" replace state={{ next: location.pathname }} />;
   }
 
   return <Outlet />;

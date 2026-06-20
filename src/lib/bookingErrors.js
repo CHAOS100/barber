@@ -18,6 +18,9 @@ export const getBookingRejectionMessage = (error) => {
       ? `החשבון שלך חסום לקביעת תורים. סיבה: ${blockedReason}. פנה לעסק.`
       : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.';
   }
+  if (code === 'customer/payment-required') {
+    return 'לא ניתן להזמין תור עד להסדרת דרישת התשלום מול הספר.';
+  }
   if (code === 'appointment/active-limit') {
     return 'כבר יש לך תור פעיל. ניתן לבטל את התור הקיים ולקבוע תור חדש.';
   }

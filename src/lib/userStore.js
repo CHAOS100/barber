@@ -44,6 +44,13 @@ export const loginUser = (user) => {
   } catch {}
 };
 
+export const clearStoredAdminSession = () => {
+  if (state.currentUser?.isAdmin === true) {
+    userStore.setState({ currentUser: null, adminPreview: false });
+  }
+  try { localStorage.removeItem(ADMIN_STORAGE_KEY); } catch {}
+};
+
 export const logoutUser = () => {
   userStore.setState({ currentUser: null, adminPreview: false });
   try { localStorage.removeItem(ADMIN_STORAGE_KEY); } catch {}

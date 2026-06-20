@@ -121,13 +121,16 @@ body:has([role="dialog"]) {
 
 .auth-viewport {
   min-height: 100dvh;
-  height: var(--visible-viewport-height);
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
+  position: relative;
 }
 
 .auth-login-shell {
   min-height: 100%;
+  height: 100%;
   width: 100%;
   display: flex;
   align-items: center;
@@ -166,12 +169,30 @@ body:has([role="dialog"]) {
 .keyboard-open .auth-login-shell {
   align-items: flex-start;
   justify-content: flex-start;
+  min-height: var(--visible-viewport-height);
+  height: var(--visible-viewport-height);
+  max-height: var(--visible-viewport-height);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
 }
 
-/* Prevent the auth container from clipping when keyboard shrinks the viewport */
+/* Let only the auth shell scroll when the keyboard shrinks the viewport. */
 .keyboard-open .auth-viewport {
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-height: var(--visible-viewport-height);
+  height: var(--visible-viewport-height);
+  max-height: var(--visible-viewport-height);
+}
+
+.auth-credit {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+  user-select: none;
+}
+
+.keyboard-open .auth-credit {
+  display: none;
 }
 
 .gold-gradient {

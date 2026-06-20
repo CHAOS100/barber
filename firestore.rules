@@ -176,6 +176,22 @@ service cloud.firestore {
             'blockedBy',
             'isBlocked',
             'warningCount',
+            'warning',
+            'warnings',
+            'lastWarningReason',
+            'warningClearedAt',
+            'warningClearedBy',
+            'warningClearedReason',
+            'requiresNoShowPayment',
+            'noShowPaymentAmount',
+            'noShowPaymentReason',
+            'relatedAppointmentId',
+            'paymentClearedAt',
+            'paymentClearedBy',
+            'paymentClearedReason',
+            'blockClearedAt',
+            'blockClearedBy',
+            'blockClearedReason',
             'updatedAt'
           ])
           && hasValidCustomerNames(request.resource.data)

@@ -530,6 +530,11 @@ export default function Booking() {
   const customerIsBlocked = currentUser?.blocked === true
     || currentUser?.isBlocked === true
     || currentUser?.is_blocked === true;
+  const hasActivePaymentRequest = currentUser?.requiresNoShowPayment === true
+    || currentUser?.requires_no_show_payment === true
+    || Number(currentUser?.noShowPaymentAmount ?? currentUser?.no_show_payment_amount ?? 0) > 0;
+  const paymentAmount = Number(currentUser?.noShowPaymentAmount ?? currentUser?.no_show_payment_amount ?? 0);
+  const paymentReason = currentUser?.noShowPaymentReason || currentUser?.no_show_payment_reason || '';
   const blockedMessage = blockedReason.includes('אי הגעה לתור')
     ? 'החשבון שלך נחסם לקביעת תורים עקב אי הגעה לתור. להסרת החסימה פנה לעסק.'
     : (blockedReason
@@ -551,6 +556,27 @@ export default function Booking() {
               : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.'}
           </p>
           <GoldButton onClick={() => navigate('/')} className="w-full">חזרה לדף הבית</GoldButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (hasActivePaymentRequest) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
+        <div className="glass rounded-3xl p-6 text-center max-w-sm">
+          <AlertCircle className="w-12 h-12 text-yellow-300 mx-auto mb-3" />
+          <h2 className="text-xl font-black mb-2">דרישת תשלום פעילה</h2>
+          <p className="text-muted-foreground text-sm mb-3">
+            לא ניתן להזמין תור עד להסדרת דרישת התשלום מול הספר.
+          </p>
+          {paymentAmount > 0 && (
+            <p className="text-primary font-black mb-2">סכום להסדרה: ₪{paymentAmount}</p>
+          )}
+          {paymentReason && (
+            <p className="text-muted-foreground text-xs leading-5 mb-5">{paymentReason}</p>
+          )}
+          <GoldButton onClick={() => navigate('/profile')} className="w-full">צפה בסטטוס החשבון</GoldButton>
         </div>
       </div>
     );

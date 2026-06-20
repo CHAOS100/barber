@@ -12,6 +12,7 @@ import {
 import {
   ACTIVE_APPOINTMENT_STATUSES,
   findActiveCustomerAppointment,
+  hasActivePaymentRequest,
   isCustomerBlocked,
 } from './bookingPolicy.js';
 import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
@@ -260,6 +261,13 @@ const validateCustomer = (snapshot, auth) => {
     throw new HttpsError('permission-denied', 'Customer is blocked from booking.', {
       code: 'customer/blocked',
       blockedReason: text(customer.blockedReason),
+    });
+  }
+  if (hasActivePaymentRequest(customer)) {
+    throw new HttpsError('permission-denied', 'Customer has an active payment request.', {
+      code: 'customer/payment-required',
+      noShowPaymentAmount: Number(customer.noShowPaymentAmount || 0),
+      noShowPaymentReason: text(customer.noShowPaymentReason),
     });
   }
   return customer;

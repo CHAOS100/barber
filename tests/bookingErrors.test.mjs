@@ -18,4 +18,7 @@ test('booking policy errors have clear Hebrew messages', () => {
   assert.equal(getBookingRejectionMessage({
     details: { code: 'business/closed-day' },
   }), 'העסק סגור ביום הזה.');
+  assert.equal(getBookingRejectionMessage({
+    details: { code: 'customer/payment-required' },
+  }), 'לא ניתן להזמין תור עד להסדרת דרישת התשלום מול הספר.');
 });

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Phone, ShieldCheck, Lock, Mail, MessageCircle } from 'lucide-react';
-import { loginUser } from '../lib/userStore';
+import { clearStoredAdminSession, loginUser } from '../lib/userStore';
 import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
 import {
@@ -38,6 +38,20 @@ const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין';
  */
 
 const phoneAuthPlatform = () => (isCapacitorAndroidNative() ? 'native' : 'web');
+
+const maskPhoneForDebug = (phoneNumber) => {
+  const value = String(phoneNumber || '');
+  if (value.length < 5) return value ? 'invalid' : '';
+  return `${value.slice(0, 4)}***${value.slice(-3)}`;
+};
+
+const safeCustomerNextPath = (path) => {
+  const value = String(path || '/');
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (value.startsWith('/admin')) return '/';
+  if (value.startsWith('/login')) return '/';
+  return value;
+};
 
 const GoogleVerificationNotice = () => (
   <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-xs leading-5 text-muted-foreground">
@@ -105,10 +119,12 @@ const buildAdminSession = (firebaseUser, profile) => {
 export default function OTPLogin() {
   const navigate = useNavigate();
   const location = useLocation();
+  const explicitAdminLogin = new URLSearchParams(location.search).get('admin') === 'true';
   const nextPath = location.state?.next || '/';
+  const customerNavigationTarget = safeCustomerNextPath(nextPath);
 
   // mode: 'customer' | 'admin'
-  const [mode, setMode] = useState(location.state?.admin ? 'admin' : 'customer');
+  const [mode, setMode] = useState(explicitAdminLogin ? 'admin' : 'customer');
 
   // Customer OTP flow
   const [step, setStep] = useState('phone'); // phone | otp | registration
@@ -143,6 +159,29 @@ export default function OTPLogin() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (explicitAdminLogin) {
+      setMode('admin');
+      return;
+    }
+
+    clearStoredAdminSession();
+    setMode('customer');
+    if (location.state?.admin || nextPath !== customerNavigationTarget) {
+      console.info('[OTP Confirm Debug]', JSON.stringify({
+        mode: 'customer',
+        isAdminMode: false,
+        path: `${location.pathname}${location.search}`,
+        phoneMasked: maskPhoneForDebug(normalizedPhone || phone),
+        verificationStep: 'clear-stale-admin-login-state',
+        navigationTarget: customerNavigationTarget,
+      }));
+      navigate('/login', { replace: true, state: { next: customerNavigationTarget } });
+    }
+  // Intentionally route-scoped: do not run when mode changes via the in-screen admin button.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     if (step !== 'otp' || resendCooldown <= 0) return undefined;
     const timer = window.setInterval(() => {
       setResendCooldown((seconds) => Math.max(0, seconds - 1));
@@ -151,21 +190,27 @@ export default function OTPLogin() {
   }, [step, resendCooldown]);
 
   // ─── Customer OTP ──────────────────────────────────────────────
-  /** @param {import('firebase/auth').User} firebaseUser */
-  const completeCustomerFirebaseLogin = async (firebaseUser) => {
-    console.info('[OTP Confirm Debug] customer flow', JSON.stringify({
+  const logOtpConfirmDebug = (verificationStep, navigationTarget = null) => {
+    console.info('[OTP Confirm Debug]', JSON.stringify({
       mode,
       isAdminMode: mode === 'admin',
-      path: location.pathname,
-      nextPath,
-      step,
-      uid: firebaseUser.uid,
+      path: `${location.pathname}${location.search}`,
+      phoneMasked: maskPhoneForDebug(normalizedPhone || phone),
+      verificationStep,
+      navigationTarget,
     }));
+  };
+
+  /** @param {import('firebase/auth').User} firebaseUser */
+  const completeCustomerFirebaseLogin = async (firebaseUser) => {
+    if (mode !== 'customer') setMode('customer');
+    logOtpConfirmDebug('otp-confirmed-profile-lookup-start');
 
     const existingProfile = await findAuthenticatedUserProfile();
     if (!existingProfile) {
       setStep('registration');
       setError('');
+      logOtpConfirmDebug('new-user-registration-required', 'registration');
       return;
     }
 
@@ -173,14 +218,13 @@ export default function OTPLogin() {
     if (!profile) {
       setStep('registration');
       setError('');
+      logOtpConfirmDebug('profile-missing-registration-required', 'registration');
       return;
     }
 
     loginUser(customerProfileToSession(profile));
-    // Never send a customer to an admin route — prevents circular AdminRoute redirect
-    const safeNext = (nextPath && !String(nextPath).startsWith('/admin')) ? nextPath : '/';
-    console.info('[OTP Confirm Debug] navigating', JSON.stringify({ safeNext }));
-    navigate(safeNext);
+    logOtpConfirmDebug('customer-session-created', customerNavigationTarget);
+    navigate(customerNavigationTarget, { replace: true });
   };
 
   /**
@@ -262,9 +306,17 @@ export default function OTPLogin() {
     setError('');
 
     try {
+      if (!confirmationResultRef.current) {
+        logOtpConfirmDebug('otp-confirm-missing-session', 'phone');
+        setStep('phone');
+        setError('הקוד פג תוקף. שלח קוד חדש.');
+        return;
+      }
+      logOtpConfirmDebug('otp-confirm-start');
       const firebaseUser = await confirmFirebasePhoneCode(confirmationResultRef.current, otp);
       await completeCustomerFirebaseLogin(firebaseUser);
     } catch (phoneAuthError) {
+      logOtpConfirmDebug('otp-confirm-failed');
       console.error(
         '[Firebase] Customer phone code verification failed',
         JSON.stringify(serializeFirebaseError(phoneAuthError, 'Unknown Firebase error')),
@@ -295,7 +347,8 @@ export default function OTPLogin() {
         lastName: lastName.trim(),
       });
       loginUser(customerProfileToSession(profile));
-      navigate(nextPath);
+      logOtpConfirmDebug('registration-complete', customerNavigationTarget);
+      navigate(customerNavigationTarget, { replace: true });
     } catch (registrationError) {
       console.error(
         '[Customer Auth] registration failed',
@@ -557,7 +610,7 @@ export default function OTPLogin() {
                               setAdminNormalizedPhone('');
                             }}
                             placeholder="טלפון מנהל"
-                            className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                            className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-base text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                             dir="ltr"
                             style={{ textAlign: 'left' }}
                           />
@@ -661,7 +714,7 @@ export default function OTPLogin() {
                         setNormalizedPhone('');
                       }}
                       placeholder="מספר טלפון"
-                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                      className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 pr-12 text-base text-foreground text-left placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                       dir="ltr"
                       style={{ textAlign: 'left' }}
                     />
@@ -826,7 +879,7 @@ export default function OTPLogin() {
           </div>
         </motion.div>
 
-        <p className="text-center text-muted-foreground/40 text-[10px] mt-6 select-none">
+        <p className="auth-credit text-muted-foreground/40 text-[10px]">
           by GalTech
         </p>
       </div>

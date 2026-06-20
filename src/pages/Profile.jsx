@@ -45,7 +45,7 @@ export default function Profile() {
     }] : []),
     ...(requiresNoShowPayment ? [{
       icon: CreditCard,
-      title: 'נדרש טיפול בתשלום לפני הזמנה חדשה',
+      title: 'דרישת תשלום פעילה',
       message: noShowPaymentAmount > 0
         ? `נדרש תשלום של ₪${noShowPaymentAmount}. ${noShowPaymentReason || 'פנה לעסק להסדרת התשלום.'}`
         : noShowPaymentReason || 'פנה לעסק להסדרת התשלום לפני קביעת תור נוסף.',

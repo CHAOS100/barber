@@ -27,6 +27,7 @@ const mapProfile = (snapshot) => {
     blocked_reason: data.blockedReason || '',
     blocked_by: data.blockedBy || null,
     warning_count: Number(data.warningCount || 0),
+    lastWarningReason: data.lastWarningReason || '',
     requiresNoShowPayment: data.requiresNoShowPayment === true,
     noShowPaymentAmount: Number(data.noShowPaymentAmount || 0),
     noShowPaymentReason: data.noShowPaymentReason || '',
@@ -216,6 +217,34 @@ export const updateCustomerByAdmin = async (userId, changes) => {
     payload.isBlocked = deleteField();
   }
   if (changes.warningCount !== undefined) payload.warningCount = Math.max(0, Number(changes.warningCount || 0));
+  if (changes.clearPaymentRequest === true) {
+    payload.requiresNoShowPayment = false;
+    payload.noShowPaymentAmount = 0;
+    payload.noShowPaymentReason = '';
+    payload.relatedAppointmentId = '';
+    payload.paymentClearedAt = serverTimestamp();
+    payload.paymentClearedBy = admin.uid;
+    payload.paymentClearedReason = String(changes.clearReason || '').trim();
+  }
+  if (changes.clearWarning === true) {
+    payload.warningCount = 0;
+    payload.lastWarningReason = '';
+    payload.warning = deleteField();
+    payload.warnings = deleteField();
+    payload.warningClearedAt = serverTimestamp();
+    payload.warningClearedBy = admin.uid;
+    payload.warningClearedReason = String(changes.clearReason || '').trim();
+  }
+  if (changes.clearBlock === true) {
+    payload.blocked = false;
+    payload.blockedReason = '';
+    payload.blockedAt = null;
+    payload.blockedBy = null;
+    payload.isBlocked = deleteField();
+    payload.blockClearedAt = serverTimestamp();
+    payload.blockClearedBy = admin.uid;
+    payload.blockClearedReason = String(changes.clearReason || '').trim();
+  }
   await updateDoc(doc(getFirestoreDb(), 'users', userId), payload);
 };
 

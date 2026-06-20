@@ -147,27 +147,28 @@ export default function AdminDashboard() {
             { icon: Calendar, label: 'הושלמו', value: stats.completedAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'בוטלו', value: stats.cancelledAppointments, color: 'text-red-400', bg: 'bg-red-400/20' },
             { icon: AlertTriangle, label: 'לא הגיעו', value: stats.noShowAppointments, color: 'text-orange-400', bg: 'bg-orange-400/20' },
-            { icon: AlertTriangle, label: 'אזהרות לקוחות', value: stats.warningCount, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
-            { icon: Ban, label: 'לקוחות חסומים', value: stats.blockedCustomersCount, color: 'text-red-400', bg: 'bg-red-400/20' },
-            { icon: CreditCard, label: 'דרישות תשלום', value: stats.paymentRequiredCustomersCount, color: 'text-yellow-300', bg: 'bg-yellow-400/20' },
-            { icon: AlertTriangle, label: 'אי־הגעות לקוחות', value: stats.customerNoShowCount, color: 'text-orange-300', bg: 'bg-orange-400/20' },
+            { icon: AlertTriangle, label: 'אזהרות לקוחות', value: stats.warningCount, color: 'text-yellow-400', bg: 'bg-yellow-400/20', filter: 'warning' },
+            { icon: Ban, label: 'לקוחות חסומים', value: stats.blockedCustomersCount, color: 'text-red-400', bg: 'bg-red-400/20', filter: 'blocked' },
+            { icon: CreditCard, label: 'דרישות תשלום פעילות', value: stats.paymentRequiredCustomersCount, color: 'text-yellow-300', bg: 'bg-yellow-400/20', filter: 'payment' },
+            { icon: AlertTriangle, label: 'אי־הגעות לקוחות', value: stats.customerNoShowCount, color: 'text-orange-300', bg: 'bg-orange-400/20', filter: 'no_show' },
             { icon: Bell, label: 'קריטיות שלא נקראו', value: unreadCriticalNotificationsCount, color: 'text-primary', bg: 'bg-primary/20' },
           ].map((stat, i) => {
             const StatIcon = stat.icon;
             return (
-              <motion.div
+              <motion.button
                 key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="dark-card rounded-2xl p-4"
+                onClick={() => stat.filter && navigate('/admin/customers', { state: { filter: stat.filter } })}
+                className={`dark-card rounded-2xl p-4 text-right ${stat.filter ? 'press-scale cursor-pointer' : 'cursor-default'}`}
               >
                 <div className={`w-10 h-10 ${stat.bg} rounded-xl flex items-center justify-center mb-2`}>
                   <StatIcon className={`w-5 h-5 ${stat.color}`} />
                 </div>
                 <div className={`text-2xl font-black ${stat.color}`}>{stat.value}</div>
                 <div className="text-muted-foreground text-xs mt-0.5">{stat.label}</div>
-              </motion.div>
+              </motion.button>
             );
           })}
         </div>

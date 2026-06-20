@@ -502,6 +502,28 @@ test('active admin can read users and edit names but cannot change phoneNumber o
     blockedBy: 'active-admin',
     updatedAt: serverTimestamp(),
   }));
+  await assertSucceeds(updateDoc(doc(firestore, 'users', 'customer-a'), {
+    blocked: false,
+    blockedReason: '',
+    blockedAt: null,
+    blockedBy: null,
+    blockClearedAt: serverTimestamp(),
+    blockClearedBy: 'active-admin',
+    blockClearedReason: 'Resolved',
+    requiresNoShowPayment: false,
+    noShowPaymentAmount: 0,
+    noShowPaymentReason: '',
+    relatedAppointmentId: '',
+    paymentClearedAt: serverTimestamp(),
+    paymentClearedBy: 'active-admin',
+    paymentClearedReason: 'Paid in shop',
+    warningCount: 0,
+    lastWarningReason: '',
+    warningClearedAt: serverTimestamp(),
+    warningClearedBy: 'active-admin',
+    warningClearedReason: 'Warning resolved',
+    updatedAt: serverTimestamp(),
+  }));
   await assertFails(updateDoc(doc(firestore, 'users', 'customer-a'), {
     phoneNumber: '+972544444444',
     updatedAt: serverTimestamp(),

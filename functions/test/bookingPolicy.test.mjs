@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   ACTIVE_APPOINTMENT_STATUSES,
   findActiveCustomerAppointment,
+  hasActivePaymentRequest,
   isCustomerBlocked,
 } from '../src/bookingPolicy.js';
 
@@ -25,4 +26,12 @@ test('active appointment limit includes all bookable active statuses', () => {
     { id: 'c', status: 'rejected' },
     { id: 'd', status: 'no_show' },
   ]), null);
+});
+
+test('active payment request is detected from current and legacy fields', () => {
+  assert.equal(hasActivePaymentRequest({ requiresNoShowPayment: true }), true);
+  assert.equal(hasActivePaymentRequest({ requires_no_show_payment: true }), true);
+  assert.equal(hasActivePaymentRequest({ noShowPaymentAmount: 50 }), true);
+  assert.equal(hasActivePaymentRequest({ no_show_payment_amount: 50 }), true);
+  assert.equal(hasActivePaymentRequest({ requiresNoShowPayment: false, noShowPaymentAmount: 0 }), false);
 });
