@@ -1,21 +1,26 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Archive, Edit3, Plus, Trash2, User, X } from 'lucide-react';
+import { ArrowRight, Archive, Camera, Edit3, Instagram, Plus, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   archiveBarber,
   deleteBarber,
   saveBarber,
+  uploadBarberPhoto,
 } from '@/lib/businessFirestore';
 import GoldButton from '@/components/ui/GoldButton';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+
 const emptyBarber = {
   name: '',
   photo_url: '',
+  instagramUrl: '',
   specialties: '',
   is_active: true,
   archived: false,
@@ -26,6 +31,11 @@ export default function AdminBarbers() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyBarber);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState(0);
+  const fileInputRef = useRef(null);
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
   const saveMutation = useMutation({
@@ -55,8 +65,50 @@ export default function AdminBarbers() {
     setForm(barber ? {
       ...barber,
       specialties: barber.specialties?.join(', ') || '',
+      instagramUrl: barber.instagram_url || barber.instagramUrl || '',
     } : emptyBarber);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    setPhotoProgress(0);
     setEditing(barber || { isNew: true });
+  };
+
+  const handlePhotoSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+      toast({ variant: 'destructive', title: 'סוג קובץ לא נתמך', description: 'יש לבחור תמונת JPG, PNG, WEBP או HEIC' });
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      toast({ variant: 'destructive', title: 'הקובץ גדול מדי', description: 'גודל מרבי: 8MB' });
+      return;
+    }
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  const handleSaveWithPhoto = async () => {
+    if (!editing) return;
+    setPhotoUploading(true);
+    try {
+      let savedId = editing.id;
+      if (!savedId || editing.isNew) {
+        savedId = await saveBarber(undefined, form);
+      } else {
+        await saveBarber(savedId, form);
+      }
+      if (photoFile && savedId) {
+        await uploadBarberPhoto(savedId, photoFile, setPhotoProgress);
+      }
+      setEditing(null);
+      toast({ title: editing.isNew ? 'הספר נוסף' : 'הספר עודכן', description: 'רשימת הצוות עודכנה בהצלחה.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: getUserFacingErrorMessage(error) });
+    } finally {
+      setPhotoUploading(false);
+      setPhotoProgress(0);
+    }
   };
 
   return (
@@ -131,11 +183,53 @@ export default function AdminBarbers() {
                 <button onClick={() => setEditing(null)} className="glass p-2 rounded-xl"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-3">
+                {/* Photo upload */}
+                <div className="flex flex-col items-center gap-2">
+                  <div
+                    className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-border cursor-pointer"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {(photoPreview || form.photo_url) ? (
+                      <img
+                        src={photoPreview || form.photo_url}
+                        alt="תמונת ספר"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full glass-gold flex items-center justify-center">
+                        <User className="w-8 h-8 text-primary" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 flex items-center justify-center py-1">
+                      <Camera className="w-3.5 h-3.5 text-white" />
+                    </div>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    className="hidden"
+                    onChange={handlePhotoSelect}
+                  />
+                  {photoFile && (
+                    <p className="text-xs text-primary text-center">{photoFile.name}</p>
+                  )}
+                  {photoUploading && (
+                    <div className="w-full bg-secondary rounded-full h-1.5">
+                      <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${photoProgress}%` }} />
+                    </div>
+                  )}
+                </div>
+
                 <label className="block text-xs text-muted-foreground">שם
                   <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
                 </label>
-                <label className="block text-xs text-muted-foreground">כתובת תמונה
-                  <input value={form.photo_url} onChange={e => setForm({ ...form, photo_url: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
+                <label className="block text-xs text-muted-foreground">כתובת תמונה (URL, אופציונלי)
+                  <input value={form.photo_url || ''} onChange={e => setForm({ ...form, photo_url: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://..." />
+                </label>
+                <label className="block text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><Instagram className="w-3.5 h-3.5" /> אינסטגרם (URL, אופציונלי)</span>
+                  <input value={form.instagramUrl || ''} onChange={e => setForm({ ...form, instagramUrl: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://instagram.com/..." />
                 </label>
                 <label className="block text-xs text-muted-foreground">התמחויות, מופרדות בפסיק
                   <input value={form.specialties} onChange={e => setForm({ ...form, specialties: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
@@ -145,8 +239,12 @@ export default function AdminBarbers() {
                   <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked, archived: false })} className="accent-primary w-5 h-5" />
                 </label>
               </div>
-              <GoldButton onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.name.trim()} className="w-full mt-5">
-                שמור
+              <GoldButton
+                onClick={handleSaveWithPhoto}
+                disabled={photoUploading || !form.name.trim()}
+                className="w-full mt-5"
+              >
+                {photoUploading ? `מעלה תמונה... ${photoProgress}%` : 'שמור'}
               </GoldButton>
             </motion.div>
           </motion.div>

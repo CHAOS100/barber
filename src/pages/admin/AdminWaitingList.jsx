@@ -113,18 +113,30 @@ export default function AdminWaitingList() {
 
       <div className="px-4 py-6 space-y-4">
         <div className="glass rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="text-sm font-bold">
+          <div className="text-sm font-bold">
             תאריך
-            <div className="relative mt-2">
-              <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-                className="w-full bg-secondary border border-border rounded-xl px-3 py-3 pr-10 text-right focus:outline-none focus:border-primary"
-              />
+            <div className="flex gap-2 mt-2">
+              <div className="relative flex-1">
+                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                  disabled={!date}
+                  className="w-full bg-secondary border border-border rounded-xl px-3 py-3 pr-10 text-right focus:outline-none focus:border-primary disabled:opacity-50"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setDate(date ? '' : localDateToString())}
+                className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  !date ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+                }`}
+              >
+                כל הזמן
+              </button>
             </div>
-          </label>
+          </div>
           <label className="text-sm font-bold">
             סטטוס
             <select

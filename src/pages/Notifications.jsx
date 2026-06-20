@@ -177,6 +177,20 @@ export default function Notifications() {
   const hasUnreadMessages = messages.some(canMarkMessageRead);
 
   const openMessage = (message) => {
+    if (message.type === 'free_slot' && (message.date || message.serviceId || message.barberId)) {
+      markAsRead(message.id);
+      navigate('/booking', {
+        state: {
+          preselect: {
+            date: message.date || null,
+            serviceId: message.serviceId || null,
+            barberId: message.barberId || null,
+            startTime: message.startTime || message.availableStartTime || null,
+          },
+        },
+      });
+      return;
+    }
     setSelectedMessage(message);
   };
 

@@ -46,7 +46,15 @@ export default function AdminRoute() {
 
   if (!authorizationChecked) return null;
 
-  if (!isAdmin || !firebaseAuthorized) {
+  if (!isAdmin) {
+    // Customer or unauthenticated user visiting an admin route — send to home, not admin login.
+    // Sending them to admin login with state.admin=true causes a circular redirect loop
+    // where successful customer OTP login then navigates back to /admin and loops.
+    return <Navigate to="/" replace />;
+  }
+
+  if (!firebaseAuthorized) {
+    // Was admin (store says so) but Firebase check failed → re-authenticate as admin.
     return <Navigate to="/login" replace state={{ next: location.pathname, admin: true }} />;
   }
 

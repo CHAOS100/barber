@@ -164,9 +164,11 @@ export default function Booking() {
   const location = useLocation();
   const { currentUser, isAdmin, exitAdminPreview } = useCurrentUser();
 
+  const preselect = location.state?.preselect || null;
   const [step, setStep] = useState(location.state?.service ? 2 : 1);
   const [selectedService, setSelectedService] = useState(location.state?.service || null);
   const [selectedBarber, setSelectedBarber] = useState(null);
+  const [preselectApplied, setPreselectApplied] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedTimeGroup, setSelectedTimeGroup] = useState(null);
@@ -218,6 +220,25 @@ export default function Booking() {
     setSelectedTime(null);
     setStep(1);
   }, [services, selectedService]);
+
+  // Apply free-slot preselect from notification deep-link
+  useEffect(() => {
+    if (!preselect || preselectApplied || services.length === 0) return;
+    setPreselectApplied(true);
+    if (preselect.serviceId) {
+      const svc = services.find(s => s.id === preselect.serviceId);
+      if (svc) setSelectedService(svc);
+    }
+    if (preselect.date) {
+      const [year, month, day] = preselect.date.split('-').map(Number);
+      if (year && month && day) setSelectedDate(new Date(year, month - 1, day));
+    }
+    if (preselect.barberId && barbers.length > 0) {
+      const barber = barbers.find(b => b.id === preselect.barberId);
+      if (barber) setSelectedBarber(barber);
+    }
+    if (preselect.serviceId || preselect.date) setStep(2);
+  }, [preselect, preselectApplied, services, barbers]);
 
   const isDateBlocked = useMemo(() => {
     if (!selectedDate) return false;

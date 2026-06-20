@@ -161,6 +161,19 @@ body:has([role="dialog"]) {
   }
 }
 
+/* When Android keyboard is open, switch to top-aligned scroll so the form
+   doesn't jump or create a black gap below the keyboard. */
+.keyboard-open .auth-login-shell {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* Prevent the auth container from clipping when keyboard shrinks the viewport */
+.keyboard-open .auth-viewport {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .gold-gradient {
   background: linear-gradient(135deg, #78D2AA 0%, #93E3BD 50%, #C5F6DE 100%);
 }

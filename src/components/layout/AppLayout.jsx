@@ -37,6 +37,9 @@ export default function AppLayout() {
       </main>
       <CustomerNotificationPopup />
       <BottomNav />
+      <span className="fixed bottom-1 left-2 text-[9px] text-muted-foreground/20 pointer-events-none select-none z-0">
+        by GalTech
+      </span>
     </div>
   );
 }

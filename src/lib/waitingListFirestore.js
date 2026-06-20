@@ -92,6 +92,43 @@ export const createWaitingListEntry = async (input) => {
   return { id: reference.id, ...payload };
 };
 
+export const subscribeToCustomerWaitingList = (onData, onError) => {
+  let unsubscribe = () => {};
+  let cancelled = false;
+
+  ensureFirebaseCustomer()
+    .then((firebaseUser) => {
+      if (cancelled) return;
+
+      unsubscribe = onSnapshot(
+        query(
+          waitingListCollection(),
+          where('customerId', '==', firebaseUser.uid),
+          where('status', 'in', ['active', 'notified']),
+        ),
+        (snapshot) => {
+          const entries = snapshot.docs.map(mapWaitingListEntry).sort(byNewestFirst);
+          onData(entries);
+        },
+        onError,
+      );
+    })
+    .catch(onError);
+
+  return () => {
+    cancelled = true;
+    unsubscribe();
+  };
+};
+
+export const cancelOwnWaitingListEntry = async (waitingListId) => {
+  await ensureFirebaseCustomer();
+  await updateDoc(doc(getFirestoreDb(), 'waitingList', waitingListId), {
+    status: 'cancelled',
+    updatedAt: serverTimestamp(),
+  });
+};
+
 export const subscribeToAdminWaitingList = (date, status, onData, onError) => {
   let unsubscribe = () => {};
   let cancelled = false;

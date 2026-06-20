@@ -153,7 +153,14 @@ export default function OTPLogin() {
   // ─── Customer OTP ──────────────────────────────────────────────
   /** @param {import('firebase/auth').User} firebaseUser */
   const completeCustomerFirebaseLogin = async (firebaseUser) => {
-    console.info('[Customer Auth] OTP confirmed', JSON.stringify({ uid: firebaseUser.uid }));
+    console.info('[OTP Confirm Debug] customer flow', JSON.stringify({
+      mode,
+      isAdminMode: mode === 'admin',
+      path: location.pathname,
+      nextPath,
+      step,
+      uid: firebaseUser.uid,
+    }));
 
     const existingProfile = await findAuthenticatedUserProfile();
     if (!existingProfile) {
@@ -170,7 +177,10 @@ export default function OTPLogin() {
     }
 
     loginUser(customerProfileToSession(profile));
-    navigate(nextPath);
+    // Never send a customer to an admin route — prevents circular AdminRoute redirect
+    const safeNext = (nextPath && !String(nextPath).startsWith('/admin')) ? nextPath : '/';
+    console.info('[OTP Confirm Debug] navigating', JSON.stringify({ safeNext }));
+    navigate(safeNext);
   };
 
   /**
@@ -815,6 +825,10 @@ export default function OTPLogin() {
           </AnimatePresence>
           </div>
         </motion.div>
+
+        <p className="text-center text-muted-foreground/40 text-[10px] mt-6 select-none">
+          by GalTech
+        </p>
       </div>
     </div>
   );

@@ -47,6 +47,7 @@ const mapBarber = (snapshot) => {
     ...data,
     is_active: data.active !== false,
     photo_url: data.photoUrl || '',
+    instagram_url: data.instagramUrl || '',
     sort_order: Number(data.sortOrder || 0),
   };
 };
@@ -104,6 +105,7 @@ const createAuthenticatedSubscription = (authenticate, buildQuery, mapSnapshot, 
 const normalizeBarber = (input) => ({
   name: String(input.name || '').trim(),
   photoUrl: String(input.photoUrl || input.photo_url || '').trim(),
+  instagramUrl: String(input.instagramUrl || input.instagram_url || '').trim() || null,
   specialties: Array.isArray(input.specialties)
     ? input.specialties.filter(Boolean)
     : String(input.specialties || '').split(',').map((item) => item.trim()).filter(Boolean),
@@ -273,6 +275,45 @@ export const deleteBarber = async (id) => {
   console.info('[Firestore Barbers] deleting barber', { barberId: id });
   await deleteDoc(doc(getFirestoreDb(), 'barbers', id));
   console.info('[Firestore Barbers] barber deleted', { barberId: id });
+};
+
+export const uploadBarberPhoto = async (barberId, file, onProgress) => {
+  const { getDownloadURL, ref: storageRef, uploadBytesResumable } = await import('firebase/storage');
+  const { firebaseStorage } = await import('@/lib/firebase');
+
+  const adminUser = await ensureFirebaseAdmin();
+  const ext = String(file.name || '').split('.').pop() || 'jpg';
+  const storagePath = `barbers/${barberId}/photo.${ext}`;
+  const imageRef = storageRef(firebaseStorage, storagePath);
+  const uploadTask = uploadBytesResumable(imageRef, file, {
+    contentType: file.type,
+    customMetadata: { uploadedBy: adminUser.uid },
+  });
+
+  return new Promise((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes) {
+          onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+        }
+      },
+      reject,
+      async () => {
+        try {
+          const photoUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          await updateDoc(doc(getFirestoreDb(), 'barbers', barberId), {
+            photoUrl,
+            storagePath,
+            updatedAt: serverTimestamp(),
+          });
+          resolve(photoUrl);
+        } catch (err) {
+          reject(err);
+        }
+      },
+    );
+  });
 };
 
 const normalizeWorkingHours = (workingHours = DEFAULT_WORKING_HOURS) =>
