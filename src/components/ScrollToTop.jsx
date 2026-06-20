@@ -17,14 +17,9 @@ export default function ScrollToTop() {
   useLayoutEffect(() => {
     const scrollRouteToTop = () => {
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.scrollingElement?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
       document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      document
-        .querySelectorAll("[data-route-scroll-root], .app-content")
-        .forEach((element) => {
-          element.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
-          element.scrollTop = 0;
-        });
+      if (document.body) document.body.scrollTop = 0;
     };
 
     if (hash) {

@@ -99,11 +99,11 @@ body:has([role="dialog"]) {
 }
 
 .app-content {
-  min-height: var(--app-viewport-height);
+  min-height: auto;
   padding-bottom: calc(var(--bottom-nav-height) + 32px);
   box-sizing: border-box;
-  overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .app-content > .min-h-screen {
