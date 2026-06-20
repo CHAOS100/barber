@@ -149,10 +149,27 @@ export default function Appointments() {
                     </span>
                   </div>
                   <div className="text-muted-foreground text-xs mb-3">{prefFn(entry)}</div>
+                  {entry.barberName && (
+                    <div className="text-muted-foreground text-xs mb-3">ספר: {entry.barberName}</div>
+                  )}
                   {entry.status === 'notified' && (
-                    <div className="mb-3 rounded-xl border border-primary/30 bg-primary/10 p-2 text-primary text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/booking', {
+                        state: {
+                          preselect: {
+                            date: entry.date || null,
+                            startTime: entry.availableStartTime || entry.exactTime || entry.startTime || null,
+                            serviceId: entry.serviceId || null,
+                            barberId: entry.barberId || null,
+                            waitingListEntryId: entry.id,
+                          },
+                        },
+                      })}
+                      className="mb-3 w-full rounded-xl border border-primary/30 bg-primary/10 p-2 text-primary text-xs font-bold text-center"
+                    >
                       נמצא תור! לחץ כאן להזמנה
-                    </div>
+                    </button>
                   )}
                   <button
                     type="button"
@@ -221,6 +238,12 @@ export default function Appointments() {
                 </div>
                 {appt.service_price && (
                   <div className="text-primary font-black">₪{appt.service_price}</div>
+                )}
+                {appt.status === 'cancelled' && appt.cancellationReason && (
+                  <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-200">
+                    <span className="font-bold">סיבת ביטול: </span>
+                    {appt.cancellationReason}
+                  </div>
                 )}
                 {isUpcoming && (
                   <div className="flex gap-2 mt-3">

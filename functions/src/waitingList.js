@@ -1,10 +1,18 @@
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { onRequest } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { buildWaitingListManualSmsJob } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
 import { sendSmsNotificationJob } from './notifications/smsProvider.js';
+import { requirePhoneCustomerAuth } from './auth.js';
+import {
+  addMinutes,
+  DEFAULT_WORKING_HOURS,
+  findConflict,
+  getScheduleRejectionCode,
+  getWorkingHoursForDate,
+} from './scheduling.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://barber-sigma-five.vercel.app',
@@ -15,6 +23,9 @@ const ALLOWED_ORIGINS = new Set([
 const db = () => getFirestore();
 const notificationJobs = () => new NotificationJobService(getFirestore());
 const text = (value) => String(value || '').trim();
+const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
+const activeWaitingListStatuses = new Set(['active', 'notified']);
+const preferenceTypes = new Set(['exact_time', 'time_range', 'day_part', 'whole_day']);
 
 const isValidIsraeliPhone = (phone) => {
   const value = text(phone).replace(/[^\d+]/g, '');
@@ -43,6 +54,14 @@ const buildManualInAppNotification = (waitingListId, entry) => {
     source: 'waiting_list_manual',
     appointmentId: entry.availableAppointmentId || null,
     waitingListId,
+    waitingListEntryId: waitingListId,
+    date: entry.date || null,
+    startTime: requestedTime || null,
+    availableStartTime: requestedTime || null,
+    serviceId: entry.serviceId || null,
+    serviceName: entry.serviceName || null,
+    barberId: entry.barberId || null,
+    barberName: entry.barberName || null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
     expiresAt: null,
@@ -64,6 +83,144 @@ const sendJson = (response, status, payload) => {
 };
 
 const cleanError = (code, message, status = 400) => ({ code, message, status });
+
+const optionalText = (value) => {
+  const cleaned = text(value);
+  return cleaned || null;
+};
+
+const getBookingSettings = async (transaction) => {
+  const bookingSnapshot = await transaction.get(db().doc('settings/booking'));
+  const settings = bookingSnapshot.data() || {};
+  const legacyBuffer = Math.max(
+    0,
+    Number(
+      settings.appointmentBufferMinutes
+      ?? settings.defaultAppointmentBufferAfterMinutes
+      ?? settings.defaultAppointmentBufferBeforeMinutes
+      ?? 0,
+    ) || 0,
+  );
+  return {
+    defaultAppointmentBufferBeforeMinutes: 0,
+    defaultAppointmentBufferAfterMinutes: legacyBuffer,
+    workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
+      ? settings.workingHours
+      : DEFAULT_WORKING_HOURS,
+  };
+};
+
+const normalizeCreateWaitingListInput = (input) => {
+  const preferenceType = text(input?.preferenceType || 'whole_day');
+  if (!preferenceTypes.has(preferenceType)) {
+    throw new HttpsError('invalid-argument', 'Invalid waiting list preference type.', {
+      code: 'waiting-list/invalid-preference',
+    });
+  }
+
+  const date = text(input?.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new HttpsError('invalid-argument', 'Waiting list date is invalid.', {
+      code: 'waiting-list/invalid-date',
+    });
+  }
+
+  const exactTime = preferenceType === 'exact_time' ? text(input?.exactTime) : '';
+  const startTime = preferenceType === 'time_range' ? text(input?.startTime) : '';
+  const endTime = preferenceType === 'time_range' ? text(input?.endTime) : '';
+  const dayPart = preferenceType === 'day_part' ? text(input?.dayPart) : '';
+
+  if (preferenceType === 'exact_time' && !/^\d{2}:\d{2}$/.test(exactTime)) {
+    throw new HttpsError('invalid-argument', 'Exact time is invalid.', {
+      code: 'waiting-list/invalid-time',
+    });
+  }
+  if (
+    preferenceType === 'time_range'
+    && (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || startTime >= endTime)
+  ) {
+    throw new HttpsError('invalid-argument', 'Time range is invalid.', {
+      code: 'waiting-list/invalid-time-range',
+    });
+  }
+  if (preferenceType === 'day_part' && !['morning', 'noon', 'evening'].includes(dayPart)) {
+    throw new HttpsError('invalid-argument', 'Day part is invalid.', {
+      code: 'waiting-list/invalid-day-part',
+    });
+  }
+
+  return {
+    date,
+    preferenceType,
+    exactTime,
+    startTime,
+    endTime,
+    dayPart,
+    serviceId: optionalText(input?.serviceId),
+    serviceName: optionalText(input?.serviceName),
+    barberId: optionalText(input?.barberId),
+    barberName: optionalText(input?.barberName),
+    expiresAt: input?.expiresAt || null,
+  };
+};
+
+const assertNoActiveWaitingListEntry = async (transaction, customerId) => {
+  const snapshot = await transaction.get(
+    db().collection('waitingList').where('customerId', '==', customerId),
+  );
+  const existingActive = snapshot.docs.find((item) =>
+    activeWaitingListStatuses.has(item.data()?.status));
+
+  if (existingActive) {
+    throw new HttpsError('failed-precondition', 'Customer already has an active waiting list entry.', {
+      code: 'waiting-list/active-limit',
+      waitingListId: existingActive.id,
+    });
+  }
+};
+
+const assertExactSlotIsUnavailable = async (transaction, input) => {
+  if (input.preferenceType !== 'exact_time' || !input.serviceId || !input.barberId) return;
+
+  const serviceSnapshot = await transaction.get(db().doc(`services/${input.serviceId}`));
+  const barberSnapshot = await transaction.get(db().doc(`barbers/${input.barberId}`));
+  const service = serviceSnapshot.data();
+  const barber = barberSnapshot.data();
+  if (!serviceSnapshot.exists || service?.active !== true) return;
+  if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) return;
+
+  const settings = await getBookingSettings(transaction);
+  const serviceDuration = Math.max(1, Number(service.duration || 30));
+  const candidate = {
+    date: input.date,
+    startTime: input.exactTime,
+    endTime: addMinutes(input.exactTime, serviceDuration),
+    barberId: input.barberId,
+    serviceId: input.serviceId,
+    serviceDuration,
+    status: 'pending',
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes || 0)),
+  };
+
+  const scheduleCode = getScheduleRejectionCode(candidate, settings.workingHours);
+  if (scheduleCode) return;
+
+  const appointmentsSnapshot = await transaction.get(
+    db().collection('appointments').where('date', '==', input.date),
+  );
+  const appointments = appointmentsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const conflict = findConflict(candidate, appointments, {
+    defaultBufferBeforeMinutes: settings.defaultAppointmentBufferBeforeMinutes,
+    defaultBufferAfterMinutes: settings.defaultAppointmentBufferAfterMinutes,
+  });
+
+  if (!conflict) {
+    throw new HttpsError('failed-precondition', 'Requested slot is currently available.', {
+      code: 'waiting-list/slot-available',
+    });
+  }
+};
 
 const readBearerToken = (request) => {
   const authorization = request.get('authorization') || '';
@@ -95,6 +252,56 @@ const requireAdminFromBearerToken = async (request) => {
 
   return { uid: decodedToken.uid };
 };
+
+export const createCustomerWaitingListEntry = onCall(async (request) => {
+  const auth = await requirePhoneCustomerAuth(request);
+  const input = normalizeCreateWaitingListInput(request.data || {});
+  const ref = db().collection('waitingList').doc();
+
+  await db().runTransaction(async (transaction) => {
+    const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
+    const customer = customerSnapshot.data();
+    if (
+      !customerSnapshot.exists
+      || customer?.role !== 'customer'
+      || customer?.uid !== auth.uid
+      || customer?.phoneNumber !== auth.phoneNumber
+    ) {
+      throw new HttpsError('failed-precondition', 'A valid customer profile is required.', {
+        code: 'customer/profile-missing',
+      });
+    }
+
+    await assertNoActiveWaitingListEntry(transaction, auth.uid);
+    await assertExactSlotIsUnavailable(transaction, input);
+
+    const customerName = text(customer.name)
+      || text(`${customer.firstName || ''} ${customer.lastName || ''}`);
+
+    transaction.set(ref, {
+      customerId: auth.uid,
+      customerName,
+      phoneNumber: customer.phoneNumber,
+      date: input.date,
+      preferenceType: input.preferenceType,
+      exactTime: input.preferenceType === 'exact_time' ? input.exactTime : null,
+      startTime: input.preferenceType === 'time_range' ? input.startTime : null,
+      endTime: input.preferenceType === 'time_range' ? input.endTime : null,
+      dayPart: input.preferenceType === 'day_part' ? input.dayPart : null,
+      serviceId: input.serviceId,
+      serviceName: input.serviceName,
+      barberId: input.barberId,
+      barberName: input.barberName,
+      status: 'active',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      notifiedAt: null,
+      expiresAt: input.expiresAt,
+    });
+  });
+
+  return { id: ref.id };
+});
 
 const handleManualNotify = async (request) => {
   const auth = await requireAdminFromBearerToken(request);

@@ -278,6 +278,36 @@ export default function Booking() {
     return 'אין שעות פנויות ביום זה';
   }, [selectedDate, selectedService, workingHours]);
 
+  useEffect(() => {
+    if (!preselect?.startTime || !selectedDate || !selectedService) return;
+    if (availableSlots.length === 0) return;
+    if (availableSlots.includes(preselect.startTime)) {
+      setSelectedTime(preselect.startTime);
+      const group = TIME_GROUPS.find(item => preselect.startTime >= item.from && preselect.startTime < item.to);
+      if (group) setSelectedTimeGroup(group.key);
+      setBookingError('');
+      return;
+    }
+    setSelectedTime(null);
+    setBookingError('השעה שהתפנתה כבר נתפסה. בחר שעה אחרת.');
+  }, [preselect, selectedDate, selectedService, availableSlots]);
+
+  const waitingPreferenceHasAvailableSlot = () => {
+    if (availableSlots.length === 0) return false;
+    if (waitingListPreferenceType === 'exact_time') {
+      return availableSlots.includes(waitingListExactTime);
+    }
+    if (waitingListPreferenceType === 'time_range') {
+      return availableSlots.some((slot) => slot >= waitingListStartTime && slot <= waitingListEndTime);
+    }
+    if (waitingListPreferenceType === 'day_part') {
+      const group = TIME_GROUPS.find((item) => item.key === waitingListDayPart);
+      if (!group) return false;
+      return availableSlots.some((slot) => slot >= group.from && slot < group.to);
+    }
+    return true;
+  };
+
   if (isAdmin) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
@@ -356,6 +386,12 @@ export default function Booking() {
       setWaitingListMessage('יש לבחור טווח שעות תקין.');
       return;
     }
+    if (waitingPreferenceHasAvailableSlot()) {
+      const message = 'התור הזה פנוי, ניתן להזמין אותו עכשיו';
+      setWaitingListMessage(message);
+      toast({ title: message, description: 'בחר את השעה הפנויה במסך ההזמנה כדי לקבוע תור.' });
+      return;
+    }
 
     setWaitingListLoading(true);
     setWaitingListMessage('');
@@ -369,6 +405,8 @@ export default function Booking() {
         dayPart: waitingListDayPart,
         serviceId: selectedService.id,
         serviceName: selectedService.name,
+        barberId: selectedBarber?.id,
+        barberName: selectedBarber?.name,
       });
       setWaitingListMessage('נכנסת לרשימת ההמתנה. נעדכן אותך אם יתפנה תור מתאים.');
       toast({ title: 'נכנסת לרשימת ההמתנה', description: 'אם יתפנה תור מתאים, תישלח אליך הודעה.' });
@@ -377,8 +415,14 @@ export default function Booking() {
         code: error?.code || 'unknown',
         message: error?.message || 'Unknown Firestore error',
       });
-      setWaitingListMessage('אירעה תקלה זמנית. נסה שוב.');
-      toast({ variant: 'destructive', title: 'הצטרפות לרשימת המתנה נכשלה', description: 'אירעה תקלה זמנית. נסה שוב.' });
+      const errorCode = error?.details?.code || error?.code;
+      const message = errorCode === 'waiting-list/slot-available'
+        ? 'התור הזה פנוי, ניתן להזמין אותו עכשיו'
+        : errorCode === 'waiting-list/active-limit'
+          ? 'כבר יש לך בקשת המתנה פעילה. ניתן להסיר אותה במסך התורים שלי.'
+          : 'אירעה תקלה זמנית. נסה שוב.';
+      setWaitingListMessage(message);
+      toast({ variant: 'destructive', title: 'הצטרפות לרשימת המתנה נכשלה', description: message });
     } finally {
       setWaitingListLoading(false);
     }

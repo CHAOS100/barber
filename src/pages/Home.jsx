@@ -13,6 +13,7 @@ import {
   Coffee,
   CreditCard,
   Info,
+  Instagram,
   MessageCircle,
   MessageSquare,
   Navigation,
@@ -24,7 +25,7 @@ import {
   Star,
 } from 'lucide-react';
 import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
-import { useActiveServicesRealtime } from '@/hooks/useBookingData';
+import { useActiveBarbersRealtime, useActiveServicesRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
@@ -86,12 +87,21 @@ const AMENITIES = [
 
 const MAP_SRC = "https://maps.google.com/maps?q=%D7%94%D7%A9%D7%95%D7%9E%D7%A8+55+%D7%A8%D7%90%D7%A9%D7%95%D7%9F+%D7%9C%D7%A6%D7%99%D7%95%D7%9F&output=embed&z=16";
 
+const normalizeInstagramUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const username = raw.replace(/^@/, '').replace(/^instagram\.com\//i, '').replace(/^www\.instagram\.com\//i, '');
+  return username ? `https://instagram.com/${username}` : '';
+};
+
 export default function Home() {
   const navigate = useNavigate();
   const open = isOpenNow();
   const [activeTab, setActiveTab] = useState('info');
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const { data: services } = useActiveServicesRealtime();
+  const { data: barbers } = useActiveBarbersRealtime();
   const { reviews } = usePublishedReviewsRealtime();
   const { photos } = usePublishedGalleryRealtime();
   const { messages: customerMessages, unreadCount: msgUnreadCount, isLoggedIn } = useCustomerMessages();
@@ -102,6 +112,13 @@ export default function Home() {
   const haircutServices = services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום');
   const beardServices = services.filter(s => s.name === 'עיצוב זקן');
   const premiumServices = services.filter(s => s.name === 'חבילת פרימיום');
+  const instagramUrl = normalizeInstagramUrl(
+    barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagram_url
+    || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUrl
+    || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUsername
+    || BUSINESS_INFO.instagramUrl
+    || BUSINESS_INFO.instagram,
+  );
 
   const handleShare = () => {
     if (navigator.share) {
@@ -187,6 +204,17 @@ export default function Home() {
             <PhoneCall className="w-7 h-7 text-primary" />
             <span className="text-xs text-foreground font-medium">שיחה</span>
           </motion.button>
+
+          {instagramUrl && (
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => window.open(instagramUrl, '_blank', 'noopener,noreferrer')}
+              className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
+            >
+              <Instagram className="w-7 h-7 text-primary" />
+              <span className="text-xs text-foreground font-medium">אינסטגרם</span>
+            </motion.button>
+          )}
         </div>
 
         {/* Customer notifications strip */}

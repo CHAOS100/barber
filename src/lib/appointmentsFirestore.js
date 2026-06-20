@@ -28,6 +28,9 @@ const mapAppointment = (snapshot) => {
     barber_name: data.barberName,
     time: data.startTime,
     admin_notes: data.adminNotes,
+    cancellation_reason: data.cancellationReason,
+    cancelled_by: data.cancelledBy,
+    cancelled_at: data.cancelledAt,
     created_date: data.createdAt?.toDate?.().toISOString?.() || null,
   };
 };
@@ -127,6 +130,7 @@ const normalizeChanges = (changes) => {
     barber_name: 'barberName',
     time: 'startTime',
     admin_notes: 'adminNotes',
+    cancellation_reason: 'cancellationReason',
   };
 
   Object.entries(changes).forEach(([key, value]) => {

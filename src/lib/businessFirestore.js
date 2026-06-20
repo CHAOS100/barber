@@ -47,7 +47,9 @@ const mapBarber = (snapshot) => {
     ...data,
     is_active: data.active !== false,
     photo_url: data.photoUrl || '',
+    photo_storage_path: data.photoStoragePath || data.storagePath || '',
     instagram_url: data.instagramUrl || '',
+    instagram_username: data.instagramUsername || '',
     sort_order: Number(data.sortOrder || 0),
   };
 };
@@ -58,8 +60,8 @@ const normalizeService = (input) => ({
   category: String(input.category || '').trim(),
   price: Number(input.price || 0),
   duration: Math.max(1, Number(input.duration || 30)),
-  bufferBeforeMinutes: normalizeOptionalMinutes(input.bufferBeforeMinutes),
-  bufferAfterMinutes: normalizeOptionalMinutes(input.bufferAfterMinutes),
+  bufferBeforeMinutes: null,
+  bufferAfterMinutes: null,
   active: input.active ?? input.is_active ?? true,
   sortOrder: Number(input.sortOrder || input.sort_order || 0),
   updatedAt: serverTimestamp(),
@@ -102,10 +104,20 @@ const createAuthenticatedSubscription = (authenticate, buildQuery, mapSnapshot, 
   };
 };
 
+const normalizeInstagramUrl = (input) => {
+  const value = String(input || '').trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const username = value.replace(/^@/, '').replace(/^instagram\.com\//i, '').replace(/^www\.instagram\.com\//i, '');
+  return username ? `https://instagram.com/${username}` : null;
+};
+
 const normalizeBarber = (input) => ({
   name: String(input.name || '').trim(),
   photoUrl: String(input.photoUrl || input.photo_url || '').trim(),
-  instagramUrl: String(input.instagramUrl || input.instagram_url || '').trim() || null,
+  photoStoragePath: String(input.photoStoragePath || input.photo_storage_path || '').trim() || null,
+  instagramUrl: normalizeInstagramUrl(input.instagramUrl || input.instagram_url || input.instagramUsername),
+  instagramUsername: String(input.instagramUsername || '').replace(/^@/, '').trim() || null,
   specialties: Array.isArray(input.specialties)
     ? input.specialties.filter(Boolean)
     : String(input.specialties || '').split(',').map((item) => item.trim()).filter(Boolean),
@@ -304,7 +316,7 @@ export const uploadBarberPhoto = async (barberId, file, onProgress) => {
           const photoUrl = await getDownloadURL(uploadTask.snapshot.ref);
           await updateDoc(doc(getFirestoreDb(), 'barbers', barberId), {
             photoUrl,
-            storagePath,
+            photoStoragePath: storagePath,
             updatedAt: serverTimestamp(),
           });
           resolve(photoUrl);
@@ -326,30 +338,38 @@ const normalizeWorkingHours = (workingHours = DEFAULT_WORKING_HOURS) =>
       open_time: input.open_time || defaultDay.open_time || '09:00',
       close_time: input.close_time || defaultDay.close_time || '20:00',
       breaks: Array.isArray(input.breaks) ? input.breaks : [],
-      bufferBeforeMinutes: normalizeOptionalMinutes(input.bufferBeforeMinutes),
-      bufferAfterMinutes: normalizeOptionalMinutes(input.bufferAfterMinutes),
+      bufferBeforeMinutes: null,
+      bufferAfterMinutes: null,
     };
   });
 
-const mapBookingSettings = (data = {}) => ({
-  appointmentBufferMinutes: Math.max(0, Number(data.appointmentBufferMinutes || 0)),
-  defaultAppointmentBufferBeforeMinutes: hasNumberValue(data.defaultAppointmentBufferBeforeMinutes)
-    ? Math.max(0, Number(data.defaultAppointmentBufferBeforeMinutes) || 0)
-    : 0,
-  defaultAppointmentBufferAfterMinutes: hasNumberValue(data.defaultAppointmentBufferAfterMinutes)
-    ? Math.max(0, Number(data.defaultAppointmentBufferAfterMinutes) || 0)
-    : Math.max(0, Number(data.appointmentBufferMinutes || 0)),
-  slotInterval: Math.max(1, Number(data.slotInterval || DEFAULT_SLOT_INTERVAL)),
-  visibleSlotIntervalMinutes: Math.max(
-    1,
-    Number(data.visibleSlotIntervalMinutes || DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES),
-  ),
-  cancellationDeadlineMinutesBeforeAppointment: Math.max(
+const mapBookingSettings = (data = {}) => {
+  const appointmentBufferMinutes = Math.max(
     0,
-    Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
-  ),
-  workingHours: normalizeWorkingHours(data.workingHours),
-});
+    Number(
+      data.appointmentBufferMinutes
+      ?? data.defaultAppointmentBufferAfterMinutes
+      ?? data.defaultAppointmentBufferBeforeMinutes
+      ?? 0,
+    ) || 0,
+  );
+
+  return {
+    appointmentBufferMinutes,
+    defaultAppointmentBufferBeforeMinutes: 0,
+    defaultAppointmentBufferAfterMinutes: appointmentBufferMinutes,
+    slotInterval: Math.max(1, Number(data.slotInterval || DEFAULT_SLOT_INTERVAL)),
+    visibleSlotIntervalMinutes: Math.max(
+      1,
+      Number(data.visibleSlotIntervalMinutes || DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES),
+    ),
+    cancellationDeadlineMinutesBeforeAppointment: Math.max(
+      0,
+      Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
+    ),
+    workingHours: normalizeWorkingHours(data.workingHours),
+  };
+};
 
 export const getBookingSettings = async () => {
   const snapshot = await getDoc(doc(getFirestoreDb(), 'settings', 'booking'));

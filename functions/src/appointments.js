@@ -36,10 +36,6 @@ const requireAdmin = async (request) => {
 const text = (value) => String(value || '').trim();
 const positiveNumber = (value, fallback = 0) => Math.max(0, Number(value ?? fallback) || fallback);
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
-const firstMinutes = (...values) => {
-  const value = values.find(hasNumberValue);
-  return Math.max(0, Number(value) || 0);
-};
 
 const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   const startTime = text(input.startTime || input.time);
@@ -80,19 +76,21 @@ const getBookingSettings = async (transaction) => {
   const businessSnapshot = await transaction.get(db().doc('settings/business'));
   const settings = bookingSnapshot.data() || {};
   const businessSettings = businessSnapshot.data() || {};
-  const legacyBuffer = Math.max(0, Number(settings.appointmentBufferMinutes || 0));
+  const legacyBuffer = Math.max(
+    0,
+    Number(
+      settings.appointmentBufferMinutes
+      ?? settings.defaultAppointmentBufferAfterMinutes
+      ?? settings.defaultAppointmentBufferBeforeMinutes
+      ?? businessSettings.defaultAppointmentBufferAfterMinutes
+      ?? businessSettings.defaultAppointmentBufferBeforeMinutes
+      ?? 0,
+    ) || 0,
+  );
   return {
     appointmentBufferMinutes: legacyBuffer,
-    defaultAppointmentBufferBeforeMinutes: hasNumberValue(settings.defaultAppointmentBufferBeforeMinutes)
-      ? Math.max(0, Number(settings.defaultAppointmentBufferBeforeMinutes) || 0)
-      : (hasNumberValue(businessSettings.defaultAppointmentBufferBeforeMinutes)
-        ? Math.max(0, Number(businessSettings.defaultAppointmentBufferBeforeMinutes) || 0)
-        : 0),
-    defaultAppointmentBufferAfterMinutes: hasNumberValue(settings.defaultAppointmentBufferAfterMinutes)
-      ? Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes) || 0)
-      : (hasNumberValue(businessSettings.defaultAppointmentBufferAfterMinutes)
-        ? Math.max(0, Number(businessSettings.defaultAppointmentBufferAfterMinutes) || 0)
-        : legacyBuffer),
+    defaultAppointmentBufferBeforeMinutes: 0,
+    defaultAppointmentBufferAfterMinutes: legacyBuffer,
     visibleSlotIntervalMinutes: Math.max(
       1,
       Number(settings.visibleSlotIntervalMinutes || businessSettings.visibleSlotIntervalMinutes || 30),
@@ -113,22 +111,11 @@ const getBookingSettings = async (transaction) => {
   };
 };
 
-const applyResolvedBuffers = (appointment, service, settings) => {
-  const workingDay = getWorkingHoursForDate(appointment.date, settings.workingHours) || {};
-  return {
-    ...appointment,
-    bufferBeforeMinutes: firstMinutes(
-      workingDay.bufferBeforeMinutes,
-      service?.bufferBeforeMinutes,
-      settings.defaultAppointmentBufferBeforeMinutes,
-    ),
-    bufferAfterMinutes: firstMinutes(
-      workingDay.bufferAfterMinutes,
-      service?.bufferAfterMinutes,
-      settings.defaultAppointmentBufferAfterMinutes,
-    ),
-  };
-};
+const applyResolvedBuffers = (appointment, service, settings) => ({
+  ...appointment,
+  bufferBeforeMinutes: 0,
+  bufferAfterMinutes: Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes || 0)),
+});
 
 const conflictSettings = (settings) => ({
   defaultBufferBeforeMinutes: settings.defaultAppointmentBufferBeforeMinutes,

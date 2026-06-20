@@ -121,37 +121,6 @@ function DayCard({ day, onUpdate }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-xs text-muted-foreground font-semibold">
-                  מרווח לפני ביום זה
-                  <input
-                    type="number"
-                    min="0"
-                    value={day.bufferBeforeMinutes ?? ''}
-                    placeholder="ברירת מחדל"
-                    onChange={e => onUpdate({
-                      ...day,
-                      bufferBeforeMinutes: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
-                    })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm text-center focus:outline-none focus:border-primary"
-                  />
-                </label>
-                <label className="text-xs text-muted-foreground font-semibold">
-                  מרווח אחרי ביום זה
-                  <input
-                    type="number"
-                    min="0"
-                    value={day.bufferAfterMinutes ?? ''}
-                    placeholder="ברירת מחדל"
-                    onChange={e => onUpdate({
-                      ...day,
-                      bufferAfterMinutes: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
-                    })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm text-center focus:outline-none focus:border-primary"
-                  />
-                </label>
-              </div>
-
               {/* Breaks */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -199,8 +168,6 @@ export default function AdminHours() {
   const [days, setDays] = useState(DEFAULT_DAYS);
   const [appointmentBufferMinutes, setAppointmentBufferMinutes] = useState(0);
   const [slotInterval, setSlotInterval] = useState(10);
-  const [defaultBufferBeforeMinutes, setDefaultBufferBeforeMinutes] = useState(0);
-  const [defaultBufferAfterMinutes, setDefaultBufferAfterMinutes] = useState(0);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(30);
   const { settings, error: settingsError } = useBookingSettingsRealtime();
 
@@ -210,19 +177,26 @@ export default function AdminHours() {
       ...day,
       ...(settings.workingHours.find(item => item.day_of_week === day.day_of_week) || {}),
     })));
-    setAppointmentBufferMinutes(settings.appointmentBufferMinutes);
-    setDefaultBufferBeforeMinutes(settings.defaultAppointmentBufferBeforeMinutes);
-    setDefaultBufferAfterMinutes(settings.defaultAppointmentBufferAfterMinutes);
+    setAppointmentBufferMinutes(
+      settings.appointmentBufferMinutes
+      ?? settings.defaultAppointmentBufferAfterMinutes
+      ?? settings.defaultAppointmentBufferBeforeMinutes
+      ?? 0,
+    );
     setVisibleSlotIntervalMinutes(settings.visibleSlotIntervalMinutes);
     setSlotInterval(settings.slotInterval);
   }, [settings]);
 
   const saveMutation = useMutation({
     mutationFn: () => saveBookingSettings({
-      workingHours: days,
+      workingHours: days.map((day) => ({
+        ...day,
+        bufferBeforeMinutes: null,
+        bufferAfterMinutes: null,
+      })),
       appointmentBufferMinutes,
-      defaultAppointmentBufferBeforeMinutes: defaultBufferBeforeMinutes,
-      defaultAppointmentBufferAfterMinutes: defaultBufferAfterMinutes,
+      defaultAppointmentBufferBeforeMinutes: 0,
+      defaultAppointmentBufferAfterMinutes: appointmentBufferMinutes,
       visibleSlotIntervalMinutes,
       slotInterval,
     }),
@@ -294,38 +268,6 @@ export default function AdminHours() {
         </div>
 
         <div className="glass rounded-2xl p-4 space-y-4">
-          <div>
-            <h3 className="font-bold text-sm">הגדרות תצוגה ומרווחים מתקדמות</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              המרווחים בפועל מחושבים לפי עדיפות: יום עבודה, שירות, ואז ברירת מחדל.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs text-muted-foreground">
-              מרווח לפני תור
-              <input
-                type="number"
-                min="0"
-                value={defaultBufferBeforeMinutes}
-                onChange={e => {
-                  const value = Math.max(0, Number(e.target.value));
-                  setDefaultBufferBeforeMinutes(value);
-                  setAppointmentBufferMinutes(value);
-                }}
-                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center focus:outline-none focus:border-primary"
-              />
-            </label>
-            <label className="block text-xs text-muted-foreground">
-              מרווח אחרי תור
-              <input
-                type="number"
-                min="0"
-                value={defaultBufferAfterMinutes}
-                onChange={e => setDefaultBufferAfterMinutes(Math.max(0, Number(e.target.value)))}
-                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center focus:outline-none focus:border-primary"
-              />
-            </label>
-          </div>
           <label className="block text-xs text-muted-foreground">
             מרווח תצוגת שעות ללקוח
             <input

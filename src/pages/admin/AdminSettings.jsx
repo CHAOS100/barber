@@ -20,17 +20,13 @@ export default function AdminSettings() {
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const { settings: businessSettings } = useBusinessSettingsRealtime();
   const [bufferMinutes, setBufferMinutes] = useState(null);
-  const [bufferBeforeMinutes, setBufferBeforeMinutes] = useState(null);
-  const [bufferAfterMinutes, setBufferAfterMinutes] = useState(null);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(null);
   const [cancellationDeadlineMinutes, setCancellationDeadlineMinutes] = useState(null);
-  const displayedBuffer = bufferMinutes ?? bookingSettings?.appointmentBufferMinutes ?? 0;
-  const displayedBufferBefore = bufferBeforeMinutes
-    ?? bookingSettings?.defaultAppointmentBufferBeforeMinutes
-    ?? displayedBuffer;
-  const displayedBufferAfter = bufferAfterMinutes
+  const displayedBuffer = bufferMinutes
+    ?? bookingSettings?.appointmentBufferMinutes
     ?? bookingSettings?.defaultAppointmentBufferAfterMinutes
-    ?? displayedBuffer;
+    ?? bookingSettings?.defaultAppointmentBufferBeforeMinutes
+    ?? 0;
   const displayedVisibleSlotInterval = visibleSlotIntervalMinutes
     ?? bookingSettings?.visibleSlotIntervalMinutes
     ?? 30;
@@ -46,16 +42,16 @@ export default function AdminSettings() {
   const saveSettings = useMutation({
     mutationFn: () => Promise.all([
       saveBookingSettings({
-        appointmentBufferMinutes: displayedBufferBefore,
-        defaultAppointmentBufferBeforeMinutes: displayedBufferBefore,
-        defaultAppointmentBufferAfterMinutes: displayedBufferAfter,
+        appointmentBufferMinutes: displayedBuffer,
+        defaultAppointmentBufferBeforeMinutes: 0,
+        defaultAppointmentBufferAfterMinutes: displayedBuffer,
         visibleSlotIntervalMinutes: displayedVisibleSlotInterval,
         cancellationDeadlineMinutesBeforeAppointment: displayedCancellationDeadline,
       }),
       saveBusinessSettings({
         ...info,
-        defaultAppointmentBufferBeforeMinutes: displayedBufferBefore,
-        defaultAppointmentBufferAfterMinutes: displayedBufferAfter,
+        defaultAppointmentBufferBeforeMinutes: 0,
+        defaultAppointmentBufferAfterMinutes: displayedBuffer,
         visibleSlotIntervalMinutes: displayedVisibleSlotInterval,
         cancellationDeadlineMinutesBeforeAppointment: displayedCancellationDeadline,
       }),
@@ -143,38 +139,8 @@ export default function AdminSettings() {
               className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
             />
           </label>
-        </div>
-
-        <div className="glass rounded-2xl p-4 space-y-3">
-          <h3 className="font-bold">מרווחים וזמינות</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs text-muted-foreground">
-              מרווח לפני תור
-              <input
-                type="number"
-                min="0"
-                value={displayedBufferBefore}
-                onChange={e => {
-                  const value = Math.max(0, Number(e.target.value));
-                  setBufferBeforeMinutes(value);
-                  setBufferMinutes(value);
-                }}
-                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
-              />
-            </label>
-            <label className="block text-xs text-muted-foreground">
-              מרווח אחרי תור
-              <input
-                type="number"
-                min="0"
-                value={displayedBufferAfter}
-                onChange={e => setBufferAfterMinutes(Math.max(0, Number(e.target.value)))}
-                className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
-              />
-            </label>
-          </div>
           <label className="block text-xs text-muted-foreground">
-            הצגת שעות כל X דקות
+            הצגת שעות פנויות כל X דקות
             <input
               type="number"
               min="1"

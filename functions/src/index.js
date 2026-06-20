@@ -42,6 +42,7 @@ export {
   syncCustomerReviewStats,
 } from './customerStats.js';
 export {
+  createCustomerWaitingListEntry,
   manualNotifyWaitingListEntry,
 } from './waitingList.js';
 
@@ -132,6 +133,14 @@ const buildWaitingListInAppNotification = (entry, appointment, appointmentId) =>
     source: 'waiting_list',
     appointmentId,
     waitingListId: entry.id,
+    waitingListEntryId: entry.id,
+    date: appointment.date || entry.date || null,
+    startTime: startTime || null,
+    availableStartTime: startTime || null,
+    serviceId: appointment.serviceId || entry.serviceId || null,
+    serviceName: serviceName || null,
+    barberId: appointment.barberId || entry.barberId || null,
+    barberName: appointment.barberName || entry.barberName || null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
     expiresAt: null,

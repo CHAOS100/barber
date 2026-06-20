@@ -14,8 +14,6 @@ const emptyService = {
   description: '',
   price: '',
   duration: '',
-  bufferBeforeMinutes: '',
-  bufferAfterMinutes: '',
   is_active: true,
   category: '',
 };
@@ -81,12 +79,8 @@ export default function AdminServices() {
       ...form,
       price: Number(form.price),
       duration: Number(form.duration),
-      bufferBeforeMinutes: form.bufferBeforeMinutes === '' || form.bufferBeforeMinutes === null
-        ? null
-        : Number(form.bufferBeforeMinutes),
-      bufferAfterMinutes: form.bufferAfterMinutes === '' || form.bufferAfterMinutes === null
-        ? null
-        : Number(form.bufferAfterMinutes),
+      bufferBeforeMinutes: null,
+      bufferAfterMinutes: null,
     });
   };
 
@@ -186,8 +180,6 @@ export default function AdminServices() {
                   { field: 'price', label: 'מחיר (₪)', placeholder: '60', type: 'number' },
                   { field: 'duration', label: 'משך (דקות)', placeholder: '30', type: 'number' },
                   { field: 'category', label: 'קטגוריה', placeholder: 'תספורת', type: 'text' },
-                  { field: 'bufferBeforeMinutes', label: 'מרווח לפני השירות (דקות)', placeholder: 'לפי ברירת מחדל', type: 'number' },
-                  { field: 'bufferAfterMinutes', label: 'מרווח אחרי השירות (דקות)', placeholder: 'לפי ברירת מחדל', type: 'number' },
                 ].map(({ field, label, placeholder, type }) => (
                   <div key={field}>
                     <label className="text-xs text-muted-foreground mb-1 block">{label}</label>

@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -9,15 +8,15 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   ensureFirebaseAdmin,
   ensureFirebaseCustomer,
   firebaseAuth,
   firebaseProjectId,
-  getFirebaseUserPhoneNumber,
+  getFirebaseFunctions,
   getFirestoreDb,
 } from '@/lib/firebase';
-import { getCurrentCustomerProfile } from '@/lib/customerProfilesFirestore';
 
 const waitingListCollection = () => collection(getFirestoreDb(), 'waitingList');
 
@@ -28,6 +27,15 @@ const byNewestFirst = (left, right) => {
   const leftTime = left.createdAt?.toMillis?.() || 0;
   const rightTime = right.createdAt?.toMillis?.() || 0;
   return rightTime - leftTime;
+};
+
+const waitingListScheduleKey = (entry) =>
+  `${entry.date || ''} ${entry.exactTime || entry.startTime || entry.availableStartTime || '99:99'}`;
+
+const bySchedule = (left, right) => {
+  const scheduled = waitingListScheduleKey(left).localeCompare(waitingListScheduleKey(right));
+  if (scheduled !== 0) return scheduled;
+  return byNewestFirst(left, right);
 };
 
 const mapWaitingListEntry = (snapshot) => ({
@@ -43,13 +51,7 @@ const cleanOptionalFields = (payload) => {
 };
 
 export const createWaitingListEntry = async (input) => {
-  const firebaseUser = await ensureFirebaseCustomer();
-  const profile = await getCurrentCustomerProfile();
-  if (!profile) {
-    throw Object.assign(new Error('Customer profile is missing.'), {
-      code: 'customer/profile-missing',
-    });
-  }
+  await ensureFirebaseCustomer();
 
   const preferenceType = input.preferenceType || 'whole_day';
   if (!WAITING_LIST_PREFERENCE_TYPES.includes(preferenceType)) {
@@ -59,9 +61,6 @@ export const createWaitingListEntry = async (input) => {
   }
 
   const payload = cleanOptionalFields({
-    customerId: firebaseUser.uid,
-    customerName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
-    phoneNumber: profile.phoneNumber || getFirebaseUserPhoneNumber(firebaseUser),
     date: input.date,
     preferenceType,
     exactTime: preferenceType === 'exact_time' ? input.exactTime : undefined,
@@ -70,10 +69,8 @@ export const createWaitingListEntry = async (input) => {
     dayPart: preferenceType === 'day_part' ? input.dayPart : undefined,
     serviceId: input.serviceId,
     serviceName: input.serviceName,
-    status: 'active',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    notifiedAt: null,
+    barberId: input.barberId,
+    barberName: input.barberName,
     expiresAt: input.expiresAt || null,
   });
 
@@ -84,10 +81,12 @@ export const createWaitingListEntry = async (input) => {
     serviceId: payload.serviceId || null,
   });
 
-  const reference = await addDoc(waitingListCollection(), payload);
+  const callable = httpsCallable(getFirebaseFunctions(), 'createCustomerWaitingListEntry');
+  const result = await callable(payload);
+  const reference = /** @type {{ data?: { id?: string } }} */ (result).data || {};
   console.info('[Firestore] Waiting list entry created', {
     projectId: firebaseProjectId,
-    waitingListId: reference.id,
+    waitingListId: reference.id || null,
   });
   return { id: reference.id, ...payload };
 };
@@ -107,7 +106,7 @@ export const subscribeToCustomerWaitingList = (onData, onError) => {
           where('status', 'in', ['active', 'notified']),
         ),
         (snapshot) => {
-          const entries = snapshot.docs.map(mapWaitingListEntry).sort(byNewestFirst);
+          const entries = snapshot.docs.map(mapWaitingListEntry).sort(bySchedule);
           onData(entries);
         },
         onError,
@@ -149,7 +148,7 @@ export const subscribeToAdminWaitingList = (date, status, onData, onError) => {
       unsubscribe = onSnapshot(
         query(waitingListCollection(), ...constraints),
         (snapshot) => {
-          const entries = snapshot.docs.map(mapWaitingListEntry).sort(byNewestFirst);
+          const entries = snapshot.docs.map(mapWaitingListEntry).sort(bySchedule);
           console.info('[Firestore] Admin waiting list snapshot received', {
             projectId: firebaseProjectId,
             size: snapshot.size,

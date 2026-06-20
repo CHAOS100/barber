@@ -16,11 +16,27 @@ import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFa
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
+  approved:  { label: 'מאושר', color: 'text-green-400 bg-green-400/20',   dot: 'bg-green-400' },
   confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20',   dot: 'bg-green-400' },
   completed: { label: 'הושלם', color: 'text-primary bg-primary/20',       dot: 'bg-primary' },
   cancelled: { label: 'בוטל',  color: 'text-red-400 bg-red-400/20',       dot: 'bg-red-400' },
   no_show:   { label: 'לא הגיע', color: 'text-orange-400 bg-orange-400/20', dot: 'bg-orange-400' },
 };
+
+const RANGE_FILTERS = [
+  { value: 'all_time', label: 'כל התורים' },
+  { value: 'today', label: 'היום' },
+  { value: 'future', label: 'עתידיים' },
+];
+
+const STATUS_FILTERS = [
+  { value: 'all', label: 'כל הסטטוסים' },
+  { value: 'pending', label: STATUS_CONFIG.pending.label },
+  { value: 'confirmed', label: STATUS_CONFIG.confirmed.label },
+  { value: 'completed', label: STATUS_CONFIG.completed.label },
+  { value: 'cancelled', label: STATUS_CONFIG.cancelled.label },
+  { value: 'no_show', label: STATUS_CONFIG.no_show.label },
+];
 
 // Generate time slots for edit
 const TIME_SLOTS = [];
@@ -265,12 +281,15 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
 
 export default function AdminAppointments() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState('all');
+  const [rangeFilter, setRangeFilter] = useState('all_time');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [selectedAppt, setSelectedAppt] = useState(null);
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [noShowAppt, setNoShowAppt] = useState(null);
   const [noShowAction, setNoShowAction] = useState('warning');
+  const [cancelAppt, setCancelAppt] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
 
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
   const { data: services, error: servicesError } = useAllServicesRealtime();
@@ -282,6 +301,8 @@ export default function AdminAppointments() {
       setSelectedAppt(null);
       setEditAppt(null);
       setNoShowAppt(null);
+      setCancelAppt(null);
+      setCancelReason('');
       toast({ title: 'התור עודכן', description: 'השינוי נשמר ומופיע בזמן אמת.' });
     },
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: getUserFacingErrorMessage(error) }),
@@ -306,7 +327,22 @@ export default function AdminAppointments() {
   });
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
-  const filtered = filter === 'all' ? appointments : appointments.filter(a => a.status === filter);
+  const today = localDateToString();
+  const filtered = [...appointments]
+    .sort((left, right) =>
+      `${left.date || ''} ${left.time || left.startTime || ''}`.localeCompare(
+        `${right.date || ''} ${right.time || right.startTime || ''}`,
+      ))
+    .filter((appointment) => {
+      const appointmentDate = appointment.date || '';
+      const matchesRange = rangeFilter === 'all_time'
+        || (rangeFilter === 'today' && appointmentDate === today)
+        || (rangeFilter === 'future' && appointmentDate > today);
+      const matchesStatus = statusFilter === 'all'
+        || appointment.status === statusFilter
+        || (statusFilter === 'confirmed' && appointment.status === 'approved');
+      return matchesRange && matchesStatus;
+    });
 
   const BLANK_APPT = {
     id: '__new__',
@@ -353,18 +389,33 @@ export default function AdminAppointments() {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-        {['all', 'pending', 'confirmed', 'completed', 'cancelled', 'no_show'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilter(status)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
-              filter === status ? 'gold-gradient text-black' : 'glass text-muted-foreground'
-            }`}
-          >
-            {status === 'all' ? 'הכל' : STATUS_CONFIG[status]?.label}
-          </button>
-        ))}
+      <div className="px-4 py-3 space-y-2">
+        <div className="flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          {RANGE_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setRangeFilter(option.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
+                rangeFilter === option.value ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          {STATUS_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setStatusFilter(option.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
+                statusFilter === option.value ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {appointmentsError && (
@@ -439,6 +490,12 @@ export default function AdminAppointments() {
               <div className="mt-1 text-xs text-muted-foreground">
                 {appt.barber_name || 'ללא ספר'} • {appt.service_duration || 30} דקות • {appt.paid ? 'שולם' : 'לא שולם'}
               </div>
+              {appt.status === 'cancelled' && appt.cancellationReason && (
+                <div className="mt-2 rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-200">
+                  <span className="font-bold">סיבת ביטול: </span>
+                  {appt.cancellationReason}
+                </div>
+              )}
 
               {/* Quick action buttons */}
               <div className="flex gap-1.5 mt-3">
@@ -462,7 +519,10 @@ export default function AdminAppointments() {
                       <UserX className="w-3 h-3" /> לא הגיע
                     </button>
                     <button
-                      onClick={() => updateMutation.mutate({ id: appt.id, data: { status: 'cancelled' } })}
+                      onClick={() => {
+                        setCancelAppt(appt);
+                        setCancelReason('');
+                      }}
                       className="flex-1 py-1.5 rounded-xl bg-red-500/15 text-red-400 text-xs font-bold flex items-center justify-center gap-1"
                     >
                       <X className="w-3 h-3" /> בטל
@@ -520,6 +580,62 @@ export default function AdminAppointments() {
             isSaving={createMutation.isPending}
             error={createMutation.error}
           />
+        )}
+        {cancelAppt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            onClick={() => setCancelAppt(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              onClick={event => event.stopPropagation()}
+              dir="rtl"
+            >
+              <h3 className="font-black text-lg mb-2">ביטול תור</h3>
+              <p className="text-muted-foreground text-sm mb-4">
+                כתוב סיבת ביטול שתופיע בהיסטוריית התור ללקוח ולניהול.
+              </p>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={4}
+                placeholder="לדוגמה: הלקוח ביקש לבטל / שינוי בלו״ז העסק..."
+                className="w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm resize-none focus:outline-none focus:border-primary"
+                dir="rtl"
+              />
+              <div className="flex gap-2 mt-5">
+                <button
+                  onClick={() => {
+                    setCancelAppt(null);
+                    setCancelReason('');
+                  }}
+                  className="flex-1 glass py-3 rounded-xl font-bold"
+                >
+                  חזרה
+                </button>
+                <button
+                  onClick={() => updateMutation.mutate({
+                    id: cancelAppt.id,
+                    data: {
+                      status: 'cancelled',
+                      cancellationReason: cancelReason.trim() || 'admin_cancelled',
+                    },
+                  })}
+                  disabled={updateMutation.isPending}
+                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-black disabled:opacity-60"
+                >
+                  {updateMutation.isPending ? 'מבטל...' : 'בטל תור'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
         {noShowAppt && (
           <motion.div

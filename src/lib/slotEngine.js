@@ -23,11 +23,6 @@ const positiveMinutes = (value, fallback = 0) => {
   return Math.max(0, Number(value) || 0);
 };
 
-const firstMinuteValue = (...values) => {
-  const value = values.find(hasNumberValue);
-  return positiveMinutes(value, 0);
-};
-
 export function getAppointmentInterval(appointment) {
   const startTime = appointment.startTime || appointment.time;
   if (!startTime) return null;
@@ -81,29 +76,17 @@ export function getResolvedAppointmentBuffers({
   fallbackBufferMinutes = 0,
 } = {}) {
   const normalizedSettings = /** @type {Record<string, any>} */ (settings || {});
-  const normalizedWorkingHours = /** @type {Record<string, any>} */ (workingHours || {});
-  const normalizedService = /** @type {Record<string, any>} */ (service || {});
-  const normalizedAppointment = /** @type {Record<string, any>} */ (appointment || {});
-  const globalBefore = hasNumberValue(normalizedSettings.defaultAppointmentBufferBeforeMinutes)
-    ? normalizedSettings.defaultAppointmentBufferBeforeMinutes
-    : 0;
-  const globalAfter = hasNumberValue(normalizedSettings.defaultAppointmentBufferAfterMinutes)
-    ? normalizedSettings.defaultAppointmentBufferAfterMinutes
-    : (hasNumberValue(normalizedSettings.appointmentBufferMinutes) ? normalizedSettings.appointmentBufferMinutes : fallbackBufferMinutes);
+  const globalAfter = hasNumberValue(normalizedSettings.appointmentBufferMinutes)
+    ? normalizedSettings.appointmentBufferMinutes
+    : (
+      hasNumberValue(normalizedSettings.defaultAppointmentBufferAfterMinutes)
+        ? normalizedSettings.defaultAppointmentBufferAfterMinutes
+        : fallbackBufferMinutes
+    );
 
   return {
-    bufferBeforeMinutes: firstMinuteValue(
-      normalizedWorkingHours.bufferBeforeMinutes,
-      normalizedService.bufferBeforeMinutes,
-      normalizedAppointment.bufferBeforeMinutes,
-      globalBefore,
-    ),
-    bufferAfterMinutes: firstMinuteValue(
-      normalizedWorkingHours.bufferAfterMinutes,
-      normalizedService.bufferAfterMinutes,
-      normalizedAppointment.bufferAfterMinutes,
-      globalAfter,
-    ),
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: positiveMinutes(globalAfter, 0),
   };
 }
 
@@ -146,9 +129,7 @@ export function getAvailableSlots({
       const interval = getAppointmentInterval(appointment);
       if (!interval) return null;
       const buffers = {
-        bufferBeforeMinutes: hasNumberValue(appointment.bufferBeforeMinutes)
-          ? positiveMinutes(appointment.bufferBeforeMinutes)
-          : candidateBuffers.bufferBeforeMinutes,
+        bufferBeforeMinutes: 0,
         bufferAfterMinutes: hasNumberValue(appointment.bufferAfterMinutes)
           ? positiveMinutes(appointment.bufferAfterMinutes)
           : candidateBuffers.bufferAfterMinutes,
