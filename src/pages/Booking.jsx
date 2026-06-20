@@ -506,13 +506,16 @@ export default function Booking() {
   }
 
   const blockedReason = currentUser?.blockedReason || currentUser?.blocked_reason || '';
+  const customerIsBlocked = currentUser?.blocked === true
+    || currentUser?.isBlocked === true
+    || currentUser?.is_blocked === true;
   const blockedMessage = blockedReason.includes('אי הגעה לתור')
     ? 'החשבון שלך נחסם לקביעת תורים עקב אי הגעה לתור. להסרת החסימה פנה לעסק.'
     : (blockedReason
       ? `החשבון שלך חסום לקביעת תורים. סיבה: ${blockedReason}. פנה לעסק.`
       : 'החשבון שלך חסום לקביעת תורים. פנה לעסק.');
 
-  if (currentUser?.is_blocked) {
+  if (customerIsBlocked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-6 page-transition" dir="rtl">
         <div className="glass rounded-3xl p-6 text-center max-w-sm">

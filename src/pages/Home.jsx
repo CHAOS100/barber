@@ -99,6 +99,9 @@ export default function Home() {
   const averageRating = reviews.length
     ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
     : 0;
+  const haircutServices = services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום');
+  const beardServices = services.filter(s => s.name === 'עיצוב זקן');
+  const premiumServices = services.filter(s => s.name === 'חבילת פרימיום');
 
   const handleShare = () => {
     if (navigator.share) {
@@ -424,16 +427,49 @@ export default function Home() {
             <motion.div key="services" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
               <p className="text-muted-foreground text-sm mb-4">בחר שירות וקבע תור מיידי</p>
 
+              {services.length === 0 && (
+                <div className="glass rounded-2xl p-5 text-center text-muted-foreground text-sm mb-5">
+                  אין שירותים זמינים כרגע
+                </div>
+              )}
+
               {/* Category: תספורות */}
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
-                <div className="space-y-2">
-                  {services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map((service, i) => (
+              {haircutServices.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
+                  <div className="space-y-2">
+                    {haircutServices.map((service, i) => (
+                      <motion.div
+                        key={service.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        onClick={() => navigate('/booking', { state: { service } })}
+                        className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
+                      >
+                        <div className="flex-1 text-right">
+                          <div className="font-bold text-foreground text-sm">{service.name}</div>
+                          <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
+                        </div>
+                        <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
+                        <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
+                          <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Category: עיצוב זקן */}
+              {beardServices.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
+                  {beardServices.map((service) => (
                     <motion.div
                       key={service.id}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
                       onClick={() => navigate('/booking', { state: { service } })}
                       className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
                     >
@@ -448,55 +484,34 @@ export default function Home() {
                     </motion.div>
                   ))}
                 </div>
-              </div>
-
-              {/* Category: עיצוב זקן */}
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
-                {services.filter(s => s.name === 'עיצוב זקן').map((service) => (
-                  <motion.div
-                    key={service.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    onClick={() => navigate('/booking', { state: { service } })}
-                    className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
-                  >
-                    <div className="flex-1 text-right">
-                      <div className="font-bold text-foreground text-sm">{service.name}</div>
-                      <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
-                    </div>
-                    <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
-                    <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
-                      <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+              )}
 
               {/* Category: חבילות */}
-              <div className="mb-6">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות פרימיום</p>
-                {services.filter(s => s.name === 'חבילת פרימיום').map((service) => (
-                  <motion.div
-                    key={service.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    onClick={() => navigate('/booking', { state: { service } })}
-                    className="glass-gold rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-primary/30 transition-all"
-                  >
-                    <div className="flex-1 text-right">
-                      <div className="font-bold text-foreground text-sm flex items-center gap-1 justify-end">
-                        {service.name} <span className="text-primary text-xs">⭐</span>
+              {premiumServices.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות פרימיום</p>
+                  {premiumServices.map((service) => (
+                    <motion.div
+                      key={service.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      onClick={() => navigate('/booking', { state: { service } })}
+                      className="glass-gold rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-primary/30 transition-all"
+                    >
+                      <div className="flex-1 text-right">
+                        <div className="font-bold text-foreground text-sm flex items-center gap-1 justify-end">
+                          {service.name} <span className="text-primary text-xs">⭐</span>
+                        </div>
+                        <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
                       </div>
-                      <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
-                    </div>
-                    <div className="text-primary font-black text-sm flex-shrink-0">₪{service.price}</div>
-                    <div className="w-7 h-7 rounded-lg border-2 border-primary/40 flex items-center justify-center flex-shrink-0">
-                      <ChevronLeft className="w-4 h-4 text-primary" />
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+                      <div className="text-primary font-black text-sm flex-shrink-0">₪{service.price}</div>
+                      <div className="w-7 h-7 rounded-lg border-2 border-primary/40 flex items-center justify-center flex-shrink-0">
+                        <ChevronLeft className="w-4 h-4 text-primary" />
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

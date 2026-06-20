@@ -45,6 +45,33 @@ const emptyForm = {
   active: true,
 };
 
+const serializeGalleryUiError = (error) => ({
+  code: error?.code || 'unknown',
+  message: error?.message || String(error || 'Unknown gallery UI error'),
+  name: error?.name || null,
+});
+
+const galleryFileDebugPayload = (selectedFile) => ({
+  fileName: selectedFile?.name || null,
+  fileSize: selectedFile?.size || null,
+  mimeType: selectedFile?.type || null,
+});
+
+const logGalleryUi = (event, payload = {}) => {
+  console.info('[Gallery Upload UI Debug]', JSON.stringify({
+    event,
+    ...payload,
+  }));
+};
+
+const logGalleryUiError = (event, error, payload = {}) => {
+  console.error('[Gallery Upload UI Debug]', JSON.stringify({
+    event,
+    ...payload,
+    error: serializeGalleryUiError(error),
+  }));
+};
+
 export default function AdminGallery() {
   const navigate = useNavigate();
   const { isAdmin } = useCurrentUser();
@@ -84,7 +111,9 @@ export default function AdminGallery() {
   const handleFileSelected = (selectedFile) => {
     setUploadError('');
     setUploadProgress(0);
+    logGalleryUi('file-input-change', galleryFileDebugPayload(selectedFile));
     if (!selectedFile) {
+      logGalleryUi('file-selection-empty');
       setFile(null);
       return;
     }
@@ -92,7 +121,9 @@ export default function AdminGallery() {
     try {
       validateGalleryImageFile(selectedFile);
       setFile(selectedFile);
+      logGalleryUi('file-selection-valid', galleryFileDebugPayload(selectedFile));
     } catch (fileError) {
+      logGalleryUiError('file-selection-validation-exception', fileError, galleryFileDebugPayload(selectedFile));
       setFile(null);
       setUploadError(getGalleryUploadErrorMessage(fileError));
     }
@@ -100,6 +131,13 @@ export default function AdminGallery() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      logGalleryUi('save-mutation-start', {
+        editingId: editing?.id || null,
+        hasFile: Boolean(file),
+        formCategory: form.category,
+        formActive: form.active,
+        ...galleryFileDebugPayload(file),
+      });
       if (editing?.id) {
         if (file) return replaceGalleryImage(editing, file, form, { onProgress: setUploadProgress });
         return updateGalleryPhoto(editing.id, form);
@@ -110,12 +148,26 @@ export default function AdminGallery() {
     onMutate: () => {
       setUploadError('');
       if (file) setUploadProgress(0);
+      logGalleryUi('save-mutation-onMutate', {
+        hasFile: Boolean(file),
+        ...galleryFileDebugPayload(file),
+      });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      logGalleryUi('save-mutation-success', {
+        resultId: result?.id || null,
+        storagePath: result?.storagePath || null,
+        imageUrl: result?.imageUrl || null,
+      });
       toast({ title: editing?.id ? 'התמונה עודכנה' : 'התמונה נוספה לגלריה' });
       closeEditor();
     },
     onError: (mutationError) => {
+      logGalleryUiError('save-mutation-caught-exception', mutationError, {
+        editingId: editing?.id || null,
+        hasFile: Boolean(file),
+        ...galleryFileDebugPayload(file),
+      });
       const message = file
         ? getGalleryUploadErrorMessage(mutationError)
         : getUserFacingErrorMessage(mutationError);
@@ -128,6 +180,10 @@ export default function AdminGallery() {
       });
     },
     onSettled: () => {
+      logGalleryUi('save-mutation-settled', {
+        hasFile: Boolean(file),
+        finalUploadProgress: uploadProgress,
+      });
       if (!file) setUploadProgress(0);
     },
   });

@@ -108,6 +108,11 @@ export default function AdminServices() {
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
+        {!servicesError && services.length === 0 && (
+          <div className="glass rounded-2xl p-6 text-center text-muted-foreground">
+            אין שירותים עדיין. לחץ על הפלוס כדי ליצור שירות ראשון.
+          </div>
+        )}
         {services.map((service, i) => (
           <motion.div
             key={service.id || i}

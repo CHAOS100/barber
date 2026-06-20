@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -28,6 +29,33 @@ const UPLOAD_TOTAL_TIMEOUT_MS = 5 * 60_000;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_CATEGORIES = new Set(['gallery', 'business', 'barber', 'service']);
 const galleryCollection = () => collection(getFirestoreDb(), 'gallery');
+
+const serializeGalleryError = (error) => ({
+  code: error?.code || 'unknown',
+  message: error?.message || String(error || 'Unknown gallery upload error'),
+  name: error?.name || null,
+});
+
+const logGalleryUpload = (event, payload = {}) => {
+  console.info('[Gallery Upload Debug]', JSON.stringify({
+    event,
+    ...payload,
+  }));
+};
+
+const logGalleryUploadError = (event, error, payload = {}) => {
+  console.error('[Gallery Upload Debug]', JSON.stringify({
+    event,
+    ...payload,
+    error: serializeGalleryError(error),
+  }));
+};
+
+const fileDebugPayload = (file) => ({
+  fileName: file?.name || null,
+  fileSize: file?.size || null,
+  mimeType: file?.type || null,
+});
 
 const normalizeCategory = (value) =>
   ALLOWED_CATEGORIES.has(String(value || '')) ? String(value) : 'gallery';
@@ -60,13 +88,16 @@ const galleryPayload = (input, adminUid) => ({
 });
 
 const validateImageFile = (file) => {
+  logGalleryUpload('validate-file', fileDebugPayload(file));
   if (!file) throw Object.assign(new Error('יש לבחור קובץ תמונה.'), { code: 'gallery/file-required' });
-  if (!ALLOWED_IMAGE_TYPES.has(String(file.type || ''))) {
+  const mimeType = String(file.type || '');
+  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
     throw Object.assign(new Error('סוג קובץ לא נתמך'), { code: 'gallery/invalid-file-type' });
   }
   if (file.size > MAX_IMAGE_BYTES) {
     throw Object.assign(new Error('הקובץ גדול מדי'), { code: 'gallery/file-too-large' });
   }
+  logGalleryUpload('validate-file-success', fileDebugPayload(file));
 };
 
 export const getGalleryUploadErrorMessage = (error) => {
@@ -86,11 +117,17 @@ const buildStoragePath = (imageId, file) => {
   const safeName = String(file.name || 'image')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return `gallery/${imageId}/${safeName || 'image'}`;
+  const storagePath = `gallery/${imageId}/${safeName || 'image'}`;
+  logGalleryUpload('generated-storage-path', {
+    imageId,
+    storagePath,
+    ...fileDebugPayload(file),
+  });
+  return storagePath;
 };
 
-const createUploadTimeoutError = () => Object.assign(
-  new Error('Gallery upload stalled before Firebase Storage completed the upload.'),
+const createUploadTimeoutError = (phase, progress) => Object.assign(
+  new Error(`Gallery upload stalled during ${phase}. Progress stayed at ${progress}%.`),
   { code: 'storage/upload-stalled' },
 );
 
@@ -99,6 +136,8 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
   let settled = false;
   let stallTimer = null;
   let totalTimer = null;
+  let lastProgress = 0;
+  let lastPhase = 'before-uploadBytesResumable-state-changed';
 
   const clearTimers = () => {
     if (stallTimer) window.clearTimeout(stallTimer);
@@ -109,16 +148,50 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
     if (settled) return;
     settled = true;
     clearTimers();
+    logGalleryUploadError('upload-failed', error, {
+      imageId,
+      adminUid,
+      storagePath: imageRef.fullPath,
+      lastProgress,
+      lastPhase,
+      hangingFirebaseCall: lastProgress === 0
+        ? 'uploadBytesResumable(...).on("state_changed") did not report bytes transferred before timeout/error'
+        : null,
+      ...fileDebugPayload(file),
+    });
     uploadTask?.cancel?.();
     reject(error);
   };
 
   const resetStallTimer = () => {
     if (stallTimer) window.clearTimeout(stallTimer);
-    stallTimer = window.setTimeout(() => fail(createUploadTimeoutError()), UPLOAD_STALL_TIMEOUT_MS);
+    stallTimer = window.setTimeout(() => {
+      logGalleryUpload('upload-stalled-timeout', {
+        imageId,
+        storagePath: imageRef.fullPath,
+        lastProgress,
+        lastPhase,
+        hangingFirebaseCall: lastProgress === 0
+          ? 'uploadBytesResumable(...).on("state_changed") did not emit a progress snapshot'
+          : 'Firebase Storage upload task stopped emitting progress snapshots',
+        ...fileDebugPayload(file),
+      });
+      fail(createUploadTimeoutError(lastPhase, lastProgress));
+    }, UPLOAD_STALL_TIMEOUT_MS);
   };
 
+  logGalleryUpload('upload-start', {
+    imageId,
+    adminUid,
+    storagePath: imageRef.fullPath,
+    ...fileDebugPayload(file),
+  });
   onProgress?.(0);
+  logGalleryUpload('calling-uploadBytesResumable', {
+    imageId,
+    storagePath: imageRef.fullPath,
+    contentType: file.type,
+  });
   uploadTask = uploadBytesResumable(imageRef, file, {
     contentType: file.type,
     customMetadata: {
@@ -130,10 +203,20 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
   uploadTask.on(
     'state_changed',
     (snapshot) => {
+      lastPhase = `uploadBytesResumable-state-${snapshot.state || 'unknown'}`;
       const progress = snapshot.totalBytes
         ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
         : 0;
+      lastProgress = progress;
       onProgress?.(progress);
+      logGalleryUpload('upload-progress', {
+        imageId,
+        storagePath: imageRef.fullPath,
+        progress,
+        bytesTransferred: snapshot.bytesTransferred,
+        totalBytes: snapshot.totalBytes,
+        state: snapshot.state || null,
+      });
       resetStallTimer();
     },
     fail,
@@ -142,13 +225,53 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
       settled = true;
       clearTimers();
       onProgress?.(100);
+      lastProgress = 100;
+      lastPhase = 'upload-complete';
+      logGalleryUpload('upload-completion', {
+        imageId,
+        storagePath: imageRef.fullPath,
+        bytesTransferred: uploadTask.snapshot?.bytesTransferred || null,
+        totalBytes: uploadTask.snapshot?.totalBytes || null,
+      });
       resolve(uploadTask.snapshot);
     },
   );
 
   resetStallTimer();
-  totalTimer = window.setTimeout(() => fail(createUploadTimeoutError()), UPLOAD_TOTAL_TIMEOUT_MS);
+  totalTimer = window.setTimeout(() => {
+    logGalleryUpload('upload-total-timeout', {
+      imageId,
+      storagePath: imageRef.fullPath,
+      lastProgress,
+      lastPhase,
+      hangingFirebaseCall: lastProgress === 0
+        ? 'uploadBytesResumable never produced a progress snapshot'
+        : 'Firebase Storage upload task did not complete',
+      ...fileDebugPayload(file),
+    });
+    fail(createUploadTimeoutError(lastPhase, lastProgress));
+  }, UPLOAD_TOTAL_TIMEOUT_MS);
 });
+
+const logAdminRoleLookup = async (adminUid) => {
+  const adminDocPath = `admins/${adminUid}`;
+  try {
+    const adminSnapshot = await getDoc(doc(getFirestoreDb(), 'admins', adminUid));
+    const adminData = adminSnapshot.exists() ? adminSnapshot.data() : null;
+    logGalleryUpload('admin-role-lookup-result', {
+      currentAuthenticatedUserUid: adminUid,
+      adminDocPath,
+      exists: adminSnapshot.exists(),
+      role: adminData?.role || null,
+      active: adminData?.active ?? null,
+    });
+  } catch (error) {
+    logGalleryUploadError('admin-role-lookup-exception', error, {
+      currentAuthenticatedUserUid: adminUid,
+      adminDocPath,
+    });
+  }
+};
 
 export const subscribeToPublishedGallery = (onData, onError) => onSnapshot(
   query(galleryCollection(), where('active', '==', true)),
@@ -176,31 +299,89 @@ export const subscribeToAdminGallery = (onData, onError) => {
 
 export const createGalleryPhoto = async (input) => {
   const admin = await ensureFirebaseAdmin();
+  logGalleryUpload('create-gallery-photo-authenticated-user', {
+    currentAuthenticatedUserUid: admin.uid,
+  });
+  await logAdminRoleLookup(admin.uid);
   const payload = galleryPayload(input, admin.uid);
   if (!payload.imageUrl) throw new Error('כתובת תמונה נדרשת.');
-  return addDoc(galleryCollection(), {
-    ...payload,
-    createdAt: serverTimestamp(),
-  });
+  try {
+    logGalleryUpload('firestore-gallery-document-create-start', {
+      mode: 'url-only',
+      currentAuthenticatedUserUid: admin.uid,
+      category: payload.category,
+      active: payload.active,
+    });
+    const result = await addDoc(galleryCollection(), {
+      ...payload,
+      createdAt: serverTimestamp(),
+    });
+    logGalleryUpload('firestore-gallery-document-create-success', {
+      galleryDocumentId: result.id,
+      mode: 'url-only',
+    });
+    return result;
+  } catch (error) {
+    logGalleryUploadError('firestore-gallery-document-create-exception', error, {
+      mode: 'url-only',
+      currentAuthenticatedUserUid: admin.uid,
+    });
+    throw error;
+  }
 };
 
 export const uploadGalleryImage = async (file, input = {}, options = {}) => {
   validateImageFile(file);
   const admin = await ensureFirebaseAdmin();
+  logGalleryUpload('upload-gallery-image-authenticated-user', {
+    currentAuthenticatedUserUid: admin.uid,
+    ...fileDebugPayload(file),
+  });
+  await logAdminRoleLookup(admin.uid);
   const photoRef = doc(galleryCollection());
   const storagePath = buildStoragePath(photoRef.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
 
   try {
     await uploadFileWithProgress(imageRef, file, admin.uid, photoRef.id, options.onProgress);
+    logGalleryUpload('download-url-generation-start', {
+      galleryDocumentId: photoRef.id,
+      storagePath,
+    });
     const imageUrl = await getDownloadURL(imageRef);
+    logGalleryUpload('download-url-generation-success', {
+      galleryDocumentId: photoRef.id,
+      storagePath,
+      imageUrl,
+    });
+    logGalleryUpload('firestore-gallery-document-create-start', {
+      galleryDocumentId: photoRef.id,
+      storagePath,
+      currentAuthenticatedUserUid: admin.uid,
+      category: input.category || null,
+      active: input.active !== false,
+    });
     await setDoc(photoRef, {
       ...galleryPayload({ ...input, imageUrl, storagePath }, admin.uid),
       createdAt: serverTimestamp(),
     });
+    logGalleryUpload('firestore-gallery-document-create-success', {
+      galleryDocumentId: photoRef.id,
+      storagePath,
+    });
     return { id: photoRef.id, imageUrl, storagePath };
   } catch (error) {
-    await deleteObject(imageRef).catch(() => {});
+    logGalleryUploadError('upload-gallery-image-caught-exception', error, {
+      galleryDocumentId: photoRef.id,
+      storagePath,
+      currentAuthenticatedUserUid: admin.uid,
+    });
+    await deleteObject(imageRef).catch((cleanupError) => {
+      logGalleryUploadError('upload-gallery-image-cleanup-exception', cleanupError, {
+        galleryDocumentId: photoRef.id,
+        storagePath,
+      });
+    });
     throw error;
   }
 };
@@ -209,20 +390,44 @@ export const replaceGalleryImage = async (photo, file, changes = {}, options = {
   validateImageFile(file);
   if (!photo?.id) throw new Error('מזהה תמונה חסר.');
   const admin = await ensureFirebaseAdmin();
+  logGalleryUpload('replace-gallery-image-authenticated-user', {
+    currentAuthenticatedUserUid: admin.uid,
+    existingGalleryDocumentId: photo.id,
+    ...fileDebugPayload(file),
+  });
+  await logAdminRoleLookup(admin.uid);
   const storagePath = buildStoragePath(photo.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
 
   try {
     await uploadFileWithProgress(imageRef, file, admin.uid, photo.id, options.onProgress);
+    logGalleryUpload('download-url-generation-start', {
+      galleryDocumentId: photo.id,
+      storagePath,
+    });
     const imageUrl = await getDownloadURL(imageRef);
+    logGalleryUpload('download-url-generation-success', {
+      galleryDocumentId: photo.id,
+      storagePath,
+      imageUrl,
+    });
+    logGalleryUpload('firestore-gallery-document-update-start', {
+      galleryDocumentId: photo.id,
+      storagePath,
+      currentAuthenticatedUserUid: admin.uid,
+    });
     await updateDoc(doc(getFirestoreDb(), 'gallery', photo.id), {
       ...galleryPayload({ ...photo, ...changes, imageUrl, storagePath }, admin.uid),
+    });
+    logGalleryUpload('firestore-gallery-document-update-success', {
+      galleryDocumentId: photo.id,
+      storagePath,
     });
     if (photo.storagePath && photo.storagePath !== storagePath) {
       await deleteObject(storageRef(getFirebaseStorage(), photo.storagePath)).catch((error) => {
         if (error?.code !== 'storage/object-not-found') {
-          console.warn('[Firebase Storage] Previous gallery image cleanup failed', {
-            code: error?.code || 'unknown',
+          logGalleryUploadError('previous-gallery-image-cleanup-exception', error, {
+            galleryDocumentId: photo.id,
             storagePath: photo.storagePath,
           });
         }
@@ -230,7 +435,17 @@ export const replaceGalleryImage = async (photo, file, changes = {}, options = {
     }
     return { id: photo.id, imageUrl, storagePath };
   } catch (error) {
-    await deleteObject(imageRef).catch(() => {});
+    logGalleryUploadError('replace-gallery-image-caught-exception', error, {
+      galleryDocumentId: photo.id,
+      storagePath,
+      currentAuthenticatedUserUid: admin.uid,
+    });
+    await deleteObject(imageRef).catch((cleanupError) => {
+      logGalleryUploadError('replace-gallery-image-cleanup-exception', cleanupError, {
+        galleryDocumentId: photo.id,
+        storagePath,
+      });
+    });
     throw error;
   }
 };

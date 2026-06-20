@@ -20,6 +20,21 @@ const publicProfile = (snapshot) => {
     firstName: data.firstName,
     lastName: data.lastName,
     role: data.role,
+    visitsCount: Number(data.visitsCount || 0),
+    completedAppointments: Number(data.completedAppointments || 0),
+    cancelledAppointments: Number(data.cancelledAppointments || 0),
+    noShowCount: Number(data.noShowCount || 0),
+    totalSpent: Number(data.totalSpent || 0),
+    reviewsCount: Number(data.reviewsCount || 0),
+    blocked: data.blocked === true,
+    blockedReason: data.blockedReason || '',
+    warningCount: Number(data.warningCount || 0),
+    requiresNoShowPayment: data.requiresNoShowPayment === true,
+    noShowPaymentAmount: Number(data.noShowPaymentAmount || 0),
+    noShowPaymentReason: data.noShowPaymentReason || '',
+    relatedAppointmentId: data.relatedAppointmentId || '',
+    notificationPreferences: data.notificationPreferences || {},
+    language: data.language || 'he',
   };
 };
 
@@ -104,13 +119,7 @@ export const registerCustomerProfile = onCall(async (request) => {
       lastLoginAt: FieldValue.serverTimestamp(),
     };
     transaction.set(ref, createdProfile);
-    return {
-      uid: auth.uid,
-      phoneNumber: auth.phoneNumber,
-      firstName,
-      lastName,
-      role: 'customer',
-    };
+    return publicProfile({ id: auth.uid, data: () => createdProfile });
   });
 
   logger.info('Customer profile created', { uid: auth.uid });

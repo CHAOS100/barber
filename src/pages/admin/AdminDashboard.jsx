@@ -283,7 +283,11 @@ export default function AdminDashboard() {
             </button>
           </div>
           <div className="space-y-2">
-            {todayAppts.map((appt, i) => (
+            {todayAppts.length === 0 ? (
+              <div className="glass rounded-xl p-4 text-center text-muted-foreground text-sm">
+                אין תורים להיום
+              </div>
+            ) : todayAppts.map((appt, i) => (
               <motion.div
                 key={appt.id}
                 initial={{ opacity: 0, x: 20 }}

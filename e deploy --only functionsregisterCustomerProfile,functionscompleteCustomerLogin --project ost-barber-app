@@ -1,0 +1,42 @@
+warning: in the working copy of 'functions/src/customerProfiles.js', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/functions/src/customerProfiles.js b/functions/src/customerProfiles.js[m
+[1mindex 8effb7c..65264c5 100644[m
+[1m--- a/functions/src/customerProfiles.js[m
+[1m+++ b/functions/src/customerProfiles.js[m
+[36m@@ -20,6 +20,21 @@[m [mconst publicProfile = (snapshot) => {[m
+     firstName: data.firstName,[m
+     lastName: data.lastName,[m
+     role: data.role,[m
+[32m+[m[32m    visitsCount: Number(data.visitsCount || 0),[m
+[32m+[m[32m    completedAppointments: Number(data.completedAppointments || 0),[m
+[32m+[m[32m    cancelledAppointments: Number(data.cancelledAppointments || 0),[m
+[32m+[m[32m    noShowCount: Number(data.noShowCount || 0),[m
+[32m+[m[32m    totalSpent: Number(data.totalSpent || 0),[m
+[32m+[m[32m    reviewsCount: Number(data.reviewsCount || 0),[m
+[32m+[m[32m    blocked: data.blocked === true,[m
+[32m+[m[32m    blockedReason: data.blockedReason || '',[m
+[32m+[m[32m    warningCount: Number(data.warningCount || 0),[m
+[32m+[m[32m    requiresNoShowPayment: data.requiresNoShowPayment === true,[m
+[32m+[m[32m    noShowPaymentAmount: Number(data.noShowPaymentAmount || 0),[m
+[32m+[m[32m    noShowPaymentReason: data.noShowPaymentReason || '',[m
+[32m+[m[32m    relatedAppointmentId: data.relatedAppointmentId || '',[m
+[32m+[m[32m    notificationPreferences: data.notificationPreferences || {},[m
+[32m+[m[32m    language: data.language || 'he',[m
+   };[m
+ };[m
+ [m
+[36m@@ -104,13 +119,7 @@[m [mexport const registerCustomerProfile = onCall(async (request) => {[m
+       lastLoginAt: FieldValue.serverTimestamp(),[m
+     };[m
+     transaction.set(ref, createdProfile);[m
+[31m-    return {[m
+[31m-      uid: auth.uid,[m
+[31m-      phoneNumber: auth.phoneNumber,[m
+[31m-      firstName,[m
+[31m-      lastName,[m
+[31m-      role: 'customer',[m
+[31m-    };[m
+[32m+[m[32m    return publicProfile({ id: auth.uid, data: () => createdProfile });[m
+   });[m
+ [m
+   logger.info('Customer profile created', { uid: auth.uid });[m
