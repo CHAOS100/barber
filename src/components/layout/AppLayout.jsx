@@ -32,7 +32,7 @@ export default function AppLayout() {
           </GoldButton>
         </div>
       )}
-      <main className="app-content">
+      <main className="app-content" data-route-scroll-root>
         <Outlet />
       </main>
       <CustomerNotificationPopup />

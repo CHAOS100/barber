@@ -23,6 +23,8 @@ import {
 } from '@/lib/firebase';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const UPLOAD_STALL_TIMEOUT_MS = 90_000;
+const UPLOAD_TOTAL_TIMEOUT_MS = 5 * 60_000;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_CATEGORIES = new Set(['gallery', 'business', 'barber', 'service']);
 const galleryCollection = () => collection(getFirestoreDb(), 'gallery');
@@ -72,6 +74,8 @@ export const getGalleryUploadErrorMessage = (error) => {
   if (error?.code === 'gallery/invalid-file-type') return 'סוג קובץ לא נתמך';
   if (error?.code === 'storage/unauthorized') return 'אין לך הרשאה להעלות תמונות.';
   if (error?.code === 'storage/canceled') return 'העלאת התמונה בוטלה.';
+  if (error?.code === 'storage/upload-stalled') return 'העלאת התמונה נתקעה. בדוק חיבור אינטרנט ונסה שוב.';
+  if (error?.code === 'storage/retry-limit-exceeded') return 'החיבור ל־Storage נכשל. נסה שוב בעוד רגע.';
   if (String(error?.message || '').includes('bucket')) return 'Firebase Storage לא מוגדר לפרויקט.';
   return 'העלאת התמונה נכשלה';
 };
@@ -85,9 +89,37 @@ const buildStoragePath = (imageId, file) => {
   return `gallery/${imageId}/${safeName || 'image'}`;
 };
 
+const createUploadTimeoutError = () => Object.assign(
+  new Error('Gallery upload stalled before Firebase Storage completed the upload.'),
+  { code: 'storage/upload-stalled' },
+);
+
 const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) => new Promise((resolve, reject) => {
+  let uploadTask;
+  let settled = false;
+  let stallTimer = null;
+  let totalTimer = null;
+
+  const clearTimers = () => {
+    if (stallTimer) window.clearTimeout(stallTimer);
+    if (totalTimer) window.clearTimeout(totalTimer);
+  };
+
+  const fail = (error) => {
+    if (settled) return;
+    settled = true;
+    clearTimers();
+    uploadTask?.cancel?.();
+    reject(error);
+  };
+
+  const resetStallTimer = () => {
+    if (stallTimer) window.clearTimeout(stallTimer);
+    stallTimer = window.setTimeout(() => fail(createUploadTimeoutError()), UPLOAD_STALL_TIMEOUT_MS);
+  };
+
   onProgress?.(0);
-  const uploadTask = uploadBytesResumable(imageRef, file, {
+  uploadTask = uploadBytesResumable(imageRef, file, {
     contentType: file.type,
     customMetadata: {
       uploadedBy: adminUid,
@@ -102,13 +134,20 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
         ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
         : 0;
       onProgress?.(progress);
+      resetStallTimer();
     },
-    reject,
+    fail,
     () => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
       onProgress?.(100);
       resolve(uploadTask.snapshot);
     },
   );
+
+  resetStallTimer();
+  totalTimer = window.setTimeout(() => fail(createUploadTimeoutError()), UPLOAD_TOTAL_TIMEOUT_MS);
 });
 
 export const subscribeToPublishedGallery = (onData, onError) => onSnapshot(
@@ -152,9 +191,8 @@ export const uploadGalleryImage = async (file, input = {}, options = {}) => {
   const storagePath = buildStoragePath(photoRef.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
 
-  await uploadFileWithProgress(imageRef, file, admin.uid, photoRef.id, options.onProgress);
-
   try {
+    await uploadFileWithProgress(imageRef, file, admin.uid, photoRef.id, options.onProgress);
     const imageUrl = await getDownloadURL(imageRef);
     await setDoc(photoRef, {
       ...galleryPayload({ ...input, imageUrl, storagePath }, admin.uid),
@@ -173,9 +211,9 @@ export const replaceGalleryImage = async (photo, file, changes = {}, options = {
   const admin = await ensureFirebaseAdmin();
   const storagePath = buildStoragePath(photo.id, file);
   const imageRef = storageRef(getFirebaseStorage(), storagePath);
-  await uploadFileWithProgress(imageRef, file, admin.uid, photo.id, options.onProgress);
 
   try {
+    await uploadFileWithProgress(imageRef, file, admin.uid, photo.id, options.onProgress);
     const imageUrl = await getDownloadURL(imageRef);
     await updateDoc(doc(getFirestoreDb(), 'gallery', photo.id), {
       ...galleryPayload({ ...photo, ...changes, imageUrl, storagePath }, admin.uid),

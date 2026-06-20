@@ -243,17 +243,9 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
           </label>
 
           {form.type === 'warning' && (
-            <label className="flex items-start gap-3 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={form.requiresAction}
-                onChange={(event) => setForm((prev) => ({ ...prev, requiresAction: event.target.checked }))}
-                className="mt-1 accent-[#93E3BD]"
-              />
-              <span>
-                זו אזהרה שדורשת טיפול. הלקוח יוכל לסמן שקרא אותה, אבל לא למחוק אותה עד שהעסק יטפל בה.
-              </span>
-            </label>
+            <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground leading-5">
+              אזהרות הן התראות חשובות: הלקוח יכול לסמן שקרא, אבל לא למחוק אותן בעצמו.
+            </div>
           )}
 
           <button

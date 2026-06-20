@@ -38,7 +38,7 @@ service cloud.firestore {
     }
 
     function isCriticalNotificationData(data) {
-      return data.type in ['block', 'payment_request', 'no_show_payment_required']
+      return data.type in ['warning', 'block', 'payment_request', 'no_show_payment_required']
         || (
           data.type == 'warning'
           && data.keys().hasAny(['requiresAction'])

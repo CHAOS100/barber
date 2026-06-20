@@ -278,7 +278,10 @@ export default function AdminGallery() {
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => handleFileSelected(event.target.files?.[0] || null)}
+                    onChange={(event) => {
+                      handleFileSelected(event.target.files?.[0] || null);
+                      event.target.value = '';
+                    }}
                     disabled={saveMutation.isPending}
                   />
                 </label>
@@ -291,7 +294,10 @@ export default function AdminGallery() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(event) => handleFileSelected(event.target.files?.[0] || null)}
+                    onChange={(event) => {
+                      handleFileSelected(event.target.files?.[0] || null);
+                      event.target.value = '';
+                    }}
                     disabled={saveMutation.isPending}
                   />
                 </label>

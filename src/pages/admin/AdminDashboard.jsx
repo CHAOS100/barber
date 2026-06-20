@@ -150,6 +150,7 @@ export default function AdminDashboard() {
             { icon: AlertTriangle, label: 'אזהרות לקוחות', value: stats.warningCount, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
             { icon: Ban, label: 'לקוחות חסומים', value: stats.blockedCustomersCount, color: 'text-red-400', bg: 'bg-red-400/20' },
             { icon: CreditCard, label: 'דרישות תשלום', value: stats.paymentRequiredCustomersCount, color: 'text-yellow-300', bg: 'bg-yellow-400/20' },
+            { icon: AlertTriangle, label: 'אי־הגעות לקוחות', value: stats.customerNoShowCount, color: 'text-orange-300', bg: 'bg-orange-400/20' },
             { icon: Bell, label: 'קריטיות שלא נקראו', value: unreadCriticalNotificationsCount, color: 'text-primary', bg: 'bg-primary/20' },
           ].map((stat, i) => {
             const StatIcon = stat.icon;

@@ -50,7 +50,7 @@ export const CUSTOMER_NOTIFICATION_TARGET_TYPES = [
 
 const ACTIVE_NOTIFICATION_STATUSES = new Set(['unread', 'read']);
 const MAX_BATCH_WRITES = 400;
-const CRITICAL_NOTIFICATION_TYPES = new Set(['block', 'payment_request', 'no_show_payment_required']);
+const CRITICAL_NOTIFICATION_TYPES = new Set(['warning', 'block', 'payment_request', 'no_show_payment_required']);
 
 const cleanString = (value) => String(value || '').trim();
 

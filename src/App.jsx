@@ -35,6 +35,7 @@ import AdminMessages from './pages/admin/AdminMessages';
 import AppLayout from './components/layout/AppLayout';
 import AdminRoute from './components/AdminRoute';
 import { PHONE_RECAPTCHA_CONTAINER_ID } from '@/lib/firebase';
+import ScrollToTop from './components/ScrollToTop';
 
 function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -53,6 +54,7 @@ function App() {
       {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
       <QueryClientProvider client={queryClientInstance}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <ScrollToTop />
           <Routes>
             <Route path="/login" element={<OTPLogin />} />
             <Route path="/email-login" element={<Navigate to="/login" replace />} />
