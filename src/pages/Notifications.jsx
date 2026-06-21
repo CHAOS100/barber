@@ -239,7 +239,7 @@ export default function Notifications() {
               key="empty"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="glass rounded-3xl p-10 text-center mt-6"
+              className="glass premium-empty-state rounded-3xl p-10 text-center mt-6"
             >
               <BellOff className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
               <h2 className="font-black text-lg mb-1">אין הודעות חדשות כרגע</h2>

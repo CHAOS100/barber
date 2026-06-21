@@ -140,7 +140,7 @@ export default function Reviews() {
 
       <div className="px-4 space-y-3 mb-8">
         {reviews.length === 0 ? (
-          <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">
+          <div className="glass premium-empty-state rounded-2xl p-8 text-center text-muted-foreground text-sm">
             עדיין אין ביקורות.
           </div>
         ) : reviews.map((review, index) => (

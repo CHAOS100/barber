@@ -24,7 +24,7 @@ export default function GoldButton({ children, onClick, className = '', size = '
       onClick={onClick}
       disabled={disabled}
       {...props}
-      className={`inline-flex items-center justify-center gap-2 rounded-2xl text-center font-heebo leading-none select-none touch-manipulation transition-all duration-200 ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-2xl text-center font-heebo leading-none select-none touch-manipulation border border-white/10 shadow-[0_14px_32px_rgba(0,0,0,0.22)] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'} ${className}`}
     >
       {children}
     </motion.button>

@@ -247,7 +247,7 @@ export default function Home() {
                 </Link>
               </div>
               {previewMessages.length === 0 ? (
-                <div className="glass rounded-2xl px-4 py-3 text-center text-xs text-muted-foreground">
+                <div className="glass premium-empty-state rounded-2xl px-4 py-3 text-center text-xs text-muted-foreground">
                   אין הודעות חדשות כרגע
                 </div>
               ) : (
