@@ -6,6 +6,7 @@ import {
   firebaseProjectId,
   getFirebaseFunctions,
   getFirestoreDb,
+  resolveFirebaseUserPhoneNumber,
 } from '@/lib/firebase';
 
 const appointmentsCollection = () => collection(getFirestoreDb(), 'appointments');
@@ -20,6 +21,7 @@ const mapAppointment = (snapshot) => {
     ...data,
     customer_name: data.customerName,
     customer_phone: data.customerPhone,
+    customer_id: data.customerId,
     service_name: data.serviceName,
     service_id: data.serviceId,
     service_price: data.servicePrice,
@@ -31,6 +33,7 @@ const mapAppointment = (snapshot) => {
     cancellation_reason: data.cancellationReason,
     cancelled_by: data.cancelledBy,
     cancelled_at: data.cancelledAt,
+    is_phone_only_customer: !data.customerId && Boolean(data.customerPhone),
     created_date: data.createdAt?.toDate?.().toISOString?.() || null,
   };
 };
@@ -122,6 +125,7 @@ const normalizeChanges = (changes) => {
   const aliases = {
     customer_name: 'customerName',
     customer_phone: 'customerPhone',
+    customer_id: 'customerId',
     service_name: 'serviceName',
     service_id: 'serviceId',
     service_price: 'servicePrice',
@@ -274,11 +278,73 @@ export const subscribeToAdminAppointments = (onData, onError) =>
   );
 
 export const subscribeToCustomerAppointments = (onData, onError) =>
-  createRealtimeSubscription(
-    (user) =>
-      query(appointmentsCollection(), where('customerId', '==', user.uid)),
-    'customer',
-    ensureFirebaseCustomer,
-    onData,
-    onError,
-  );
+  (() => {
+    let cancelled = false;
+    let unsubscribers = [];
+    const sourceDocs = {
+      customerId: new Map(),
+      customerPhone: new Map(),
+    };
+
+    const emitMergedAppointments = () => {
+      const merged = new Map();
+      [...sourceDocs.customerPhone.values(), ...sourceDocs.customerId.values()].forEach((appointment) => {
+        merged.set(appointment.id, appointment);
+      });
+      onData([...merged.values()].sort(bySchedule));
+    };
+
+    console.info('[Firestore] customer appointments listener subscription attempt', {
+      projectId: firebaseProjectId,
+      audience: 'customer',
+      matchBy: ['customerId', 'customerPhone'],
+    });
+
+    ensureFirebaseCustomer()
+      .then(async (user) => {
+        const phoneNumber = await resolveFirebaseUserPhoneNumber(user);
+        if (cancelled) return;
+
+        const subscriptions = [
+          {
+            key: 'customerId',
+            queryRef: query(appointmentsCollection(), where('customerId', '==', user.uid)),
+          },
+        ];
+
+        if (phoneNumber) {
+          subscriptions.push({
+            key: 'customerPhone',
+            queryRef: query(appointmentsCollection(), where('customerPhone', '==', phoneNumber)),
+          });
+        }
+
+        unsubscribers = subscriptions.map(({ key, queryRef }) => onSnapshot(
+          queryRef,
+          (snapshot) => {
+            sourceDocs[key] = new Map(snapshot.docs.map((item) => [item.id, mapAppointment(item)]));
+            console.info('[Firestore] Customer received appointments snapshot', {
+              projectId: firebaseProjectId,
+              audience: 'customer',
+              matchBy: key,
+              size: snapshot.size,
+            });
+            emitMergedAppointments();
+          },
+          (error) => {
+            logListenerError('customer', `${key} snapshot failed`, error);
+            onError(error);
+          },
+        ));
+      })
+      .catch((error) => {
+        logListenerError('customer', 'subscription failed', error);
+        onError(error);
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      unsubscribers = [];
+    };
+  })();

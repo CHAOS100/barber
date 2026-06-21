@@ -195,6 +195,36 @@ body:has([role="dialog"]) {
   display: none;
 }
 
+.galtech-badge {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  z-index: 45;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 227, 189, 0.14);
+  background: rgba(10, 10, 10, 0.46);
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(147, 227, 189, 0.52);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.galtech-badge--app {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+}
+
+.galtech-badge--auth {
+  position: absolute;
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+}
+
+.keyboard-open .galtech-badge--auth {
+  display: none;
+}
+
 .gold-gradient {
   background: linear-gradient(135deg, #78D2AA 0%, #93E3BD 50%, #C5F6DE 100%);
 }

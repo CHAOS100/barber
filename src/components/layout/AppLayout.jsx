@@ -4,6 +4,7 @@ import BottomNav from './BottomNav';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import GoldButton from '@/components/ui/GoldButton';
 import CustomerNotificationPopup from '@/components/notifications/CustomerNotificationPopup';
+import GalTechBadge from '@/components/branding/GalTechBadge';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -37,9 +38,7 @@ export default function AppLayout() {
       </main>
       <CustomerNotificationPopup />
       <BottomNav />
-      <span className="fixed bottom-1 left-2 text-[9px] text-muted-foreground/20 pointer-events-none select-none z-0">
-        by GalTech
-      </span>
+      <GalTechBadge variant="app" />
     </div>
   );
 }

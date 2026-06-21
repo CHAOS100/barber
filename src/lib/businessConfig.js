@@ -8,7 +8,7 @@ export const BUSINESS_INFO = {
   phone: '054-2244542',
   whatsapp: '+972542244542',
   description: 'ספר פרימיום המתמחה בפייד, תספורות מודרניות, עיצוב זקן ועיצוב שיער.',
-  instagram: 'https://instagram.com/ostbarber',
+  instagram: 'https://www.instagram.com/ost.cuts?igsh=bWlmdXN5NzNvaTc4',
   waze: 'https://waze.com/ul?q=השומר+55+ראשון+לציון',
   hours: [
     { day: 'ראשון', open: '09:00', close: '20:00', is_open: true },

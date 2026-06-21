@@ -5,6 +5,7 @@ import { ArrowRight, Phone, ShieldCheck, Lock, Mail, MessageCircle } from 'lucid
 import { clearStoredAdminSession, loginUser } from '../lib/userStore';
 import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
+import GalTechBadge from '@/components/branding/GalTechBadge';
 import {
   confirmFirebasePhoneCode,
   getErrorCode,
@@ -879,9 +880,7 @@ export default function OTPLogin() {
           </div>
         </motion.div>
 
-        <p className="auth-credit text-muted-foreground/40 text-[10px]">
-          by GalTech
-        </p>
+        <GalTechBadge variant="auth" />
       </div>
     </div>
   );

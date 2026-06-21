@@ -41,6 +41,32 @@ const publicProfile = (snapshot) => {
 const getProfilesByPhone = (transaction, phoneNumber) =>
   transaction.get(db().collection('users').where('phoneNumber', '==', phoneNumber).limit(2));
 
+const profileDisplayName = (profile) =>
+  String(profile?.name || `${profile?.firstName || ''} ${profile?.lastName || ''}`).trim();
+
+const attachPhoneAppointmentsToCustomer = async (transaction, uid, phoneNumber, profile) => {
+  const appointments = await transaction.get(
+    db().collection('appointments').where('customerPhone', '==', phoneNumber),
+  );
+  const displayName = profileDisplayName(profile);
+
+  appointments.docs.forEach((appointmentSnapshot) => {
+    const appointment = appointmentSnapshot.data();
+    const linkedPreviousCustomerId = appointment.customerId && appointment.customerId !== uid
+      ? appointment.customerId
+      : null;
+    transaction.update(appointmentSnapshot.ref, {
+      customerId: uid,
+      customerName: appointment.customerName || displayName,
+      customerRegistered: true,
+      ...(linkedPreviousCustomerId ? { linkedPreviousCustomerId } : {}),
+      linkedCustomerAt: FieldValue.serverTimestamp(),
+      linkedCustomerBy: 'phone_login',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+};
+
 export const completeCustomerLogin = onCall(async (request) => {
   const auth = await requirePhoneCustomerAuth(request);
 
@@ -60,8 +86,10 @@ export const completeCustomerLogin = onCall(async (request) => {
       throw new HttpsError('failed-precondition', 'Customer profile UID does not match Firebase Auth UID.');
     }
 
+    const profile = publicProfile(profileSnapshot);
+    await attachPhoneAppointmentsToCustomer(transaction, auth.uid, auth.phoneNumber, profile);
     transaction.update(profileSnapshot.ref, { lastLoginAt: FieldValue.serverTimestamp() });
-    return { registrationRequired: false, profile: publicProfile(profileSnapshot) };
+    return { registrationRequired: false, profile };
   });
 
   logger.info(result.registrationRequired ? 'New user registration required' : 'Existing user login complete', {
@@ -118,6 +146,7 @@ export const registerCustomerProfile = onCall(async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
       lastLoginAt: FieldValue.serverTimestamp(),
     };
+    await attachPhoneAppointmentsToCustomer(transaction, auth.uid, auth.phoneNumber, createdProfile);
     transaction.set(ref, createdProfile);
     return publicProfile({ id: auth.uid, data: () => createdProfile });
   });

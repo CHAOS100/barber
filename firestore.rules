@@ -22,7 +22,23 @@ service cloud.firestore {
     }
 
     function ownsAppointment() {
-      return isPhoneCustomer() && resource.data.customerId == request.auth.uid;
+      return isPhoneCustomer()
+        && (
+          resource.data.customerId == request.auth.uid
+          || (
+            resource.data.customerPhone is string
+            && (
+              (
+                request.auth.token.firebase.sign_in_provider == 'phone'
+                && resource.data.customerPhone == request.auth.token.phone_number
+              )
+              || (
+                request.auth.token.native_phone_auth == true
+                && resource.data.customerPhone == request.auth.token.native_phone_number
+              )
+            )
+          )
+        );
     }
 
     function ownsUserDocument(userId) {

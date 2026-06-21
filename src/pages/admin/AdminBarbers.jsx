@@ -229,7 +229,7 @@ export default function AdminBarbers() {
                 </label>
                 <label className="block text-xs text-muted-foreground">
                   <span className="flex items-center gap-1"><Instagram className="w-3.5 h-3.5" /> אינסטגרם (URL, אופציונלי)</span>
-                  <input value={form.instagramUrl || ''} onChange={e => setForm({ ...form, instagramUrl: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://instagram.com/..." />
+                  <input value={form.instagramUrl || ''} onChange={e => setForm({ ...form, instagramUrl: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://www.instagram.com/ost.cuts?igsh=bWlmdXN5NzNvaTc4" />
                 </label>
                 <label className="block text-xs text-muted-foreground">התמחויות, מופרדות בפסיק
                   <input value={form.specialties} onChange={e => setForm({ ...form, specialties: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />

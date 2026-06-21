@@ -13,6 +13,8 @@ import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
+import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
@@ -38,6 +40,8 @@ const STATUS_FILTERS = [
   { value: 'no_show', label: STATUS_CONFIG.no_show.label },
 ];
 
+const STATUS_EDIT_OPTIONS = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
+
 // Generate time slots for edit
 const TIME_SLOTS = [];
 for (let h = 6; h < 24; h++) {
@@ -46,8 +50,9 @@ for (let h = 6; h < 24; h++) {
   }
 }
 
-function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSaving, error }) {
+function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onClose, isSaving, error }) {
   const [form, setForm] = useState({
+    customer_id: appt.customer_id || appt.customerId || '',
     customer_name: appt.customer_name || '',
     customer_phone: appt.customer_phone || '',
     service_name: appt.service_name || '',
@@ -63,6 +68,28 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
     notes: appt.notes || '',
     admin_notes: appt.admin_notes || '',
   });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const filteredCustomers = customers
+    .filter((customer) => {
+      const search = customerSearch.trim().toLowerCase();
+      if (!search) return true;
+      return `${customer.name || ''} ${customer.phoneNumber || ''} ${customer.phone || ''}`.toLowerCase().includes(search);
+    })
+    .slice(0, 25);
+
+  const handleCustomerSelect = (customerId) => {
+    const customer = customers.find((item) => item.id === customerId);
+    if (!customer) {
+      setForm(f => ({ ...f, customer_id: '' }));
+      return;
+    }
+    setForm(f => ({
+      ...f,
+      customer_id: customer.id,
+      customer_name: customer.name || `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
+      customer_phone: customer.phoneNumber || customer.phone || '',
+    }));
+  };
 
   const handleServiceChange = (name) => {
     const svc = services.find(s => s.name === name);
@@ -100,6 +127,38 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
         </div>
 
         <div className="space-y-4">
+          {/* Customer selection */}
+          <div className="glass-gold rounded-2xl p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs text-muted-foreground font-semibold">שיוך לקוח</label>
+              <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
+                form.customer_id ? 'bg-primary/15 text-primary' : 'bg-yellow-400/10 text-yellow-300'
+              }`}>
+                {form.customer_id ? 'לקוח רשום' : 'לקוח לפי טלפון'}
+              </span>
+            </div>
+            <input
+              value={customerSearch}
+              onChange={e => setCustomerSearch(e.target.value)}
+              placeholder="חיפוש לקוח רשום לפי שם או טלפון"
+              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
+              dir="rtl"
+            />
+            <select
+              value={form.customer_id}
+              onChange={e => handleCustomerSelect(e.target.value)}
+              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+              dir="rtl"
+            >
+              <option value="">לקוח לא רשום / הזמנה לפי טלפון</option>
+              {filteredCustomers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name || 'לקוח'} — {customer.phoneNumber || customer.phone || ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Customer name */}
           <div>
             <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שם לקוח</label>
@@ -117,8 +176,10 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
             <input
               value={form.customer_phone}
               onChange={e => setForm(f => ({ ...f, customer_phone: e.target.value }))}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
+              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-left focus:outline-none focus:border-primary"
               dir="ltr"
+              inputMode="tel"
+              autoComplete="tel"
             />
           </div>
 
@@ -205,17 +266,20 @@ function EditAppointmentSheet({ appt, services, barbers, onSave, onClose, isSavi
           <div>
             <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">סטטוס</label>
             <div className="grid grid-cols-3 gap-2">
-              {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                <button
-                  key={key}
-                  onClick={() => setForm(f => ({ ...f, status: key }))}
-                  className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                    form.status === key ? cfg.color : 'glass text-muted-foreground'
-                  }`}
-                >
-                  {cfg.label}
-                </button>
-              ))}
+              {STATUS_EDIT_OPTIONS.map((key) => {
+                const cfg = STATUS_CONFIG[key];
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setForm(f => ({ ...f, status: key }))}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all ${
+                      form.status === key ? cfg.color : 'glass text-muted-foreground'
+                    }`}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -294,6 +358,7 @@ export default function AdminAppointments() {
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
   const { data: services, error: servicesError } = useAllServicesRealtime();
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
+  const { customers, error: customersError } = useCustomerProfilesRealtime();
 
   const updateMutation = useMutation({
     mutationFn: (/** @type {any} */ { id, data }) => updateAdminAppointment(id, data),
@@ -346,6 +411,7 @@ export default function AdminAppointments() {
 
   const BLANK_APPT = {
     id: '__new__',
+    customer_id: '',
     customer_name: '',
     customer_phone: '',
     service_name: services[0]?.name || '',
@@ -363,10 +429,24 @@ export default function AdminAppointments() {
   };
 
   const handleSave = (id, form) => {
+    let normalizedPhone = form.customer_phone;
+    if (normalizedPhone) {
+      try {
+        normalizedPhone = normalizeIsraeliPhoneNumber(normalizedPhone);
+      } catch {
+        toast({
+          variant: 'destructive',
+          title: 'מספר טלפון לא תקין',
+          description: 'יש להזין מספר טלפון ישראלי תקין עבור הלקוח.',
+        });
+        return;
+      }
+    }
+    const data = { ...form, customer_phone: normalizedPhone };
     if (id === '__new__') {
-      createMutation.mutate(form);
+      createMutation.mutate(data);
     } else {
-      updateMutation.mutate({ id, data: form });
+      updateMutation.mutate({ id, data });
     }
   };
 
@@ -423,7 +503,7 @@ export default function AdminAppointments() {
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
-      {(servicesError || barbersError) && (
+      {(servicesError || barbersError || customersError) && (
         <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
@@ -455,6 +535,13 @@ export default function AdminAppointments() {
                   <div>
                     <div className="font-bold text-sm">{appt.customer_name}</div>
                     <div className="text-muted-foreground text-xs">{appt.customer_phone}</div>
+                    <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      appt.customerId || appt.customer_id
+                        ? 'bg-primary/15 text-primary'
+                        : 'bg-yellow-400/10 text-yellow-300'
+                    }`}>
+                      {appt.customerId || appt.customer_id ? 'לקוח רשום' : 'לקוח לפי טלפון'}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -564,6 +651,7 @@ export default function AdminAppointments() {
             appt={editAppt}
             services={services}
             barbers={barbers}
+            customers={customers}
             onSave={handleSave}
             onClose={() => setEditAppt(null)}
             isSaving={updateMutation.isPending}
@@ -575,6 +663,7 @@ export default function AdminAppointments() {
             appt={BLANK_APPT}
             services={services}
             barbers={barbers}
+            customers={customers}
             onSave={handleSave}
             onClose={() => setShowNewForm(false)}
             isSaving={createMutation.isPending}

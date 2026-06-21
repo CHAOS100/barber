@@ -37,6 +37,29 @@ const text = (value) => String(value || '').trim();
 const positiveNumber = (value, fallback = 0) => Math.max(0, Number(value ?? fallback) || fallback);
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 
+const normalizeIsraeliPhoneNumber = (value) => {
+  let normalized = text(value)
+    .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
+    .replace(/[^\d+]/g, '');
+
+  if (normalized.endsWith('+') && !normalized.startsWith('+')) {
+    normalized = `+${normalized.slice(0, -1)}`;
+  }
+  if (/^05\d{8}$/.test(normalized)) return `+972${normalized.slice(1)}`;
+  if (/^5\d{8}$/.test(normalized)) return `+972${normalized}`;
+  if (/^9725\d{8}$/.test(normalized)) return `+${normalized}`;
+  if (/^\+9725\d{8}$/.test(normalized)) return normalized;
+
+  throw new HttpsError('invalid-argument', 'Customer phone number is invalid.', {
+    code: 'customer/invalid-phone',
+  });
+};
+
+const customerDisplayName = (customer) => text(
+  customer?.name
+  || `${customer?.firstName || ''} ${customer?.lastName || ''}`,
+);
+
 const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   const startTime = text(input.startTime || input.time);
   const serviceDuration = Math.max(1, positiveNumber(input.serviceDuration || input.service_duration, 30));
@@ -50,7 +73,7 @@ const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   }
 
   return {
-    customerId,
+    customerId: customerId || null,
     customerName: text(input.customerName || input.customer_name),
     customerPhone: text(input.customerPhone || input.customer_phone),
     serviceId: text(input.serviceId || input.service_id),
@@ -194,6 +217,70 @@ const activeAppointmentDetails = (appointment) => ({
   startTime: appointment.startTime || appointment.time || '',
   serviceName: appointment.serviceName || appointment.service_name || '',
   status: appointment.status || '',
+});
+
+const getProfilesByPhone = (transaction, phoneNumber) =>
+  transaction.get(db().collection('users').where('phoneNumber', '==', phoneNumber).limit(2));
+
+const resolveAdminAppointmentCustomer = async (transaction, input) => {
+  const explicitCustomerId = text(input.customerId || input.customer_id);
+  const inputName = text(input.customerName || input.customer_name);
+  const rawPhone = text(input.customerPhone || input.customer_phone);
+
+  if (explicitCustomerId) {
+    const customerSnapshot = await transaction.get(db().doc(`users/${explicitCustomerId}`));
+    const customer = customerSnapshot.data();
+    if (!customerSnapshot.exists || customer?.role !== 'customer') {
+      throw new HttpsError('failed-precondition', 'Selected customer was not found.', {
+        code: 'customer/not-found',
+      });
+    }
+    return {
+      customerId: customerSnapshot.id,
+      customerName: customerDisplayName(customer) || inputName,
+      customerPhone: normalizeIsraeliPhoneNumber(customer.phoneNumber || rawPhone),
+      customerRegistered: true,
+    };
+  }
+
+  if (!rawPhone) {
+    throw new HttpsError('invalid-argument', 'Customer phone number is required.', {
+      code: 'customer/phone-required',
+    });
+  }
+
+  const normalizedPhone = normalizeIsraeliPhoneNumber(rawPhone);
+  const matches = await getProfilesByPhone(transaction, normalizedPhone);
+  if (matches.size > 1) {
+    throw new HttpsError('failed-precondition', 'Duplicate customer profiles exist for this phone number.', {
+      code: 'customer/duplicate-phone',
+    });
+  }
+
+  if (!matches.empty) {
+    const customerSnapshot = matches.docs[0];
+    const customer = customerSnapshot.data();
+    return {
+      customerId: customerSnapshot.id,
+      customerName: customerDisplayName(customer) || inputName,
+      customerPhone: normalizedPhone,
+      customerRegistered: true,
+    };
+  }
+
+  return {
+    customerId: null,
+    customerName: inputName || normalizedPhone,
+    customerPhone: normalizedPhone,
+    customerRegistered: false,
+  };
+};
+
+const applyAdminCustomerFields = (input, resolvedCustomer) => ({
+  ...input,
+  customerId: resolvedCustomer.customerId,
+  customerName: resolvedCustomer.customerName,
+  customerPhone: resolvedCustomer.customerPhone,
 });
 
 const getIsraelNowLocalMinutes = () => {
@@ -443,10 +530,14 @@ export const replaceCustomerAppointment = onCall(async (request) => {
 
 export const createAdminAppointment = onCall(async (request) => {
   const auth = await requireAdmin(request);
-  const requestedAppointment = normalizeAppointment(request.data, text(request.data.customerId) || auth.uid);
   const ref = db().collection('appointments').doc();
 
   await db().runTransaction(async (transaction) => {
+    const resolvedCustomer = await resolveAdminAppointmentCustomer(transaction, request.data || {});
+    const requestedAppointment = normalizeAppointment(
+      applyAdminCustomerFields(request.data || {}, resolvedCustomer),
+      resolvedCustomer.customerId,
+    );
     const settings = await getBookingSettings(transaction);
     const serviceSnapshot = requestedAppointment.serviceId
       ? await transaction.get(db().doc(`services/${requestedAppointment.serviceId}`))
@@ -466,6 +557,9 @@ export const createAdminAppointment = onCall(async (request) => {
     }
     transaction.set(ref, {
       ...appointment,
+      customerRegistered: resolvedCustomer.customerRegistered,
+      source: 'admin',
+      createdBy: auth.uid,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -484,11 +578,13 @@ const updateAppointment = async (request, adminOnly) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) throw new HttpsError('not-found', 'Appointment not found.');
     const existing = snapshot.data();
-    if (!adminOnly && existing.customerId !== auth.uid) {
+    const customerOwnsByPhone = !adminOnly
+      && text(existing.customerPhone) === auth.phoneNumber;
+    if (!adminOnly && existing.customerId !== auth.uid && !customerOwnsByPhone) {
       throw new HttpsError('permission-denied', 'Customers may only update their own appointments.');
     }
 
-    const requested = request.data.changes || {};
+    let requested = request.data.changes || {};
     if (!adminOnly) {
       const allowed = new Set(['date', 'startTime', 'time', 'status', 'cancellationReason']);
       const invalidKey = Object.keys(requested).find((key) => !allowed.has(key));
@@ -503,9 +599,27 @@ const updateAppointment = async (request, adminOnly) => {
       throw new HttpsError('permission-denied', 'A cancellation reason is allowed only when cancelling.');
     }
 
+    const hasAdminCustomerChange = adminOnly && Object.keys(requested).some((key) => [
+      'customerId',
+      'customer_id',
+      'customerName',
+      'customer_name',
+      'customerPhone',
+      'customer_phone',
+    ].includes(key));
+    const resolvedAdminCustomer = hasAdminCustomerChange
+      ? await resolveAdminAppointmentCustomer(transaction, { ...existing, ...requested })
+      : null;
+
+    if (resolvedAdminCustomer) {
+      requested = applyAdminCustomerFields(requested, resolvedAdminCustomer);
+    }
+
     const normalizedMerged = normalizeAppointment(
       { ...existing, ...requested },
-      existing.customerId,
+      Object.prototype.hasOwnProperty.call(requested, 'customerId')
+        ? requested.customerId
+        : (!adminOnly && !existing.customerId && customerOwnsByPhone ? auth.uid : existing.customerId),
       requested.status || existing.status,
     );
     const settings = await getBookingSettings(transaction);
@@ -559,6 +673,7 @@ const updateAppointment = async (request, adminOnly) => {
       : null;
     transaction.update(ref, {
       ...merged,
+      ...(resolvedAdminCustomer ? { customerRegistered: resolvedAdminCustomer.customerRegistered } : {}),
       ...cancellation,
       ...noShow,
       updatedAt: FieldValue.serverTimestamp(),
