@@ -878,9 +878,10 @@ export default function OTPLogin() {
 
           </AnimatePresence>
           </div>
+          <div className="auth-galtech-footer">
+            <GalTechBadge variant="auth" />
+          </div>
         </motion.div>
-
-        <GalTechBadge variant="auth" />
       </div>
     </div>
   );

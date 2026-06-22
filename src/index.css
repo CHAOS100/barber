@@ -241,9 +241,9 @@ body:has([role="dialog"]) {
 }
 
 .galtech-badge {
-  position: fixed;
-  left: max(12px, env(safe-area-inset-left, 0px));
-  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(147, 227, 189, 0.14);
   background: rgba(10, 10, 10, 0.46);
@@ -265,16 +265,28 @@ body:has([role="dialog"]) {
 }
 
 .galtech-badge--app {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  z-index: 45;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
 }
 
-.galtech-badge--auth {
-  position: absolute;
-  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+.auth-galtech-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+  padding-bottom: 2px;
 }
 
-.keyboard-open .galtech-badge--auth {
-  display: none;
+.galtech-badge--auth {
+  position: static;
+  background: rgba(10, 10, 10, 0.34);
+  color: rgba(147, 227, 189, 0.5);
+}
+
+.keyboard-open .auth-galtech-footer {
+  margin-top: 12px;
+  padding-bottom: 0;
 }
 
 .gold-gradient {
