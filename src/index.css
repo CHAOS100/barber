@@ -53,6 +53,7 @@
 
   body {
     @apply bg-background text-foreground font-heebo;
+    background-color: hsl(var(--background));
     direction: rtl;
     min-height: 100dvh;
     overscroll-behavior-y: none;
@@ -62,6 +63,8 @@
   }
 
   html {
+    background-color: hsl(var(--background));
+    color-scheme: dark;
     direction: rtl;
     min-height: 100%;
   }
@@ -69,6 +72,7 @@
   html,
   body,
   #root {
+    background-color: hsl(var(--background));
     min-height: var(--app-viewport-height);
   }
 
