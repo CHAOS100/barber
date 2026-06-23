@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Store, Phone, MapPin, Navigation2, MessageCircle, Instagram, Sparkles } from 'lucide-react';
+import { ArrowRight, Store, Phone, MapPin, Navigation2, MessageCircle, Instagram, Sparkles, Bell } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
 import {
@@ -221,6 +221,32 @@ export default function AdminSettings() {
               />
             </label>
           </div>
+        </div>
+
+        {/* Push Notifications — Admin Global Control */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold flex items-center gap-2">
+            <Bell className="w-4 h-4 text-primary" /> התראות Push אוטומטיות
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            כשמופעל, המערכת שולחת התראות Push ללקוחות על אישור תור, ביטול ותזכורות.
+            כיבוי עוצר את יצירת משרות ההתראה עבור אירועים חדשים.
+          </p>
+          <button
+            type="button"
+            onClick={() => setInfo(prev => ({ ...prev, automaticPushRemindersEnabled: !(prev.automaticPushRemindersEnabled ?? true) }))}
+            className="w-full dark-card rounded-2xl p-4 flex items-center gap-3 press-scale"
+          >
+            <div className="flex-1 text-right">
+              <div className="font-bold text-sm">שליחת התראות אוטומטית</div>
+              <div className="text-muted-foreground text-xs mt-0.5">
+                {(info.automaticPushRemindersEnabled ?? true) ? 'פעיל — מרועים Push לאירועי תורים' : 'כבוי — לא נוצרות משרות Push חדשות'}
+              </div>
+            </div>
+            <div className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center px-0.5 ${(info.automaticPushRemindersEnabled ?? true) ? 'gold-gradient' : 'bg-secondary'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${(info.automaticPushRemindersEnabled ?? true) ? 'translate-x-0' : 'translate-x-6'}`} />
+            </div>
+          </button>
         </div>
 
         <GoldButton onClick={handleSave} disabled={saveSettings.isPending} size="lg" className="w-full">

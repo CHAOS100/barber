@@ -12,6 +12,10 @@ import {
   buildAppointmentApprovedJobs,
   buildAppointmentCancelledJob,
   buildWaitingListAvailableJob,
+  buildPushJobsForApproval,
+  buildPushJobForCancellation,
+  buildPushJobForWaitlistMatch,
+  LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
 import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
@@ -54,6 +58,10 @@ const notificationJobs = new NotificationJobService(getFirestore());
 export const queueAdminNotificationForNewAppointment = onDocumentCreated(
   'appointments/{appointmentId}',
   async (event) => {
+    // Legacy WhatsApp admin notification — disabled when LEGACY_WHATSAPP_JOBS_ENABLED is false.
+    // TODO Phase 2: replace with push notification to admin device.
+    if (!LEGACY_WHATSAPP_JOBS_ENABLED) return;
+
     const adminPhone = ADMIN_WHATSAPP_PHONE.value();
     if (!adminPhone) {
       logger.error('ADMIN_WHATSAPP_PHONE is missing; admin notification was not queued.', {
@@ -75,16 +83,29 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
     const after = event.data.after.data();
     if (before.status === after.status) return;
 
+    const appointmentId = event.params.appointmentId;
+    const jobsToEnqueue = [];
+
     if (after.status === 'confirmed') {
-      await notificationJobs.enqueue(
-        buildAppointmentApprovedJobs(event.params.appointmentId, after),
-      );
+      // Legacy WhatsApp jobs — only enqueue when explicitly enabled
+      if (LEGACY_WHATSAPP_JOBS_ENABLED) {
+        jobsToEnqueue.push(...buildAppointmentApprovedJobs(appointmentId, after));
+      }
+      // Push notification jobs (Phase 1) — approval + 24h + 2h reminders
+      jobsToEnqueue.push(...buildPushJobsForApproval(appointmentId, after));
     }
 
     if (after.status === 'cancelled') {
-      await notificationJobs.enqueue([
-        buildAppointmentCancelledJob(event.params.appointmentId, after),
-      ]);
+      // Legacy WhatsApp jobs
+      if (LEGACY_WHATSAPP_JOBS_ENABLED) {
+        jobsToEnqueue.push(buildAppointmentCancelledJob(appointmentId, after));
+      }
+      // Push notification job
+      jobsToEnqueue.push(buildPushJobForCancellation(appointmentId, after));
+    }
+
+    if (jobsToEnqueue.length > 0) {
+      await notificationJobs.enqueue(jobsToEnqueue.filter(Boolean));
     }
   },
 );
@@ -216,8 +237,15 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
 
     if (matching.length === 0) return;
 
-    await notificationJobs.enqueue(matching.map((entry) =>
-      buildWaitingListAvailableJob(entry.id, appointmentId, entry, after)));
+    // Legacy WhatsApp jobs
+    const legacyJobs = LEGACY_WHATSAPP_JOBS_ENABLED
+      ? matching.map((entry) => buildWaitingListAvailableJob(entry.id, appointmentId, entry, after))
+      : [];
+    // Push notification jobs (Phase 1)
+    const pushJobs = matching.map((entry) =>
+      buildPushJobForWaitlistMatch(entry.id, appointmentId, entry, after));
+
+    await notificationJobs.enqueue([...legacyJobs, ...pushJobs].filter(Boolean));
 
     const batch = getFirestore().batch();
     matching.forEach((entry) => {

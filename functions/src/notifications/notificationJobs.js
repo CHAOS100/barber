@@ -1,7 +1,24 @@
 import { DateTime } from 'luxon';
 
-export const NOTIFICATION_CHANNEL = 'whatsapp';
+// ── Channel constants ─────────────────────────────────────────────────────────
+
+export const NOTIFICATION_CHANNEL = 'whatsapp';  // legacy default — kept for existing jobs
+export const PUSH_CHANNEL = 'push';              // Phase 1+ business event channel
 export const NOTIFICATION_STATUS = 'pending';
+
+// ── SMS / WhatsApp guard flags ────────────────────────────────────────────────
+//
+// PRODUCT RULE:
+//   SMS is used ONLY for Firebase Phone Auth (OTP). Never for business reminders.
+//   WhatsApp business reminder sending is NOT implemented (stub only).
+//   Push notifications are the supported channel for all business events.
+//
+// Cloud Functions read LEGACY_WHATSAPP_JOBS_ENABLED to decide whether to enqueue
+// legacy WhatsApp/SMS notification jobs. Set to false to disable.
+// The builder functions below are kept intact for existing tests.
+//
+export const LEGACY_WHATSAPP_JOBS_ENABLED = false;
+export const BUSINESS_SMS_REMINDERS_ENABLED = false;
 
 const normalizeIsraeliPhone = (phone) => {
   const value = String(phone || '').replace(/[^\d+]/g, '');
@@ -187,4 +204,152 @@ export const buildWaitingListManualSmsJob = (
         : `ייתכן שהתפנה תור ב־OST BARBER בתאריך ${waitingListEntry.date}. היכנס לאפליקציה כדי לבדוק זמינות.`,
     },
   };
+};
+
+// ── Push notification job builders (Phase 1) ──────────────────────────────────
+//
+// These create notificationJobs documents with channel: 'push'.
+// The Phase 2 Cloud Function sender will:
+//   1. Read users/{customerId}/pushTokens to find device tokens
+//   2. Send via Firebase Admin SDK Messaging
+//   3. Update job status to 'sent' or 'failed'
+
+const pushJob = ({ id, customerId, customerPhone, type, title, body, data = {}, scheduledFor, createdAt = new Date() }) => ({
+  id,
+  data: {
+    channel: PUSH_CHANNEL,
+    customerId: customerId || null,
+    customerPhone: customerPhone || null,
+    type,
+    title,
+    body,
+    data,
+    scheduledFor: scheduledFor || createdAt,
+    status: NOTIFICATION_STATUS,
+    attempts: 0,
+    lastError: null,
+    createdAt,
+    sentAt: null,
+    error: null,
+  },
+});
+
+/**
+ * Build push notification jobs for an approved appointment:
+ * - immediate approval confirmation
+ * - 24-hour reminder (scheduled for 24h before appointment start)
+ * - 2-hour reminder (scheduled for 2h before appointment start)
+ *
+ * Returns [] if the appointment has no customerId to target.
+ */
+export const buildPushJobsForApproval = (
+  appointmentId,
+  appointment,
+  now = new Date(),
+) => {
+  const customerId = appointment.customerId || null;
+  const customerPhone = appointment.customerPhone || null;
+  const serviceName = appointment.serviceName || appointment.service_name || '';
+  const dateStr = appointment.date || '';
+  const timeStr = appointment.startTime || '';
+
+  let start;
+  try {
+    start = appointmentStart(appointment);
+  } catch {
+    return [];
+  }
+
+  const serviceLabel = serviceName ? ` ל${serviceName}` : '';
+
+  return [
+    pushJob({
+      id: `${appointmentId}_push_approved`,
+      customerId,
+      customerPhone,
+      type: 'appointment_approved',
+      title: '✅ התור אושר!',
+      body: `התור שלך${serviceLabel} ב-${dateStr} בשעה ${timeStr} אושר. נתראה!`,
+      data: { appointmentId, date: dateStr, startTime: timeStr },
+      scheduledFor: now,
+      createdAt: now,
+    }),
+    pushJob({
+      id: `${appointmentId}_push_reminder_24h`,
+      customerId,
+      customerPhone,
+      type: 'appointment_reminder_24h',
+      title: '🔔 תזכורת: תור מחר',
+      body: `מחר בשעה ${timeStr}${serviceName ? ` (${serviceName})` : ''}. אל תשכח/תשכחי!`,
+      data: { appointmentId, date: dateStr, startTime: timeStr },
+      scheduledFor: start.minus({ hours: 24 }).toJSDate(),
+      createdAt: now,
+    }),
+    pushJob({
+      id: `${appointmentId}_push_reminder_2h`,
+      customerId,
+      customerPhone,
+      type: 'appointment_reminder_2h',
+      title: '⏰ תזכורת: תור בעוד שעתיים',
+      body: `בעוד שעתיים יש לך תור בשעה ${timeStr}. להתראות!`,
+      data: { appointmentId, date: dateStr, startTime: timeStr },
+      scheduledFor: start.minus({ hours: 2 }).toJSDate(),
+      createdAt: now,
+    }),
+  ];
+};
+
+/**
+ * Build a push notification job for a cancelled appointment.
+ * Returns null if the appointment has no customerId.
+ */
+export const buildPushJobForCancellation = (
+  appointmentId,
+  appointment,
+  now = new Date(),
+) => {
+  const customerId = appointment.customerId || null;
+  const customerPhone = appointment.customerPhone || null;
+  const serviceName = appointment.serviceName || appointment.service_name || '';
+  const serviceLabel = serviceName ? ` ל${serviceName}` : '';
+
+  return pushJob({
+    id: `${appointmentId}_push_cancelled`,
+    customerId,
+    customerPhone,
+    type: 'appointment_cancelled',
+    title: 'התור בוטל',
+    body: `התור שלך${serviceLabel} בוטל. ניתן לקבוע תור חדש באפליקציה.`,
+    data: { appointmentId },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
+
+/**
+ * Build a push notification job for a waiting list slot becoming available.
+ */
+export const buildPushJobForWaitlistMatch = (
+  waitingListId,
+  appointmentId,
+  waitingListEntry,
+  appointment,
+  now = new Date(),
+) => {
+  const customerId = waitingListEntry.customerId || null;
+  const customerPhone = waitingListEntry.phoneNumber || null;
+  const dateStr = appointment.date || waitingListEntry.date || '';
+  const timeStr = appointment.startTime || '';
+
+  return pushJob({
+    id: `${waitingListId}_${appointmentId}_push_available`,
+    customerId,
+    customerPhone,
+    type: 'waiting_list_slot_available',
+    title: '🎉 התפנה תור!',
+    body: `התפנה תור ב-OST BARBER בתאריך ${dateStr} בשעה ${timeStr}. היכנס לאפליקציה לפני שמישהו אחר יתפוס!`,
+    data: { appointmentId, waitingListId, date: dateStr, startTime: timeStr },
+    scheduledFor: now,
+    createdAt: now,
+  });
 };

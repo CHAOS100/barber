@@ -481,6 +481,8 @@ export const saveBusinessSettings = async (input) => {
     instagram: String(input.instagram || '').trim(),
     // Optional welcome / greeting text shown on the customer Home page
     welcomeText: String(input.welcomeText || '').trim(),
+    // Push notification global control — admin can disable all automatic push reminders
+    automaticPushRemindersEnabled: input.automaticPushRemindersEnabled !== false,
   };
   console.info('[Firestore Settings] saving business settings', {
     name: payload.name,

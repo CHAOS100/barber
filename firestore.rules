@@ -107,6 +107,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Push notification device tokens — customers write their own, admin can read
+    match /users/{userId}/pushTokens/{tokenId} {
+      allow read: if isAdmin() || ownsUserDocument(userId);
+      allow create, update: if ownsUserDocument(userId)
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 0
+        && request.resource.data.platform in ['android', 'ios', 'web']
+        && request.resource.data.enabled is bool;
+      allow delete: if ownsUserDocument(userId) || isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isAdmin() || ownsUserDocument(userId);
 
