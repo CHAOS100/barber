@@ -6,6 +6,8 @@ import {
   onDocumentUpdated,
   onDocumentWritten,
 } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import {
   buildAdminAppointmentCreatedJob,
@@ -18,6 +20,7 @@ import {
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
+import { processPendingPushJobs } from './notifications/pushProcessor.js';
 import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
 export {
   createWebCustomTokenFromNativeAuth,
@@ -266,5 +269,54 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
       }
     });
     await batch.commit();
+  },
+);
+
+// ── Push notification sender — Phase 2 ───────────────────────────────────────
+
+/**
+ * Scheduled function that runs every 5 minutes and processes any pending push
+ * notification jobs whose scheduledFor timestamp has passed.
+ *
+ * Idempotent: jobs are updated to 'sent' or 'skipped' after processing so they
+ * will not be picked up again.
+ */
+export const scheduledPushNotificationSender = onSchedule(
+  { schedule: 'every 5 minutes', timeZone: 'Asia/Jerusalem' },
+  async () => {
+    const summary = await processPendingPushJobs();
+    logger.info('scheduledPushNotificationSender: done', summary);
+  },
+);
+
+/**
+ * Admin-only callable function for manually triggering push job processing.
+ * Use this to test without waiting for the scheduler.
+ *
+ * Call via Firebase CLI:
+ *   firebase functions:call processPendingPushNotifications --project ost-barber-app
+ *
+ * Or from the Firebase console, or from the app with an admin Auth token.
+ *
+ * Returns a summary: { jobsChecked, jobsSent, jobsSkipped, jobsFailed, tokensDisabled, errors }
+ */
+export const processPendingPushNotifications = onCall(
+  { enforceAppCheck: false },
+  async (request) => {
+    // Verify caller is a signed-in admin
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be signed in.');
+    }
+    const adminSnap = await getFirestore()
+      .collection('admins')
+      .doc(request.auth.uid)
+      .get();
+    if (!adminSnap.exists || adminSnap.data().role !== 'admin' || !adminSnap.data().active) {
+      throw new HttpsError('permission-denied', 'Admin access required.');
+    }
+
+    const summary = await processPendingPushJobs();
+    logger.info('processPendingPushNotifications: manual trigger', { uid: request.auth.uid, summary });
+    return summary;
   },
 );
