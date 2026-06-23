@@ -475,6 +475,12 @@ export const saveBusinessSettings = async (input) => {
       0,
       Number(input.cancellationDeadlineMinutesBeforeAppointment ?? 180),
     ),
+    // Social / contact links — editable by the admin in the app
+    waze: String(input.waze || '').trim(),
+    whatsapp: String(input.whatsapp || '').trim(),
+    instagram: String(input.instagram || '').trim(),
+    // Optional welcome / greeting text shown on the customer Home page
+    welcomeText: String(input.welcomeText || '').trim(),
   };
   console.info('[Firestore Settings] saving business settings', {
     name: payload.name,

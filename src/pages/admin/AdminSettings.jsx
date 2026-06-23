@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Store, Phone, MapPin } from 'lucide-react';
+import { ArrowRight, Store, Phone, MapPin, Navigation2, MessageCircle, Instagram, Sparkles } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
 import {
@@ -68,7 +68,7 @@ export default function AdminSettings() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="press-scale">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -113,6 +113,45 @@ export default function AdminSettings() {
               dir="rtl"
             />
           </div>
+        </div>
+
+        {/* Social / Contact Links */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold flex items-center gap-2">
+            <MessageCircle className="w-4 h-4 text-primary" /> קישורים ויצירת קשר
+          </h3>
+          <p className="text-xs text-muted-foreground">הקישורים מופיעים בדף הבית של האפליקציה.</p>
+          {[
+            { key: 'whatsapp', label: 'WhatsApp (מספר טלפון)', icon: MessageCircle, placeholder: '0501234567' },
+            { key: 'waze', label: 'קישור Waze', icon: Navigation2, placeholder: 'https://waze.com/ul/...' },
+            { key: 'instagram', label: 'קישור Instagram', icon: Instagram, placeholder: 'https://instagram.com/...' },
+          ].map(({ key, label, placeholder }) => (
+            <div key={key}>
+              <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
+              <input
+                value={info[key] || ''}
+                onChange={e => setInfo(prev => ({ ...prev, [key]: e.target.value }))}
+                placeholder={placeholder}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+                dir="ltr"
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Welcome / Greeting Text */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" /> טקסט ברוכים הבאים
+          </h3>
+          <p className="text-xs text-muted-foreground">מוצג בדף הבית של הלקוח מעל הכפתורים. ריק = ברירת מחדל.</p>
+          <textarea
+            value={info.welcomeText || ''}
+            onChange={e => setInfo(prev => ({ ...prev, welcomeText: e.target.value }))}
+            placeholder="ברוך הבא! בחר שירות והזמן תור..."
+            className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right text-sm focus:outline-none focus:border-primary resize-none h-20"
+            dir="rtl"
+          />
         </div>
 
         <div className="glass rounded-2xl p-4 space-y-3">

@@ -25,7 +25,7 @@ import {
   Star,
 } from 'lucide-react';
 import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
-import { useActiveBarbersRealtime, useActiveServicesRealtime } from '@/hooks/useBookingData';
+import { useActiveBarbersRealtime, useActiveServicesRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
@@ -106,6 +106,7 @@ export default function Home() {
   const { reviews } = usePublishedReviewsRealtime();
   const { photos } = usePublishedGalleryRealtime();
   const { messages: customerMessages, unreadCount: msgUnreadCount, isLoggedIn } = useCustomerMessages();
+  const { settings: businessSettings } = useBusinessSettingsRealtime();
   const previewMessages = customerMessages.slice(0, 3);
   const averageRating = reviews.length
     ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
@@ -113,8 +114,12 @@ export default function Home() {
   const haircutServices = services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום');
   const beardServices = services.filter(s => s.name === 'עיצוב זקן');
   const premiumServices = services.filter(s => s.name === 'חבילת פרימיום');
+  // Social links: prefer live Firestore business settings, fall back to barber profile then static config
+  const liveWaze = businessSettings?.waze || BUSINESS_INFO.waze;
+  const liveWhatsapp = businessSettings?.whatsapp || BUSINESS_INFO.whatsapp;
   const instagramUrl = normalizeInstagramUrl(
-    barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagram_url
+    businessSettings?.instagram
+    || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagram_url
     || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUrl
     || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUsername
     || BUSINESS_INFO.instagramUrl
@@ -179,7 +184,7 @@ export default function Home() {
           {/* Waze */}
           <motion.button
             whileTap={{ scale: 0.92 }}
-            onClick={() => window.open(BUSINESS_INFO.waze)}
+            onClick={() => window.open(liveWaze)}
             className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
           >
             <Navigation className="w-7 h-7 text-primary" />
@@ -189,7 +194,7 @@ export default function Home() {
           {/* WhatsApp */}
           <motion.button
             whileTap={{ scale: 0.92 }}
-            onClick={() => window.open(`https://wa.me/${BUSINESS_INFO.whatsapp.replace('+', '')}`)}
+            onClick={() => window.open(`https://wa.me/${String(liveWhatsapp || '').replace(/\D/g, '')}`)}
             className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
           >
             <MessageCircle className="w-7 h-7 text-primary" />
@@ -297,12 +302,18 @@ export default function Home() {
               {/* About */}
               <div className="mb-5">
                 <h2 className="text-base font-black mb-2">על המקום</h2>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                  חברים שימו לב: מומלץ להקדים את התור עקב מצוקת חניות באזור!<br />
-                  *יש לבחור תור לתספורת במידה ובחרת עם גזירות.<br />
-                  *איחורים מעל 10 דקות לא יתקבלו.<br />
-                  *במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.
-                </p>
+                {businessSettings?.description ? (
+                  <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-line">
+                    {businessSettings.description}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    חברים שימו לב: מומלץ להקדים את התור עקב מצוקת חניות באזור!<br />
+                    *יש לבחור תור לתספורת במידה ובחרת עם גזירות.<br />
+                    *איחורים מעל 10 דקות לא יתקבלו.<br />
+                    *במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.
+                  </p>
+                )}
               </div>
 
               {/* Opening Hours */}
@@ -440,7 +451,7 @@ export default function Home() {
                     title="מפה"
                   />
                   <button
-                    onClick={() => window.open(BUSINESS_INFO.waze)}
+                    onClick={() => window.open(liveWaze)}
                     className="absolute bottom-3 left-3 glass-gold px-4 py-2 rounded-xl text-sm font-bold text-primary press-scale"
                   >
                     נווט עם וייז

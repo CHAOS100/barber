@@ -19,7 +19,7 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen bg-background safe-area-top-pad" dir="rtl">
       {isAdmin && adminPreview && (
-        <div className="sticky top-0 z-40 glass border-b border-white/10 px-4 py-3 flex items-center justify-between">
+        <div className="sticky-top-safe z-40 glass border-b border-white/10 px-4 py-3 flex items-center justify-between">
           <span className="text-sm font-bold text-primary">תצוגת צד לקוח</span>
           <GoldButton
             size="sm"

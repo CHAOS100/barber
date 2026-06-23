@@ -13,6 +13,7 @@ import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { getCancellationReasonLabel } from '@/lib/labels';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
 import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
 
@@ -452,7 +453,7 @@ export default function AdminAppointments() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="press-scale">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -580,7 +581,7 @@ export default function AdminAppointments() {
               {appt.status === 'cancelled' && appt.cancellationReason && (
                 <div className="mt-2 rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-200">
                   <span className="font-bold">סיבת ביטול: </span>
-                  {appt.cancellationReason}
+                  {getCancellationReasonLabel(appt.cancellationReason)}
                 </div>
               )}
 

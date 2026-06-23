@@ -218,7 +218,7 @@ export default function AdminHours() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="press-scale">
           <ArrowRight className="w-6 h-6" />
         </button>

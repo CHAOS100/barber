@@ -131,7 +131,8 @@
   max-height: calc(var(--visible-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-bottom: var(--safe-area-bottom);
+  /* Extra bottom padding ensures action buttons are never hidden under device chrome */
+  padding-bottom: max(var(--safe-area-bottom), 24px);
   scrollbar-gutter: stable;
   touch-action: pan-y;
   animation: modalRise 0.24s ease-out;
@@ -148,7 +149,8 @@ body:has([role="dialog"]) {
 
 .app-content {
   min-height: auto;
-  padding-bottom: calc(var(--bottom-nav-height) + 32px);
+  /* bottom-nav + safe area + generous clearance so action buttons never hide behind taskbar */
+  padding-bottom: calc(var(--bottom-nav-height) + 48px);
   box-sizing: border-box;
   overflow-x: clip;
   overflow-y: visible;
@@ -421,6 +423,68 @@ body:has([role="dialog"]) {
 /* Push page content below the iPhone notch/status bar */
 .safe-area-top-pad {
   padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Sticky page header that respects the top notch/status bar safe area */
+.sticky-top-safe {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+}
+
+/* Extra bottom padding for pages that have inline action buttons at the bottom */
+.page-bottom-action {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+
+/* ── Form field / button height normalization ──────────────────────────────── */
+
+/* All text inputs, selects, and textareas get a consistent baseline */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+select {
+  /* Prevent iOS/Android from adding extra height with system chrome */
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(147,227,189,0.5)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 12px center;
+  padding-left: 32px;
+}
+
+/* RTL: chevron on the right for selects in RTL layout */
+[dir="rtl"] select,
+select[dir="rtl"] {
+  background-position: right 12px center;
+  padding-right: 32px;
+  padding-left: 12px;
+}
+
+/* ── Modal / dialog safe-area improvements ─────────────────────────────────── */
+
+/* Ensure keyboard-safe-overlay fills viewport correctly including safe areas */
+.keyboard-safe-overlay.fixed {
+  height: 100%;
+  padding-top: max(16px, env(safe-area-inset-top, 16px));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* Modal action rows always fully accessible */
+.keyboard-safe-modal .modal-actions {
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+}
+
+/* ── Page-level bottom spacing for pages with inline save buttons ──────────── */
+
+/* Admin pages bottom content area — enough space above BottomNav */
+.admin-page-content {
+  padding-bottom: calc(var(--bottom-nav-height) + 24px);
 }
 
 /* Scrollbar */
