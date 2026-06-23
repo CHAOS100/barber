@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BARBER_PHOTO } from '../lib/businessConfig';
+import GalTechBadge from './branding/GalTechBadge';
 
 export default function SplashScreen({ onDone }) {
   const [phase, setPhase] = useState('show'); // show | fadeout
@@ -75,6 +76,17 @@ export default function SplashScreen({ onDone }) {
                 className="w-1.5 h-1.5 rounded-full gold-gradient"
               />
             ))}
+          </motion.div>
+
+          {/* GalTech branding at bottom of intro */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.1, duration: 0.5 }}
+            className="absolute bottom-0 left-0 right-0 flex justify-center"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom, 20px))' }}
+          >
+            <GalTechBadge variant="auth" />
           </motion.div>
         </motion.div>
       )}
