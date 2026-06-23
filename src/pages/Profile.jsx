@@ -7,6 +7,7 @@ import { useCustomerMessages } from '@/hooks/useCustomerMessages';
 import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
 import SettingsTab from '../components/profile/SettingsTab';
+import GalTechBadge from '@/components/branding/GalTechBadge';
 
 const TABS = [
   { key: 'info', label: 'פרופיל', icon: User },
@@ -263,6 +264,10 @@ export default function Profile() {
             <SettingsTab currentUser={currentUser} openPersonalRequest={personalEditRequest} />
           </motion.div>
         )}
+
+        <div className="auth-galtech-footer pb-4">
+          <GalTechBadge variant="auth" />
+        </div>
       </div>
     </div>
   );

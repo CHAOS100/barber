@@ -31,6 +31,7 @@ import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
+import GalTechBadge from '@/components/branding/GalTechBadge';
 
 // ── Notification mini-card (home screen preview) ──────────────────────────────
 
@@ -548,6 +549,10 @@ export default function Home() {
           <GoldButton onClick={() => navigate('/booking')} size="lg" className="w-full rounded-2xl shadow-2xl">
           הזמן עכשיו
           </GoldButton>
+        </div>
+
+        <div className="auth-galtech-footer pb-4">
+          <GalTechBadge variant="auth" />
         </div>
       </div>
     </div>

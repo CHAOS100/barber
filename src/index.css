@@ -268,12 +268,6 @@ body:has([role="dialog"]) {
   transform: translateY(-1px);
 }
 
-.galtech-badge--app {
-  position: fixed;
-  left: max(12px, env(safe-area-inset-left, 0px));
-  z-index: 45;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
-}
 
 .auth-galtech-footer {
   display: flex;
