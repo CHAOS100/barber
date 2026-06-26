@@ -20,7 +20,7 @@ import {
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
-import { processPendingPushJobs } from './notifications/pushProcessor.js';
+import { processPendingPushJobs, processImmediatePushJobs, IMMEDIATE_PUSH_TYPES } from './notifications/pushProcessor.js';
 import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
 export {
   createWebCustomTokenFromNativeAuth,
@@ -107,8 +107,18 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
       jobsToEnqueue.push(buildPushJobForCancellation(appointmentId, after));
     }
 
-    if (jobsToEnqueue.length > 0) {
-      await notificationJobs.enqueue(jobsToEnqueue.filter(Boolean));
+    const validJobs = jobsToEnqueue.filter(Boolean);
+    if (validJobs.length > 0) {
+      await notificationJobs.enqueue(validJobs);
+      // Immediately deliver push jobs for time-sensitive status events
+      const immediateIds = validJobs
+        .filter((j) => j.data?.channel === 'push' && IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+        .map((j) => j.id);
+      if (immediateIds.length > 0) {
+        await processImmediatePushJobs(immediateIds).catch((error) =>
+          logger.warn('immediate push delivery failed (scheduler will retry)', { error: error.message }),
+        );
+      }
     }
   },
 );
@@ -248,7 +258,18 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
     const pushJobs = matching.map((entry) =>
       buildPushJobForWaitlistMatch(entry.id, appointmentId, entry, after));
 
-    await notificationJobs.enqueue([...legacyJobs, ...pushJobs].filter(Boolean));
+    const allJobs = [...legacyJobs, ...pushJobs].filter(Boolean);
+    await notificationJobs.enqueue(allJobs);
+
+    // Immediately deliver waitlist push alerts — these are real-time, not scheduled
+    const immediateWaitlistIds = pushJobs
+      .filter((j) => j && IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+      .map((j) => j.id);
+    if (immediateWaitlistIds.length > 0) {
+      await processImmediatePushJobs(immediateWaitlistIds).catch((error) =>
+        logger.warn('immediate waitlist push delivery failed (scheduler will retry)', { error: error.message }),
+      );
+    }
 
     const batch = getFirestore().batch();
     matching.forEach((entry) => {

@@ -119,24 +119,70 @@
   min-height: var(--app-viewport-height);
 }
 
+/* Full-screen modal backdrop — uses dvh so it tracks the visual viewport
+   including when the iOS home indicator is present. */
 .keyboard-safe-overlay {
-  height: var(--visible-viewport-height);
-  padding: var(--safe-area-top) 16px var(--safe-area-bottom);
+  /* dvh tracks the visual viewport; fallback to 100vh if not supported */
+  height: 100dvh;
+  /* Padding keeps content out of status bar / home indicator zones */
+  padding: max(env(safe-area-inset-top, 0px), 8px) 16px max(env(safe-area-inset-bottom, 0px), 8px);
   overflow: hidden;
   overscroll-behavior: contain;
   touch-action: none;
 }
 
+/* Fixed-positioned overlay variant (used with inset-0 class) */
+.keyboard-safe-overlay.fixed {
+  height: 100%;
+  padding-top: max(env(safe-area-inset-top, 0px), 16px);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/*
+ * Modal card that scrolls internally.
+ * DOES NOT carry its own overflow-y — the scrollable region is a child
+ * .modal-scroll-body div inside. This lets action buttons sit outside
+ * the scroll so they are always reachable on iPhone.
+ *
+ * Height budget:
+ *   100dvh
+ *   - safe-area-inset-top   (notch / status bar)
+ *   - safe-area-inset-bottom (home indicator)
+ *   - 32px                  (visual breathing room / overlay padding)
+ */
 .keyboard-safe-modal {
-  max-height: calc(var(--visible-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom));
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(
+    100dvh
+    - max(env(safe-area-inset-top, 0px), 8px)
+    - max(env(safe-area-inset-bottom, 0px), 8px)
+    - 32px
+  );
+  overflow: hidden;        /* clip; children scroll separately */
   overscroll-behavior: contain;
-  /* Extra bottom padding ensures action buttons are never hidden under device chrome */
-  padding-bottom: max(var(--safe-area-bottom), 24px);
-  scrollbar-gutter: stable;
   touch-action: pan-y;
   animation: modalRise 0.24s ease-out;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+}
+
+/* Scrollable body region inside modal */
+.modal-scroll-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Action row always pinned at the bottom, outside the scroll */
+.modal-actions {
+  flex-shrink: 0;
+  padding-top: 12px;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
 }
 
 html:has(.keyboard-safe-overlay),
@@ -163,6 +209,18 @@ body:has([role="dialog"]) {
 .mobile-bottom-nav {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.34);
+  /*
+   * Force the nav onto its own GPU compositing layer.
+   * Without this, Capacitor Android WebView can visually misplace a
+   * position:fixed element mid-scroll (a known Chromium WebView bug).
+   * transform:translateZ(0) promotes to a compositor layer and eliminates
+   * the glitch without changing the rendered position.
+   */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform;
 }
 
 .mobile-fixed-cta {

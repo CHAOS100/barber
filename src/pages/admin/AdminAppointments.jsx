@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2 } from 'lucide-react';
+import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { localDateToString } from '../../lib/slotEngine';
 import {
@@ -116,228 +116,230 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+        {/* Header — always visible, never scrolls */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
           <h3 className="font-black text-lg">עריכת תור</h3>
           <button onClick={onClose} className="glass p-2 rounded-xl">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="space-y-4">
-          {/* Customer selection */}
-          <div className="glass-gold rounded-2xl p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs text-muted-foreground font-semibold">שיוך לקוח</label>
-              <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                form.customer_id ? 'bg-primary/15 text-primary' : 'bg-yellow-400/10 text-yellow-300'
-              }`}>
-                {form.customer_id ? 'לקוח רשום' : 'לקוח לפי טלפון'}
-              </span>
-            </div>
-            <input
-              value={customerSearch}
-              onChange={e => setCustomerSearch(e.target.value)}
-              placeholder="חיפוש לקוח רשום לפי שם או טלפון"
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
-              dir="rtl"
-            />
-            <select
-              value={form.customer_id}
-              onChange={e => handleCustomerSelect(e.target.value)}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
-              dir="rtl"
-            >
-              <option value="">לקוח לא רשום / הזמנה לפי טלפון</option>
-              {filteredCustomers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name || 'לקוח'} — {customer.phoneNumber || customer.phone || ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Customer name */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שם לקוח</label>
-            <input
-              value={form.customer_name}
-              onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
-              dir="rtl"
-            />
-          </div>
-
-          {/* Phone */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">טלפון</label>
-            <input
-              value={form.customer_phone}
-              onChange={e => setForm(f => ({ ...f, customer_phone: e.target.value }))}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-left focus:outline-none focus:border-primary"
-              dir="ltr"
-              inputMode="tel"
-              autoComplete="tel"
-            />
-          </div>
-
-          {/* Service */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שירות</label>
-            <select
-              value={form.service_name}
-              onChange={e => handleServiceChange(e.target.value)}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
-              dir="rtl"
-            >
-              {services.map(s => (
-                <option key={s.id} value={s.name}>{s.name} — ₪{s.price}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Price & Duration */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">מחיר (₪)</label>
+        {/* Scrollable form body */}
+        <div className="modal-scroll-body px-5">
+          <div className="space-y-4 pb-2">
+            {/* Customer selection */}
+            <div className="glass-gold rounded-2xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-muted-foreground font-semibold">שיוך לקוח</label>
+                <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
+                  form.customer_id ? 'bg-primary/15 text-primary' : 'bg-yellow-400/10 text-yellow-300'
+                }`}>
+                  {form.customer_id ? 'לקוח רשום' : 'לקוח לפי טלפון'}
+                </span>
+              </div>
               <input
-                type="number"
-                value={form.service_price}
-                onChange={e => setForm(f => ({ ...f, service_price: Number(e.target.value) }))}
-                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-center focus:outline-none focus:border-primary"
+                value={customerSearch}
+                onChange={e => setCustomerSearch(e.target.value)}
+                placeholder="חיפוש לקוח רשום לפי שם או טלפון"
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
+                dir="rtl"
+              />
+              <select
+                value={form.customer_id}
+                onChange={e => handleCustomerSelect(e.target.value)}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+                dir="rtl"
+              >
+                <option value="">לקוח לא רשום / הזמנה לפי טלפון</option>
+                {filteredCustomers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name || 'לקוח'} — {customer.phoneNumber || customer.phone || ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Customer name */}
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שם לקוח</label>
+              <input
+                value={form.customer_name}
+                onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary"
+                dir="rtl"
               />
             </div>
+
+            {/* Phone */}
             <div>
-              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">משך (דקות)</label>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">טלפון</label>
               <input
-                type="number"
-                value={form.service_duration}
-                onChange={e => setForm(f => ({ ...f, service_duration: Number(e.target.value) }))}
-                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-center focus:outline-none focus:border-primary"
+                value={form.customer_phone}
+                onChange={e => setForm(f => ({ ...f, customer_phone: e.target.value }))}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-left focus:outline-none focus:border-primary"
+                dir="ltr"
+                inputMode="tel"
+                autoComplete="tel"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">ספר</label>
-            <select
-              value={form.barber_id}
-              onChange={e => {
-                const barber = barbers.find(item => item.id === e.target.value);
-                setForm(f => ({ ...f, barber_id: barber?.id || '', barber_name: barber?.name || '' }));
-              }}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
-            >
-              <option value="">בחר ספר</option>
-              {barbers.filter(barber => !barber.archived).map(barber => (
-                <option key={barber.id} value={barber.id}>{barber.name}{!barber.is_active ? ' (לא פעיל)' : ''}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">תאריך</label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-
-          {/* Time */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שעה</label>
-            <select
-              value={form.time}
-              onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
-            >
-              {TIME_SLOTS.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">סטטוס</label>
-            <div className="grid grid-cols-3 gap-2">
-              {STATUS_EDIT_OPTIONS.map((key) => {
-                const cfg = STATUS_CONFIG[key];
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setForm(f => ({ ...f, status: key }))}
-                    className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                      form.status === key ? cfg.color : 'glass text-muted-foreground'
-                    }`}
-                  >
-                    {cfg.label}
-                  </button>
-                );
-              })}
+            {/* Service */}
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שירות</label>
+              <select
+                value={form.service_name}
+                onChange={e => handleServiceChange(e.target.value)}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
+                dir="rtl"
+              >
+                {services.map(s => (
+                  <option key={s.id} value={s.name}>{s.name} — ₪{s.price}</option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          {/* Notes */}
-          <label className="flex items-center justify-between glass rounded-xl px-3 py-2.5">
-            <span className="text-sm font-bold">שולם</span>
-            <input
-              type="checkbox"
-              checked={form.paid}
-              onChange={e => setForm(f => ({ ...f, paid: e.target.checked }))}
-              className="accent-primary w-5 h-5"
-            />
-          </label>
+            {/* Price & Duration */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">מחיר (₪)</label>
+                <input
+                  type="number"
+                  value={form.service_price}
+                  onChange={e => setForm(f => ({ ...f, service_price: Number(e.target.value) }))}
+                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-center focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">משך (דקות)</label>
+                <input
+                  type="number"
+                  value={form.service_duration}
+                  onChange={e => setForm(f => ({ ...f, service_duration: Number(e.target.value) }))}
+                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-center focus:outline-none focus:border-primary"
+                />
+              </div>
+            </div>
 
-          {/* Notes */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">הערות לקוח</label>
-            <textarea
-              value={form.notes}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              rows={2}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary resize-none"
-              dir="rtl"
-            />
-          </div>
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">ספר</label>
+              <select
+                value={form.barber_id}
+                onChange={e => {
+                  const barber = barbers.find(item => item.id === e.target.value);
+                  setForm(f => ({ ...f, barber_id: barber?.id || '', barber_name: barber?.name || '' }));
+                }}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+              >
+                <option value="">בחר ספר</option>
+                {barbers.filter(barber => !barber.archived).map(barber => (
+                  <option key={barber.id} value={barber.id}>{barber.name}{!barber.is_active ? ' (לא פעיל)' : ''}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Admin notes */}
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">הערות מנהל</label>
-            <textarea
-              value={form.admin_notes}
-              onChange={e => setForm(f => ({ ...f, admin_notes: e.target.value }))}
-              rows={2}
-              className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary resize-none"
-              dir="rtl"
-            />
+            {/* Date */}
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">תאריך</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Time */}
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">שעה</label>
+              <select
+                value={form.time}
+                onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
+              >
+                {TIME_SLOTS.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">סטטוס</label>
+              <div className="grid grid-cols-3 gap-2">
+                {STATUS_EDIT_OPTIONS.map((key) => {
+                  const cfg = STATUS_CONFIG[key];
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setForm(f => ({ ...f, status: key }))}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all ${
+                        form.status === key ? cfg.color : 'glass text-muted-foreground'
+                      }`}
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <label className="flex items-center justify-between glass rounded-xl px-3 py-2.5">
+              <span className="text-sm font-bold">שולם</span>
+              <input
+                type="checkbox"
+                checked={form.paid}
+                onChange={e => setForm(f => ({ ...f, paid: e.target.checked }))}
+                className="accent-primary w-5 h-5"
+              />
+            </label>
+
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">הערות לקוח</label>
+              <textarea
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary resize-none"
+                dir="rtl"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">הערות מנהל</label>
+              <textarea
+                value={form.admin_notes}
+                onChange={e => setForm(f => ({ ...f, admin_notes: e.target.value }))}
+                rows={2}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-right focus:outline-none focus:border-primary resize-none"
+                dir="rtl"
+              />
+            </div>
           </div>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-            {error.code === 'functions/already-exists' ? 'התור חופף לתור קיים של אותו ספר.' : 'שמירת התור נכשלה.'}
+        {/* Error banner + action buttons — always visible, never scrolls */}
+        <div className="modal-actions px-5">
+          {error && (
+            <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+              {error.code === 'functions/already-exists' ? 'התור חופף לתור קיים של אותו ספר.' : 'שמירת התור נכשלה.'}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass text-muted-foreground font-bold text-sm">
+              ביטול
+            </button>
+            <button
+              onClick={() => onSave(appt.id, form)}
+              disabled={isSaving}
+              className="flex-1 py-3 rounded-2xl gold-gradient text-black font-black text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {isSaving ? 'שומר...' : 'שמור'}
+            </button>
           </div>
-        )}
-
-        <div className="mt-5 flex gap-2">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass text-muted-foreground font-bold text-sm">
-            ביטול
-          </button>
-          <button
-            onClick={() => onSave(appt.id, form)}
-            disabled={isSaving}
-            className="flex-1 py-3 rounded-2xl gold-gradient text-black font-black text-sm flex items-center justify-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? 'שומר...' : 'שמור'}
-          </button>
         </div>
       </motion.div>
     </motion.div>
@@ -356,6 +358,15 @@ export default function AdminAppointments() {
   const [cancelAppt, setCancelAppt] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
 
+  // Per-appointment-per-action loading key: "{appointmentId}:{action}"
+  // e.g. "appt123:approve", "appt123:cancel", "appt123:delete", "appt123:paid"
+  const [loadingAction, setLoadingAction] = useState(null);
+  const loadingRef = useRef(null);
+
+  const setAction = (key) => { loadingAction === null && setLoadingAction(key); loadingRef.current = key; };
+  const clearAction = () => { setLoadingAction(null); loadingRef.current = null; };
+  const isActionLoading = (key) => loadingAction === key;
+
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
   const { data: services, error: servicesError } = useAllServicesRealtime();
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
@@ -369,29 +380,47 @@ export default function AdminAppointments() {
       setNoShowAppt(null);
       setCancelAppt(null);
       setCancelReason('');
+      clearAction();
       toast({ title: 'התור עודכן', description: 'השינוי נשמר ומופיע בזמן אמת.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: getUserFacingErrorMessage(error) }),
+    onError: (error) => {
+      clearAction();
+      toast({ variant: 'destructive', title: 'עדכון התור נכשל', description: getUserFacingErrorMessage(error) });
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteAppointment(id),
     onSuccess: () => {
       setSelectedAppt(null);
+      clearAction();
       toast({ title: 'התור נמחק', description: 'הזמן התפנה להזמנה מחדש.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת התור נכשלה', description: getUserFacingErrorMessage(error) }),
+    onError: (error) => {
+      clearAction();
+      toast({ variant: 'destructive', title: 'מחיקת התור נכשלה', description: getUserFacingErrorMessage(error) });
+    },
   });
 
   const createMutation = useMutation({
     mutationFn: (data) => createAdminAppointment(data),
     onSuccess: () => {
       setShowNewForm(false);
+      clearAction();
       toast({ title: 'התור נוסף', description: 'התור נשמר בהצלחה.' });
     },
-    onError: (error) => toast({ variant: 'destructive', title: 'יצירת התור נכשלה', description: getUserFacingErrorMessage(error) }),
+    onError: (error) => {
+      clearAction();
+      toast({ variant: 'destructive', title: 'יצירת התור נכשלה', description: getUserFacingErrorMessage(error) });
+    },
   });
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
+
+  const handleQuickAction = useCallback((actionKey, mutationCall) => {
+    if (loadingAction !== null) return; // block if any action in flight
+    setLoadingAction(actionKey);
+    mutationCall();
+  }, [loadingAction]);
 
   const today = localDateToString();
   const filtered = [...appointments]
@@ -587,58 +616,82 @@ export default function AdminAppointments() {
 
               {/* Quick action buttons */}
               <div className="flex gap-1.5 mt-3">
-                {appt.status === 'pending' && (
-                  <button
-                    onClick={() => updateMutation.mutate({ id: appt.id, data: { status: 'confirmed' } })}
-                    className="flex-1 py-1.5 rounded-xl bg-green-500/15 text-green-400 text-xs font-bold flex items-center justify-center gap-1"
-                  >
-                    <Check className="w-3 h-3" /> אשר
-                  </button>
-                )}
+                {appt.status === 'pending' && (() => {
+                  const key = `${appt.id}:approve`;
+                  const loading = isActionLoading(key);
+                  return (
+                    <button
+                      onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { status: 'confirmed' } }))}
+                      disabled={loadingAction !== null}
+                      className="flex-1 py-1.5 rounded-xl bg-green-500/15 text-green-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      {loading ? 'מאשר...' : 'אשר'}
+                    </button>
+                  );
+                })()}
                 {(appt.status === 'pending' || appt.status === 'confirmed') && (
                   <>
                     <button
-                      onClick={() => {
-                        setNoShowAppt(appt);
-                        setNoShowAction('warning');
-                      }}
-                      className="flex-1 py-1.5 rounded-xl bg-orange-500/15 text-orange-400 text-xs font-bold flex items-center justify-center gap-1"
+                      onClick={() => { setNoShowAppt(appt); setNoShowAction('warning'); }}
+                      disabled={loadingAction !== null}
+                      className="flex-1 py-1.5 rounded-xl bg-orange-500/15 text-orange-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       <UserX className="w-3 h-3" /> לא הגיע
                     </button>
                     <button
-                      onClick={() => {
-                        setCancelAppt(appt);
-                        setCancelReason('');
-                      }}
-                      className="flex-1 py-1.5 rounded-xl bg-red-500/15 text-red-400 text-xs font-bold flex items-center justify-center gap-1"
+                      onClick={() => { setCancelAppt(appt); setCancelReason(''); }}
+                      disabled={loadingAction !== null}
+                      className="flex-1 py-1.5 rounded-xl bg-red-500/15 text-red-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       <X className="w-3 h-3" /> בטל
                     </button>
                   </>
                 )}
-                {appt.status === 'confirmed' && (
-                  <button
-                    onClick={() => updateMutation.mutate({ id: appt.id, data: { status: 'completed' } })}
-                    className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1"
-                  >
-                    <Check className="w-3 h-3" /> הושלם
-                  </button>
-                )}
-                {!appt.paid && (
-                  <button
-                    onClick={() => updateMutation.mutate({ id: appt.id, data: { paid: true } })}
-                    className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold"
-                  >
-                    סמן שולם
-                  </button>
-                )}
-                <button
-                  onClick={() => { if (window.confirm('למחוק תור זה?')) deleteMutation.mutate(appt.id); }}
-                  className="py-1.5 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                {appt.status === 'confirmed' && (() => {
+                  const key = `${appt.id}:complete`;
+                  const loading = isActionLoading(key);
+                  return (
+                    <button
+                      onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { status: 'completed' } }))}
+                      disabled={loadingAction !== null}
+                      className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      {loading ? 'שומר...' : 'הושלם'}
+                    </button>
+                  );
+                })()}
+                {!appt.paid && (() => {
+                  const key = `${appt.id}:paid`;
+                  const loading = isActionLoading(key);
+                  return (
+                    <button
+                      onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { paid: true } }))}
+                      disabled={loadingAction !== null}
+                      className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      {loading ? 'מסמן...' : 'סמן שולם'}
+                    </button>
+                  );
+                })()}
+                {(() => {
+                  const key = `${appt.id}:delete`;
+                  const loading = isActionLoading(key);
+                  return (
+                    <button
+                      onClick={() => {
+                        if (!window.confirm('למחוק תור זה?')) return;
+                        handleQuickAction(key, () => deleteMutation.mutate(appt.id));
+                      }}
+                      disabled={loadingAction !== null}
+                      className="py-1.5 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold flex items-center justify-center disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    </button>
+                  );
+                })()}
               </div>
             </motion.div>
           );
@@ -684,43 +737,48 @@ export default function AdminAppointments() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
               onClick={event => event.stopPropagation()}
               dir="rtl"
             >
-              <h3 className="font-black text-lg mb-2">ביטול תור</h3>
-              <p className="text-muted-foreground text-sm mb-4">
-                כתוב סיבת ביטול שתופיע בהיסטוריית התור ללקוח ולניהול.
-              </p>
-              <textarea
-                value={cancelReason}
-                onChange={(event) => setCancelReason(event.target.value)}
-                rows={4}
-                placeholder="לדוגמה: הלקוח ביקש לבטל / שינוי בלו״ז העסק..."
-                className="w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm resize-none focus:outline-none focus:border-primary"
-                dir="rtl"
-              />
-              <div className="flex gap-2 mt-5">
+              <div className="px-5 pt-5 pb-3 flex-shrink-0">
+                <h3 className="font-black text-lg mb-1">ביטול תור</h3>
+                <p className="text-muted-foreground text-sm">
+                  כתוב סיבת ביטול שתופיע בהיסטוריית התור ללקוח ולניהול.
+                </p>
+              </div>
+              <div className="modal-scroll-body px-5">
+                <textarea
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                  rows={4}
+                  placeholder="לדוגמה: הלקוח ביקש לבטל / שינוי בלו״ז העסק..."
+                  className="w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm resize-none focus:outline-none focus:border-primary"
+                  dir="rtl"
+                />
+              </div>
+              <div className="modal-actions px-5 flex gap-2">
                 <button
-                  onClick={() => {
-                    setCancelAppt(null);
-                    setCancelReason('');
-                  }}
+                  onClick={() => { setCancelAppt(null); setCancelReason(''); }}
                   className="flex-1 glass py-3 rounded-xl font-bold"
                 >
                   חזרה
                 </button>
                 <button
-                  onClick={() => updateMutation.mutate({
-                    id: cancelAppt.id,
-                    data: {
-                      status: 'cancelled',
-                      cancellationReason: cancelReason.trim() || 'admin_cancelled',
-                    },
-                  })}
+                  onClick={() => {
+                    setLoadingAction(`${cancelAppt.id}:cancel`);
+                    updateMutation.mutate({
+                      id: cancelAppt.id,
+                      data: {
+                        status: 'cancelled',
+                        cancellationReason: cancelReason.trim() || 'admin_cancelled',
+                      },
+                    });
+                  }}
                   disabled={updateMutation.isPending}
-                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-black disabled:opacity-60"
+                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-black disabled:opacity-60 flex items-center justify-center gap-2"
                 >
+                  {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   {updateMutation.isPending ? 'מבטל...' : 'בטל תור'}
                 </button>
               </div>
@@ -740,46 +798,54 @@ export default function AdminAppointments() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
               onClick={event => event.stopPropagation()}
               dir="rtl"
             >
-              <h3 className="font-black text-lg mb-2">סימון אי הגעה</h3>
-              <p className="text-muted-foreground text-sm mb-4">
-                בחר מה לעשות עם הלקוח בעקבות אי הגעה לתור.
-              </p>
-              <div className="space-y-2">
-                {[
-                  { value: 'warning', label: 'אזהרה בלבד', description: 'הוספת אזהרה לפרופיל הלקוח.' },
-                  { value: 'payment_required', label: 'דרוש תשלום 50%', description: 'יסומן שנדרש תשלום לפני ההזמנה הבאה.' },
-                  { value: 'block', label: 'חסום לקוח', description: 'מונע מהלקוח לקבוע תורים חדשים.' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setNoShowAction(option.value)}
-                    className={`w-full rounded-2xl p-3 text-right border transition-all ${
-                      noShowAction === option.value
-                        ? 'border-primary bg-primary/10'
-                        : 'border-white/10 glass'
-                    }`}
-                  >
-                    <span className="block font-bold text-sm">{option.label}</span>
-                    <span className="block text-xs text-muted-foreground mt-1">{option.description}</span>
-                  </button>
-                ))}
+              <div className="px-5 pt-5 pb-3 flex-shrink-0">
+                <h3 className="font-black text-lg mb-1">סימון אי הגעה</h3>
+                <p className="text-muted-foreground text-sm">
+                  בחר מה לעשות עם הלקוח בעקבות אי הגעה לתור.
+                </p>
               </div>
-              <div className="flex gap-2 mt-5">
+              <div className="modal-scroll-body px-5">
+                <div className="space-y-2 pb-1">
+                  {[
+                    { value: 'warning', label: 'אזהרה בלבד', description: 'הוספת אזהרה לפרופיל הלקוח.' },
+                    { value: 'payment_required', label: 'דרוש תשלום 50%', description: 'יסומן שנדרש תשלום לפני ההזמנה הבאה.' },
+                    { value: 'block', label: 'חסום לקוח', description: 'מונע מהלקוח לקבוע תורים חדשים.' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setNoShowAction(option.value)}
+                      className={`w-full rounded-2xl p-3 text-right border transition-all ${
+                        noShowAction === option.value
+                          ? 'border-primary bg-primary/10'
+                          : 'border-white/10 glass'
+                      }`}
+                    >
+                      <span className="block font-bold text-sm">{option.label}</span>
+                      <span className="block text-xs text-muted-foreground mt-1">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-actions px-5 flex gap-2">
                 <button onClick={() => setNoShowAppt(null)} className="flex-1 glass py-3 rounded-xl font-bold">
                   ביטול
                 </button>
                 <button
-                  onClick={() => updateMutation.mutate({
-                    id: noShowAppt.id,
-                    data: { status: 'no_show', noShowAction },
-                  })}
+                  onClick={() => {
+                    setLoadingAction(`${noShowAppt.id}:noshow`);
+                    updateMutation.mutate({
+                      id: noShowAppt.id,
+                      data: { status: 'no_show', noShowAction },
+                    });
+                  }}
                   disabled={updateMutation.isPending}
-                  className="flex-1 gold-gradient text-black py-3 rounded-xl font-black"
+                  className="flex-1 gold-gradient text-black py-3 rounded-xl font-black flex items-center justify-center gap-2"
                 >
+                  {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   {updateMutation.isPending ? 'שומר...' : 'סמן לא הגיע'}
                 </button>
               </div>
