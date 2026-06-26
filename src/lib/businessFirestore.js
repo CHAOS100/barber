@@ -497,6 +497,71 @@ export const saveBusinessSettings = async (input) => {
   return payload;
 };
 
+export const DEFAULT_FEATURES = [
+  { id: 'f1', icon: '✂️', title: 'תספורת מקצועית', description: 'גזירות מדויקות ומעוצבות', enabled: true, order: 0 },
+  { id: 'f2', icon: '🧔', title: 'עיצוב זקן', description: 'עיצוב וטיפוח זקן איכותי', enabled: true, order: 1 },
+  { id: 'f3', icon: '⭐', title: 'שירות אישי', description: 'יחס אישי ומקצועי לכל לקוח', enabled: true, order: 2 },
+  { id: 'f4', icon: '💎', title: 'אווירה יוקרתית', description: 'חוויה מפנקת ואיכותית', enabled: true, order: 3 },
+  { id: 'f5', icon: '💈', title: 'חומרים איכותיים', description: 'מוצרים מהשורה הראשונה', enabled: true, order: 4 },
+  { id: 'f6', icon: '📅', title: 'זמינות נוחה', description: 'הזמנת תורים קלה ומהירה', enabled: true, order: 5 },
+];
+
+export const saveBusinessFeatures = async (features) => {
+  await ensureFirebaseAdmin();
+  const normalized = features.map((f, i) => ({
+    id: String(f.id || `f_${i}`),
+    title: String(f.title || '').trim(),
+    description: String(f.description || '').trim(),
+    icon: String(f.icon || '✂️').trim(),
+    enabled: f.enabled !== false,
+    order: Number(f.order ?? i),
+  }));
+  await setDoc(doc(getFirestoreDb(), 'settings', 'business'), {
+    features: normalized,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  console.info('[Firestore Settings] features saved', { count: normalized.length });
+  return normalized;
+};
+
+export const uploadHeroImage = async (file, onProgress) => {
+  const { getDownloadURL, ref: storageRef, uploadBytesResumable } = await import('firebase/storage');
+  const { firebaseStorage } = await import('@/lib/firebase');
+  const adminUser = await ensureFirebaseAdmin();
+  const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase();
+  const storagePath = `settings/hero-image.${ext}`;
+  const imageRef = storageRef(firebaseStorage, storagePath);
+  const uploadTask = uploadBytesResumable(imageRef, file, {
+    contentType: file.type,
+    customMetadata: { uploadedBy: adminUser.uid },
+  });
+  return new Promise((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes) {
+          onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+        }
+      },
+      reject,
+      async () => {
+        try {
+          const homeHeroImageUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          await setDoc(doc(getFirestoreDb(), 'settings', 'business'), {
+            homeHeroImageUrl,
+            homeHeroImagePath: storagePath,
+            homeHeroImageUpdatedAt: serverTimestamp(),
+          }, { merge: true });
+          console.info('[Firestore Settings] hero image uploaded', { storagePath });
+          resolve(homeHeroImageUrl);
+        } catch (err) {
+          reject(err);
+        }
+      },
+    );
+  });
+};
+
 export const subscribeToAppointmentBlocks = (date, onData, onError) => onSnapshot(
   query(collection(getFirestoreDb(), 'appointmentBlocks'), where('date', '==', date)),
   (snapshot) => onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),

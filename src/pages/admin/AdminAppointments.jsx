@@ -52,6 +52,7 @@ for (let h = 6; h < 24; h++) {
 }
 
 function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onClose, isSaving, error }) {
+  const isNew = appt.id === '__new__';
   const [form, setForm] = useState({
     customer_id: appt.customer_id || appt.customerId || '',
     customer_name: appt.customer_name || '',
@@ -108,7 +109,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+      className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
       onClick={onClose}
     >
       <motion.div
@@ -121,7 +122,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
       >
         {/* Header — always visible, never scrolls */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-          <h3 className="font-black text-lg">עריכת תור</h3>
+          <h3 className="font-black text-lg">{isNew ? 'תור חדש' : 'עריכת תור'}</h3>
           <button onClick={onClose} className="glass p-2 rounded-xl">
             <X className="w-4 h-4" />
           </button>
@@ -337,7 +338,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
               className="flex-1 py-3 rounded-2xl gold-gradient text-black font-black text-sm flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {isSaving ? 'שומר...' : 'שמור'}
+              {isSaving ? (isNew ? 'יוצר...' : 'שומר...') : (isNew ? 'צור תור' : 'שמור')}
             </button>
           </div>
         </div>
@@ -729,7 +730,7 @@ export default function AdminAppointments() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onClick={() => setCancelAppt(null)}
           >
             <motion.div
@@ -790,7 +791,7 @@ export default function AdminAppointments() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onClick={() => setNoShowAppt(null)}
           >
             <motion.div

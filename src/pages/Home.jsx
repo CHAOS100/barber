@@ -25,6 +25,7 @@ import {
   Star,
 } from 'lucide-react';
 import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
+import { DEFAULT_FEATURES } from '@/lib/businessFirestore';
 import { useActiveBarbersRealtime, useActiveServicesRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
@@ -139,7 +140,7 @@ export default function Home() {
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Hero Cover */}
       <div className="relative h-72 overflow-hidden">
-        <img src={COVER_IMAGE} alt="OST BARBER" className="w-full h-full object-cover" />
+        <img src={businessSettings?.homeHeroImageUrl || COVER_IMAGE} alt="OST BARBER" className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-background" />
         <div className="absolute top-4 left-4">
           <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
@@ -315,6 +316,35 @@ export default function Home() {
                   </p>
                 )}
               </div>
+
+              {/* Features / Highlights */}
+              {(() => {
+                const raw = businessSettings?.features?.length ? businessSettings.features : DEFAULT_FEATURES;
+                const displayFeatures = raw
+                  .filter(f => f.enabled !== false)
+                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                if (!displayFeatures.length) return null;
+                return (
+                  <div className="mb-5">
+                    <h2 className="text-base font-black mb-3">מה אנחנו מציעים</h2>
+                    <div className="grid grid-cols-2 gap-2">
+                      {displayFeatures.map((feature, i) => (
+                        <motion.div
+                          key={feature.id || i}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.04 }}
+                          className="dark-card rounded-2xl p-3"
+                        >
+                          <span className="text-2xl mb-1.5 block">{feature.icon}</span>
+                          <div className="font-bold text-sm">{feature.title}</div>
+                          <div className="text-muted-foreground text-xs mt-0.5 leading-snug">{feature.description}</div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Opening Hours */}
               <div className="glass rounded-2xl p-4 mb-5">

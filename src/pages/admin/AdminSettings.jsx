@@ -1,18 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Store, Phone, MapPin, Navigation2, MessageCircle, Instagram, Sparkles, Bell } from 'lucide-react';
+import { ArrowRight, Bell, Edit3, Instagram, Image as ImageIcon, MessageCircle, MapPin, Navigation2, Phone, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
 import {
   DEFAULT_BOOKING_POLICY_TEXT,
   DEFAULT_BOOKING_POLICY_VERSION,
+  DEFAULT_FEATURES,
   saveBookingSettings,
   saveBusinessSettings,
+  saveBusinessFeatures,
+  uploadHeroImage,
 } from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+
+const FALLBACK_HERO = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=900&q=90';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
@@ -22,6 +27,17 @@ export default function AdminSettings() {
   const [bufferMinutes, setBufferMinutes] = useState(null);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(null);
   const [cancellationDeadlineMinutes, setCancellationDeadlineMinutes] = useState(null);
+
+  // Features state
+  const [features, setFeatures] = useState(/** @type {null|Array<any>} */ (null));
+  const [editingFeatureIdx, setEditingFeatureIdx] = useState(null);
+  const [newFeature, setNewFeature] = useState(null);
+  const featuresInitRef = useRef(false);
+
+  // Hero image upload state
+  const [heroUploadProgress, setHeroUploadProgress] = useState(null);
+  const heroImageRef = useRef(null);
+
   const displayedBuffer = bufferMinutes
     ?? bookingSettings?.appointmentBufferMinutes
     ?? bookingSettings?.defaultAppointmentBufferAfterMinutes
@@ -36,7 +52,17 @@ export default function AdminSettings() {
     ?? 180;
 
   useEffect(() => {
-    if (businessSettings) setInfo(previous => ({ ...previous, ...businessSettings }));
+    if (businessSettings) {
+      setInfo(previous => ({ ...previous, ...businessSettings }));
+      if (!featuresInitRef.current) {
+        featuresInitRef.current = true;
+        setFeatures(
+          businessSettings.features?.length
+            ? [...businessSettings.features]
+            : [...DEFAULT_FEATURES],
+        );
+      }
+    }
   }, [businessSettings]);
 
   const saveSettings = useMutation({
@@ -64,6 +90,52 @@ export default function AdminSettings() {
     }),
   });
 
+  const heroUploadMutation = useMutation({
+    mutationFn: (file) => uploadHeroImage(file, setHeroUploadProgress),
+    onSuccess: () => {
+      setHeroUploadProgress(null);
+      toast({ title: 'תמונת הכיסוי עודכנה' });
+    },
+    onError: (error) => {
+      setHeroUploadProgress(null);
+      toast({ variant: 'destructive', title: 'העלאת התמונה נכשלה', description: getUserFacingErrorMessage(error) });
+    },
+  });
+
+  const saveFeaturesMutation = useMutation({
+    mutationFn: () => saveBusinessFeatures(features ?? []),
+    onSuccess: () => toast({ title: 'תכונות המספרה נשמרו' }),
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'שמירת התכונות נכשלה',
+      description: getUserFacingErrorMessage(error),
+    }),
+  });
+
+  const moveFeature = (index, direction) => {
+    setFeatures(prev => {
+      const arr = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= arr.length) return arr;
+      [arr[index], arr[target]] = [arr[target], arr[index]];
+      return arr.map((f, i) => ({ ...f, order: i }));
+    });
+  };
+
+  const toggleFeature = (index) => {
+    setFeatures(prev => prev.map((f, i) => i === index ? { ...f, enabled: !f.enabled } : f));
+  };
+
+  const deleteFeature = (index) => {
+    setFeatures(prev => prev.filter((_, i) => i !== index).map((f, i) => ({ ...f, order: i })));
+    if (editingFeatureIdx === index) setEditingFeatureIdx(null);
+    else if (editingFeatureIdx !== null && editingFeatureIdx > index) setEditingFeatureIdx(editingFeatureIdx - 1);
+  };
+
+  const updateFeatureField = (index, field, value) => {
+    setFeatures(prev => prev.map((f, i) => i === index ? { ...f, [field]: value } : f));
+  };
+
   const handleSave = () => saveSettings.mutate();
 
   return (
@@ -84,15 +156,59 @@ export default function AdminSettings() {
           </button>
         </div>
 
+        {/* Hero Cover Image */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-primary" /> תמונת כיסוי דף הבית
+          </h3>
+          <p className="text-xs text-muted-foreground">מוצגת בראש דף הבית של הלקוח. PNG/JPG/WebP עד 10MB.</p>
+          <div className="rounded-2xl overflow-hidden h-36 bg-secondary relative">
+            <img
+              src={info.homeHeroImageUrl || FALLBACK_HERO}
+              alt="תמונת כיסוי"
+              className="w-full h-full object-cover"
+            />
+            {heroUploadProgress !== null && (
+              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
+                <div className="w-32 h-2 bg-white/20 rounded-full overflow-hidden">
+                  <div
+                    className="h-full gold-gradient transition-all duration-200"
+                    style={{ width: `${heroUploadProgress}%` }}
+                  />
+                </div>
+                <span className="text-white text-sm font-bold">{heroUploadProgress}%</span>
+              </div>
+            )}
+          </div>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            ref={heroImageRef}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) heroUploadMutation.mutate(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            onClick={() => heroImageRef.current?.click()}
+            disabled={heroUploadMutation.isPending}
+            className="w-full glass py-2.5 rounded-xl text-primary text-sm font-bold press-scale disabled:opacity-50"
+          >
+            {heroUploadMutation.isPending ? `מעלה... ${heroUploadProgress ?? 0}%` : 'בחר תמונה להעלאה'}
+          </button>
+        </div>
+
         {/* Business Details */}
         <div className="glass rounded-2xl p-4 space-y-3">
           <h3 className="font-bold flex items-center gap-2">
             <Store className="w-4 h-4 text-primary" /> פרטי העסק
           </h3>
           {[
-            { key: 'name', label: 'שם העסק', icon: Store },
-            { key: 'phone', label: 'טלפון', icon: Phone },
-            { key: 'address', label: 'כתובת', icon: MapPin },
+            { key: 'name', label: 'שם העסק' },
+            { key: 'phone', label: 'טלפון' },
+            { key: 'address', label: 'כתובת' },
           ].map(({ key, label }) => (
             <div key={key}>
               <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
@@ -122,9 +238,9 @@ export default function AdminSettings() {
           </h3>
           <p className="text-xs text-muted-foreground">הקישורים מופיעים בדף הבית של האפליקציה.</p>
           {[
-            { key: 'whatsapp', label: 'WhatsApp (מספר טלפון)', icon: MessageCircle, placeholder: '0501234567' },
-            { key: 'waze', label: 'קישור Waze', icon: Navigation2, placeholder: 'https://waze.com/ul/...' },
-            { key: 'instagram', label: 'קישור Instagram', icon: Instagram, placeholder: 'https://instagram.com/...' },
+            { key: 'whatsapp', label: 'WhatsApp (מספר טלפון)', placeholder: '0501234567' },
+            { key: 'waze', label: 'קישור Waze', placeholder: 'https://waze.com/ul/...' },
+            { key: 'instagram', label: 'קישור Instagram', placeholder: 'https://instagram.com/...' },
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
               <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
@@ -152,6 +268,158 @@ export default function AdminSettings() {
             className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right text-sm focus:outline-none focus:border-primary resize-none h-20"
             dir="rtl"
           />
+        </div>
+
+        {/* Features / Highlights */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" /> תכונות המספרה
+          </h3>
+          <p className="text-xs text-muted-foreground">כרטיסיות שמוצגות בדף הבית ללקוחות. ניתן לסדר, להפעיל/לכבות ולערוך.</p>
+
+          <div className="space-y-2">
+            {(features ?? []).map((feature, i) => (
+              <div key={feature.id || i} className="dark-card rounded-2xl p-3">
+                {editingFeatureIdx === i ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={feature.icon}
+                        onChange={e => updateFeatureField(i, 'icon', e.target.value)}
+                        className="w-14 bg-secondary border border-border rounded-xl px-2 py-2 text-center text-lg"
+                        placeholder="✂️"
+                        maxLength={4}
+                      />
+                      <input
+                        value={feature.title}
+                        onChange={e => updateFeatureField(i, 'title', e.target.value)}
+                        className="flex-1 bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
+                        dir="rtl"
+                        placeholder="כותרת"
+                      />
+                    </div>
+                    <input
+                      value={feature.description}
+                      onChange={e => updateFeatureField(i, 'description', e.target.value)}
+                      className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
+                      dir="rtl"
+                      placeholder="תיאור קצר"
+                    />
+                    <button
+                      onClick={() => setEditingFeatureIdx(null)}
+                      className="text-primary text-xs font-bold"
+                    >
+                      ✓ סיום עריכה
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl flex-shrink-0 w-8 text-center">{feature.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-bold text-sm ${!feature.enabled ? 'text-muted-foreground' : ''}`}>
+                        {feature.title || <span className="text-muted-foreground italic text-xs">ללא כותרת</span>}
+                      </div>
+                      <div className="text-muted-foreground text-xs truncate">{feature.description}</div>
+                    </div>
+                    {/* Order arrows */}
+                    <div className="flex flex-col gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={() => moveFeature(i, -1)}
+                        disabled={i === 0}
+                        className="text-muted-foreground disabled:opacity-25 text-xs leading-none py-0.5 px-1"
+                      >▲</button>
+                      <button
+                        onClick={() => moveFeature(i, 1)}
+                        disabled={i === (features?.length ?? 0) - 1}
+                        className="text-muted-foreground disabled:opacity-25 text-xs leading-none py-0.5 px-1"
+                      >▼</button>
+                    </div>
+                    {/* Enable toggle */}
+                    <button
+                      onClick={() => toggleFeature(i)}
+                      className={`w-9 h-5 rounded-full flex items-center px-0.5 transition-all flex-shrink-0 ${feature.enabled ? 'gold-gradient' : 'bg-secondary border border-border'}`}
+                    >
+                      <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${feature.enabled ? 'translate-x-0' : 'translate-x-4'}`} />
+                    </button>
+                    {/* Edit */}
+                    <button onClick={() => setEditingFeatureIdx(i)} className="glass p-1.5 rounded-lg flex-shrink-0">
+                      <Edit3 className="w-3 h-3 text-primary" />
+                    </button>
+                    {/* Delete */}
+                    <button onClick={() => deleteFeature(i)} className="glass p-1.5 rounded-lg flex-shrink-0">
+                      <Trash2 className="w-3 h-3 text-red-400" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Add new feature form */}
+            {newFeature !== null && (
+              <div className="dark-card rounded-2xl p-3 space-y-2 border border-primary/30">
+                <div className="flex gap-2">
+                  <input
+                    value={newFeature.icon}
+                    onChange={e => setNewFeature(f => ({ ...f, icon: e.target.value }))}
+                    className="w-14 bg-secondary border border-border rounded-xl px-2 py-2 text-center text-lg"
+                    placeholder="✂️"
+                    maxLength={4}
+                  />
+                  <input
+                    value={newFeature.title}
+                    onChange={e => setNewFeature(f => ({ ...f, title: e.target.value }))}
+                    className="flex-1 bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
+                    dir="rtl"
+                    placeholder="כותרת"
+                    autoFocus
+                  />
+                </div>
+                <input
+                  value={newFeature.description}
+                  onChange={e => setNewFeature(f => ({ ...f, description: e.target.value }))}
+                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
+                  dir="rtl"
+                  placeholder="תיאור קצר"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setNewFeature(null)} className="flex-1 glass py-2 rounded-xl text-sm text-muted-foreground font-bold">
+                    ביטול
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!newFeature.title.trim()) return;
+                      setFeatures(prev => [
+                        ...(prev ?? []),
+                        { ...newFeature, id: `f_${Date.now()}`, order: (prev ?? []).length },
+                      ]);
+                      setNewFeature(null);
+                    }}
+                    className="flex-1 gold-gradient text-black py-2 rounded-xl text-sm font-bold"
+                  >
+                    הוסף
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            {newFeature === null && (
+              <button
+                onClick={() => setNewFeature({ icon: '✂️', title: '', description: '', enabled: true })}
+                className="flex-1 glass py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1 press-scale"
+              >
+                <Plus className="w-4 h-4" /> הוסף תכונה
+              </button>
+            )}
+            <button
+              onClick={() => saveFeaturesMutation.mutate()}
+              disabled={saveFeaturesMutation.isPending || features === null}
+              className="flex-1 gold-gradient text-black py-2.5 rounded-xl text-sm font-bold press-scale disabled:opacity-60"
+            >
+              {saveFeaturesMutation.isPending ? 'שומר...' : 'שמור תכונות'}
+            </button>
+          </div>
         </div>
 
         <div className="glass rounded-2xl p-4 space-y-3">
