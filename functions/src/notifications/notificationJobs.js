@@ -447,6 +447,28 @@ export const buildPushJobForWaitlistManual = (
 };
 
 /**
+ * Build a push notification job for a user profile status change
+ * (blocked, unblocked, warning, payment_request).
+ * Uses a deterministic dedupKey derived from the write timestamp so
+ * Firestore at-least-once delivery cannot create duplicate jobs.
+ */
+export const buildPushJobForProfileStatus = (
+  uid,
+  { type, title, body, data = {}, dedupKey },
+  now = new Date(),
+) => buildPushJob({
+  id: `${uid}_${type}_${dedupKey}`,
+  customerId: uid,
+  customerPhone: null,
+  type,
+  title,
+  body,
+  data,
+  scheduledFor: now,
+  createdAt: now,
+});
+
+/**
  * Build a push notification job for a waiting list slot becoming available.
  */
 export const buildPushJobForWaitlistMatch = (

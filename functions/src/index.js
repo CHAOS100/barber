@@ -19,6 +19,7 @@ import {
   buildPushJobForAppointmentEvent,
   buildPushJobForCancellation,
   buildPushJobForWaitlistMatch,
+  buildPushJobForProfileStatus,
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
@@ -302,6 +303,159 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
           logger.warn('immediate push delivery failed (scheduler will retry)', { error: error.message }),
         );
       }
+    }
+  },
+);
+
+// ── User profile status change → inbox + push ─────────────────────────────────
+//
+// Fires when admin blocks/unblocks a customer, adds a warning, or sets a
+// payment request. Creates an inbox notification and an immediate push job.
+// Uses deterministic doc IDs so Firestore at-least-once retries are safe.
+
+const isAlreadyExistsError = (error) => error?.code === 6 || error?.code === 'already-exists';
+
+const createProfileStatusInboxNotification = async (db, uid, type, fields, dedupKey) => {
+  const docId = `profile_status_${type}_${dedupKey}`;
+  try {
+    await db
+      .collection('customerNotifications')
+      .doc(uid)
+      .collection('notifications')
+      .doc(docId)
+      .create({
+        ...fields,
+        type,
+        targetType: 'single_customer',
+        targetCustomerId: uid,
+        status: 'unread',
+        source: 'profile_status',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: null,
+      });
+    pushDebug('[INBOX_DEBUG] profile status inbox notification created', { uid, type, docId });
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      pushDebug('[INBOX_DEBUG] profile status inbox notification already exists, skipping', { uid, type, docId });
+      return;
+    }
+    throw error;
+  }
+};
+
+export const notifyCustomerOnProfileStatusChange = onDocumentUpdated(
+  'users/{uid}',
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const uid = event.params.uid;
+    if (!uid || !before || !after) return;
+    if (after.role === 'admin') return;
+
+    const now = new Date();
+    const dedupKey = after.updatedAt?.toMillis?.() || now.getTime();
+    const db = getFirestore();
+    const jobsToEnqueue = [];
+
+    pushDebug('profile status trigger fired', {
+      uid,
+      dedupKey,
+      blockedBefore: Boolean(before.blocked),
+      blockedAfter: Boolean(after.blocked),
+      warningBefore: Number(before.warningCount || 0),
+      warningAfter: Number(after.warningCount || 0),
+      paymentBefore: Boolean(before.requiresNoShowPayment),
+      paymentAfter: Boolean(after.requiresNoShowPayment),
+    });
+
+    // ── Blocked ──────────────────────────────────────────────────────────────
+    if (!before.blocked && after.blocked) {
+      const reason = String(after.blockedReason || 'פנה לעסק לפרטים נוספים.').trim();
+      await createProfileStatusInboxNotification(db, uid, 'block', {
+        severity: 'danger',
+        title: 'החשבון חסום להזמנות',
+        message: `חשבונך חסום מקביעת תורים. סיבה: ${reason}`,
+      }, `block_${dedupKey}`);
+      jobsToEnqueue.push(buildPushJobForProfileStatus(uid, {
+        type: 'block',
+        title: 'החשבון חסום להזמנות',
+        body: `חשבונך חסום מקביעת תורים. סיבה: ${reason}`,
+        dedupKey: `block_${dedupKey}`,
+      }, now));
+    }
+
+    // ── Unblocked ────────────────────────────────────────────────────────────
+    if (before.blocked && !after.blocked) {
+      await createProfileStatusInboxNotification(db, uid, 'block', {
+        severity: 'success',
+        title: 'החסימה הוסרה',
+        message: 'החסימה הוסרה מחשבונך. ניתן לקבוע תורים שוב.',
+      }, `unblock_${dedupKey}`);
+      jobsToEnqueue.push(buildPushJobForProfileStatus(uid, {
+        type: 'block',
+        title: 'החסימה הוסרה',
+        body: 'החסימה הוסרה מחשבונך. ניתן לקבוע תורים שוב.',
+        dedupKey: `unblock_${dedupKey}`,
+      }, now));
+    }
+
+    // ── Warning added ────────────────────────────────────────────────────────
+    const prevWarnings = Number(before.warningCount || 0);
+    const nextWarnings = Number(after.warningCount || 0);
+    if (nextWarnings > prevWarnings) {
+      const warningLabel = nextWarnings === 1 ? 'אזהרה' : 'אזהרות';
+      await createProfileStatusInboxNotification(db, uid, 'warning', {
+        severity: 'warning',
+        title: 'אזהרה נוספה לחשבון',
+        message: `צברת ${nextWarnings} ${warningLabel}. מומלץ להקפיד על הגעה בזמן וביטול מראש.`,
+      }, `warning_${dedupKey}`);
+      jobsToEnqueue.push(buildPushJobForProfileStatus(uid, {
+        type: 'warning',
+        title: 'אזהרה חדשה בחשבון',
+        body: `צברת ${nextWarnings} ${warningLabel}. מומלץ להקפיד על הגעה בזמן.`,
+        dedupKey: `warning_${dedupKey}`,
+      }, now));
+    }
+
+    // ── Payment request added ────────────────────────────────────────────────
+    if (!before.requiresNoShowPayment && after.requiresNoShowPayment) {
+      const amount = Number(after.noShowPaymentAmount || 0);
+      const amountText = amount > 0 ? ` ₪${amount}` : '';
+      await createProfileStatusInboxNotification(db, uid, 'payment_request', {
+        severity: 'warning',
+        title: 'נדרש תשלום לפני הזמנה חדשה',
+        message: amount > 0
+          ? `נדרש תשלום של${amountText} עבור אי-הגעה קודמת לפני קביעת תור חדש.`
+          : 'נדרש תשלום עבור אי-הגעה קודמת לפני קביעת תור חדש.',
+      }, `payment_req_${dedupKey}`);
+      jobsToEnqueue.push(buildPushJobForProfileStatus(uid, {
+        type: 'payment_request',
+        title: 'נדרש טיפול לפני הזמנה חדשה',
+        body: amount > 0
+          ? `נדרש תשלום של${amountText} עבור אי-הגעה קודמת.`
+          : 'נדרש תשלום עבור אי-הגעה קודמת לפני קביעת תור.',
+        dedupKey: `payment_req_${dedupKey}`,
+      }, now));
+    }
+
+    if (jobsToEnqueue.length === 0) return;
+
+    pushDebug('profile status push jobs prepared', {
+      uid,
+      dedupKey,
+      jobCount: jobsToEnqueue.length,
+      jobIds: jobsToEnqueue.map((j) => j.id),
+    });
+
+    await notificationJobs.enqueue(jobsToEnqueue);
+    const immediateIds = jobsToEnqueue
+      .filter((j) => IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+      .map((j) => j.id);
+    if (immediateIds.length > 0) {
+      await processImmediatePushJobs(immediateIds).catch((error) =>
+        logger.warn('profile status push delivery failed (scheduler will retry)', { error: error.message }),
+      );
     }
   },
 );

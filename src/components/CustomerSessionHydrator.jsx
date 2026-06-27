@@ -10,6 +10,7 @@ import {
   subscribeToCurrentCustomerProfile,
 } from '@/lib/customerProfilesFirestore';
 import { loginUser, logoutUser, userStore } from '@/lib/userStore';
+import { initPushNotifications, isNativePlatform } from '@/lib/pushNotifications';
 
 export default function CustomerSessionHydrator() {
   useEffect(() => {
@@ -31,9 +32,16 @@ export default function CustomerSessionHydrator() {
       resolveFirebaseUserPhoneNumber(firebaseUser)
         .then((phoneNumber) => {
           if (runId !== authRunId || !phoneNumber) return;
+          let pushRegistered = false;
           unsubscribeProfile = subscribeToCurrentCustomerProfile((profile) => {
             if (profile) {
               loginUser(customerProfileToSession(profile));
+              // Re-register push token once per auth session (silent — won't prompt).
+              // Refreshes stale/rotated tokens without asking for permission again.
+              if (isNativePlatform() && !pushRegistered) {
+                pushRegistered = true;
+                initPushNotifications(firebaseUser.uid, { silent: true }).catch(() => {});
+              }
             } else if (localUser?.isAdmin !== true) {
               logoutUser();
             }
