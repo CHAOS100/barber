@@ -7,7 +7,7 @@ import { BUSINESS_INFO } from '../../lib/businessConfig';
 import GoldButton from '../../components/ui/GoldButton';
 import {
   saveBookingSettings,
-  publishBookingSlotRelease,
+  callPublishManualSlotRelease,
   cancelBookingSlotRelease,
 } from '@/lib/businessFirestore';
 import {
@@ -45,9 +45,25 @@ const formatDate = (dateStr) => {
   return `${day}/${month}/${year}`;
 };
 
-const formatTime = (t) => t || '';
-
 const DAY_NAMES_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+
+// Mirrors generateSlotReleaseDates from functions/src/index.js — must stay in sync
+const generatePreviewDates = (fromDate, toDate, daysOfWeek) => {
+  const today = todayStr();
+  const dates = [];
+  const start = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return dates;
+  const filterDays = daysOfWeek.length > 0 ? new Set(daysOfWeek) : null;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10);
+    if (dateStr < today) continue;
+    if (filterDays && !filterDays.has(d.getUTCDay())) continue;
+    dates.push(dateStr);
+    if (dates.length > 90) break;
+  }
+  return dates;
+};
 
 function TimeSelect({ value, onChange }) {
   return (
@@ -65,20 +81,13 @@ function TimeSelect({ value, onChange }) {
 
 function DayCard({ day, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
-
   const toggleOpen = () => onUpdate({ ...day, is_open: !day.is_open });
   const updateTime = (field, val) => onUpdate({ ...day, [field]: val });
-
   const addBreak = () => onUpdate({
     ...day,
     breaks: [...(day.breaks || []), { start: '13:00', end: '14:00', label: 'הפסקה' }]
   });
-
-  const removeBreak = (i) => onUpdate({
-    ...day,
-    breaks: day.breaks.filter((_, idx) => idx !== i)
-  });
-
+  const removeBreak = (i) => onUpdate({ ...day, breaks: day.breaks.filter((_, idx) => idx !== i) });
   const updateBreak = (i, field, val) => {
     const updated = day.breaks.map((b, idx) => idx === i ? { ...b, [field]: val } : b);
     onUpdate({ ...day, breaks: updated });
@@ -105,20 +114,15 @@ function DayCard({ day, onUpdate }) {
           {day.day_name}
         </span>
         {day.is_open && (
-          <span className="text-xs text-muted-foreground ml-auto">
-            {day.open_time} – {day.close_time}
-          </span>
+          <span className="text-xs text-muted-foreground ml-auto">{day.open_time} – {day.close_time}</span>
         )}
-        {!day.is_open && (
-          <span className="text-xs text-red-400/70 font-bold">סגור</span>
-        )}
+        {!day.is_open && <span className="text-xs text-red-400/70 font-bold">סגור</span>}
         {day.is_open && (
           <button onClick={() => setExpanded(e => !e)} className="glass p-1.5 rounded-lg mr-1">
             {expanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
           </button>
         )}
       </div>
-
       <AnimatePresence>
         {day.is_open && expanded && (
           <motion.div
@@ -139,16 +143,12 @@ function DayCard({ day, onUpdate }) {
                   <TimeSelect value={day.close_time} onChange={v => updateTime('close_time', v)} />
                 </div>
               </div>
-
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
                     <Coffee className="w-3 h-3" /> הפסקות
                   </label>
-                  <button
-                    onClick={addBreak}
-                    className="flex items-center gap-1 text-primary text-xs font-bold glass px-2 py-1 rounded-lg"
-                  >
+                  <button onClick={addBreak} className="flex items-center gap-1 text-primary text-xs font-bold glass px-2 py-1 rounded-lg">
                     <Plus className="w-3 h-3" /> הוסף
                   </button>
                 </div>
@@ -182,51 +182,94 @@ function DayCard({ day, onUpdate }) {
 }
 
 function SlotReleaseForm({ barbers, onPublish, disabled }) {
-  const [date, setDate] = useState(todayStr());
-  const [barberId, setBarberId] = useState(barbers[0]?.id || '');
+  const [fromDate, setFromDate] = useState(todayStr());
+  const [toDate, setToDate] = useState(todayStr());
+  const [daysOfWeek, setDaysOfWeek] = useState([]); // [] = all days
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('18:00');
+  const [barberId, setBarberId] = useState(barbers[0]?.id || '');
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    if (barbers.length > 0 && !barberId) setBarberId(barbers[0].id);
+    if (barbers.length > 0 && !barbers.find(b => b.id === barberId)) {
+      setBarberId(barbers[0].id);
+    }
   }, [barbers, barberId]);
 
+  const toggleDay = (day) => {
+    setDaysOfWeek(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  };
+
+  const previewDates = useMemo(
+    () => generatePreviewDates(fromDate, toDate, daysOfWeek),
+    [fromDate, toDate, daysOfWeek],
+  );
+
+  const isValid = fromDate && toDate && fromDate <= toDate
+    && barberId && startTime && endTime && startTime < endTime
+    && previewDates.length > 0;
+
   const handlePublish = () => {
-    if (!date || !barberId || !startTime || !endTime) return;
-    onPublish({ date, barberId, startTime, endTime, note });
+    if (!isValid) return;
+    onPublish({ fromDate, toDate, daysOfWeek, barberId, startTime, endTime, note });
     setNote('');
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* Date range */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 תאריך</label>
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 מתאריך</label>
           <input
             type="date"
-            value={date}
+            value={fromDate}
             min={todayStr()}
-            onChange={e => setDate(e.target.value)}
+            onChange={e => {
+              setFromDate(e.target.value);
+              if (e.target.value > toDate) setToDate(e.target.value);
+            }}
             className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
           />
         </div>
-        {barbers.length > 1 && (
-          <div>
-            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">✂️ ספר</label>
-            <select
-              value={barberId}
-              onChange={e => setBarberId(e.target.value)}
-              className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
-            >
-              {barbers.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div>
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 עד תאריך</label>
+          <input
+            type="date"
+            value={toDate}
+            min={fromDate || todayStr()}
+            onChange={e => setToDate(e.target.value)}
+            className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+          />
+        </div>
       </div>
 
+      {/* Days of week */}
+      <div>
+        <label className="text-xs text-muted-foreground font-semibold mb-2 block">
+          ימים בשבוע <span className="font-normal opacity-60">(ריק = כל הימים)</span>
+        </label>
+        <div className="grid grid-cols-7 gap-1">
+          {DAY_NAMES_HE.map((name, idx) => {
+            const selected = daysOfWeek.includes(idx);
+            return (
+              <button
+                key={idx}
+                onClick={() => toggleDay(idx)}
+                className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selected ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+                }`}
+              >
+                {name.slice(0, 2)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Time range */}
       <div className="flex items-center gap-3">
         <div className="flex-1">
           <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ משעה</label>
@@ -239,24 +282,63 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
         </div>
       </div>
 
+      {/* Barber (if multiple) */}
+      {barbers.length > 1 && (
+        <div>
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">✂️ ספר</label>
+          <select
+            value={barberId}
+            onChange={e => setBarberId(e.target.value)}
+            className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
+          >
+            {barbers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Note */}
       <div>
         <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📝 הערה (אופציונלי)</label>
         <input
           value={note}
           onChange={e => setNote(e.target.value)}
-          placeholder="למשל: חזרתי מחופשה!"
+          placeholder="למשל: חזרנו מחופשה!"
           className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
           dir="rtl"
         />
       </div>
 
+      {/* Preview */}
+      {startTime >= endTime && (
+        <p className="text-red-400 text-xs">שעת הסיום חייבת להיות אחרי שעת ההתחלה.</p>
+      )}
+      {isValid && (
+        <div className="glass rounded-xl p-3 space-y-2">
+          <p className="text-xs font-bold text-primary">
+            ייפתחו {previewDates.length} {previewDates.length === 1 ? 'יום' : 'ימים'}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {previewDates.slice(0, 14).map(d => (
+              <span key={d} className="text-xs bg-primary/10 text-primary rounded-md px-2 py-0.5">
+                {formatDate(d)}
+              </span>
+            ))}
+            {previewDates.length > 14 && (
+              <span className="text-xs text-muted-foreground px-2 py-0.5">
+                +{previewDates.length - 14} עוד...
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <GoldButton
         onClick={handlePublish}
-        disabled={disabled || !date || !barberId || !startTime || !endTime || startTime >= endTime}
+        disabled={disabled || !isValid}
         className="w-full"
         size="sm"
       >
-        <Unlock className="w-4 h-4 ml-1" /> פרסם שעות פנויות
+        <Unlock className="w-4 h-4 ml-1" /> פתח תורים ושלח התראה
       </GoldButton>
     </div>
   );
@@ -266,9 +348,7 @@ function SlotReleaseList({ releases, barbers, onCancel, cancellingId }) {
   const barberName = (id) => barbers.find(b => b.id === id)?.name || id;
 
   if (releases.length === 0) {
-    return (
-      <p className="text-muted-foreground/60 text-xs text-center py-3">אין שעות מפורסמות</p>
-    );
+    return <p className="text-muted-foreground/60 text-xs text-center py-3">אין שעות מפורסמות</p>;
   }
 
   return (
@@ -278,10 +358,12 @@ function SlotReleaseList({ releases, barbers, onCancel, cancellingId }) {
           <div className="flex-1 min-w-0">
             <div className="text-sm font-bold text-foreground">
               {formatDate(r.date)}
-              {barbers.length > 1 && <span className="text-muted-foreground font-normal"> · {barberName(r.barberId)}</span>}
+              {barbers.length > 1 && (
+                <span className="text-muted-foreground font-normal"> · {barberName(r.barberId)}</span>
+              )}
             </div>
             <div className="text-xs text-primary mt-0.5">
-              {formatTime(r.startTime)} – {formatTime(r.endTime)}
+              {r.startTime} – {r.endTime}
               {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
             </div>
           </div>
@@ -357,9 +439,13 @@ export default function AdminHours() {
   });
 
   const publishMutation = useMutation({
-    mutationFn: (input) => publishBookingSlotRelease(input),
-    onSuccess: () => {
-      toast({ title: 'שעות פורסמו', description: 'הלקוחות יוכלו לקבוע תורים בחלון הזמן שנבחר.' });
+    mutationFn: (input) => callPublishManualSlotRelease(input),
+    onSuccess: (result) => {
+      const count = result?.datesCreated ?? 0;
+      toast({
+        title: 'התורים נפתחו ונשלחה התראה ללקוחות',
+        description: count === 1 ? 'נפתח יום אחד.' : `נפתחו ${count} ימים.`,
+      });
     },
     onError: (error) => toast({
       variant: 'destructive',

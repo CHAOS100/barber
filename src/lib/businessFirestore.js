@@ -12,7 +12,8 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { ensureFirebaseAdmin, getFirestoreDb } from '@/lib/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { ensureFirebaseAdmin, getFirebaseFunctions, getFirestoreDb } from '@/lib/firebase';
 import {
   DEFAULT_VISIBLE_SLOT_INTERVAL_MINUTES,
   DEFAULT_WORKING_HOURS,
@@ -658,30 +659,12 @@ export const subscribeToUpcomingBookingSlotReleases = (fromDate, onData, onError
   onError,
 );
 
-export const publishBookingSlotRelease = async (input) => {
+export const callPublishManualSlotRelease = async (input) => {
   await ensureFirebaseAdmin();
-  const date = String(input.date || '').trim();
-  const barberId = String(input.barberId || '').trim();
-  const startTime = String(input.startTime || '').trim();
-  const endTime = String(input.endTime || '').trim();
-  if (!date || !barberId || !startTime || !endTime) {
-    throw Object.assign(
-      new Error('date, barberId, startTime and endTime are required.'),
-      { code: 'slot-release/invalid' },
-    );
-  }
-  const ref = await addDoc(collection(getFirestoreDb(), 'bookingSlotReleases'), {
-    date,
-    barberId,
-    startTime,
-    endTime,
-    note: String(input.note || '').trim(),
-    status: 'active',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  console.info('[Firestore SlotReleases] slot release published', { id: ref.id, date, barberId, startTime, endTime });
-  return ref.id;
+  const fn = httpsCallable(getFirebaseFunctions(), 'publishManualSlotRelease');
+  const result = await fn(input);
+  console.info('[Firestore SlotReleases] batch published', result.data);
+  return result.data;
 };
 
 export const cancelBookingSlotRelease = async (id) => {

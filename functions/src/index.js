@@ -895,87 +895,163 @@ export const sendAdminCustomerMessage = onCall(
   },
 );
 
-// ── Slot release → notify waiting list customers ──────────────────────────────
+// ── Publish manual slot release — admin callable ──────────────────────────────
 //
-// Fires when admin publishes a new bookingSlotRelease document.
-// Finds all active waiting-list entries for that date, creates an inbox
-// notification and an immediate push for each affected customer.
+// Creates one bookingSlotReleases doc per date in the selected range,
+// then sends ONE inbox notification + push per customer for the whole batch.
+// Replaces the old Firestore trigger (which could create one notification per
+// date doc, causing customers to receive 7 duplicates for a week-long release).
 
-export const notifyWaitingListForSlotsReleased = onDocumentCreated(
-  'bookingSlotReleases/{releaseId}',
-  async (event) => {
-    const release = event.data?.data();
-    const releaseId = event.params.releaseId;
-    if (!release || release.status !== 'active' || !release.date) return;
+const getIsraelToday = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Jerusalem',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
+export const generateSlotReleaseDates = (fromDate, toDate, daysOfWeek) => {
+  const today = getIsraelToday();
+  const dates = [];
+  const start = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return dates;
+  const filterDays = Array.isArray(daysOfWeek) && daysOfWeek.length > 0
+    ? new Set(daysOfWeek.map(Number))
+    : null;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10);
+    if (dateStr < today) continue;
+    if (filterDays && !filterDays.has(d.getUTCDay())) continue;
+    dates.push(dateStr);
+    if (dates.length >= 90) break;
+  }
+  return dates;
+};
+
+export const publishManualSlotRelease = onCall(
+  { enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be signed in.');
+    }
     const firestore = getFirestore();
+    const adminSnap = await firestore.collection('admins').doc(request.auth.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
+      throw new HttpsError('permission-denied', 'Admin access required.');
+    }
+
+    const data = request.data || {};
+    const fromDate = String(data.fromDate || '').trim();
+    const toDate = String(data.toDate || '').trim();
+    const barberId = String(data.barberId || '').trim();
+    const startTime = String(data.startTime || '').trim();
+    const endTime = String(data.endTime || '').trim();
+    const note = String(data.note || '').trim();
+    const daysOfWeek = Array.isArray(data.daysOfWeek) ? data.daysOfWeek : [];
+
+    if (!fromDate || !toDate || !barberId || !startTime || !endTime) {
+      throw new HttpsError('invalid-argument', 'fromDate, toDate, barberId, startTime and endTime are required.');
+    }
+    if (startTime >= endTime) {
+      throw new HttpsError('invalid-argument', 'startTime must be before endTime.');
+    }
+
+    const dates = generateSlotReleaseDates(fromDate, toDate, daysOfWeek);
+    if (dates.length === 0) {
+      throw new HttpsError('failed-precondition', 'No valid future dates in the selected range.');
+    }
+    if (dates.length > 90) {
+      throw new HttpsError('invalid-argument', 'Cannot release more than 90 days at once.');
+    }
+
+    // Generate a releaseBatchId shared across all docs in this publish action
+    const releaseBatchId = firestore.collection('bookingSlotReleaseBatches').doc().id;
     const now = new Date();
 
-    pushDebug('slot release trigger fired', {
-      releaseId,
-      date: release.date,
-      barberId: release.barberId || null,
-      startTime: release.startTime || null,
-      endTime: release.endTime || null,
-    });
-
-    const snapshot = await firestore
-      .collection('waitingList')
-      .where('date', '==', release.date)
-      .get();
-
-    const matchingEntries = snapshot.docs
-      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
-      .filter((entry) => ['active', 'notified'].includes(entry.status) && entry.customerId);
-
-    pushDebug('slot release waiting list matches', {
-      releaseId,
-      date: release.date,
-      totalEntries: snapshot.size,
-      matchingCount: matchingEntries.length,
-    });
-
-    if (matchingEntries.length === 0) return;
-
-    const batch = firestore.batch();
-    const pushJobs = [];
-
-    matchingEntries.forEach((entry) => {
-      const notificationRef = firestore
-        .collection('customerNotifications')
-        .doc(entry.customerId)
-        .collection('notifications')
-        .doc(`slots_released_${releaseId}_${entry.id}`);
-
-      batch.set(notificationRef, {
-        type: 'slots_released',
-        severity: 'success',
-        title: '🗓️ שעות חדשות נפתחו!',
-        message: `שעות הזמנה חדשות נפתחו ב-OST BARBER לתאריך ${release.date} בין ${release.startTime} ל-${release.endTime}. היכנס לאפליקציה לבחור שעה.`,
-        targetType: 'single_customer',
-        targetCustomerId: entry.customerId,
-        targetPhone: entry.phoneNumber || null,
-        status: 'unread',
-        source: 'slot_release',
-        date: release.date,
-        barberId: release.barberId || null,
-        releaseId,
-        waitingListId: entry.id,
+    // Check for existing active releases to avoid duplicates; query per date (single field)
+    let datesCreated = 0;
+    let datesSkipped = 0;
+    for (const date of dates) {
+      const existingSnap = await firestore
+        .collection('bookingSlotReleases')
+        .where('date', '==', date)
+        .get();
+      const alreadyExists = existingSnap.docs.some((doc) => {
+        const d = doc.data();
+        return d.barberId === barberId
+          && d.startTime === startTime
+          && d.endTime === endTime
+          && d.status === 'active';
+      });
+      if (alreadyExists) {
+        datesSkipped += 1;
+        continue;
+      }
+      await firestore.collection('bookingSlotReleases').add({
+        date,
+        barberId,
+        startTime,
+        endTime,
+        note,
+        status: 'active',
+        releaseBatchId,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: null,
-      }, { merge: false });
+      });
+      datesCreated += 1;
+    }
 
-      pushJobs.push(buildPushJobForSlotsReleased(
-        entry.id,
-        entry.customerId,
-        release.date,
-        releaseId,
-        now,
-      ));
+    pushDebug('manual slot release batch created', {
+      releaseBatchId,
+      fromDate,
+      toDate,
+      barberId,
+      startTime,
+      endTime,
+      datesCreated,
+      datesSkipped,
     });
 
-    await batch.commit();
+    // Notify ALL customers — one inbox notification + one push per customer per batch
+    const customersSnap = await firestore.collection('users').where('role', '==', 'customer').get();
+    const customers = customersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+    pushDebug('slot release batch notification start', {
+      releaseBatchId,
+      customerCount: customers.length,
+    });
+
+    const pushJobs = [];
+    const BATCH_SIZE = 400;
+    for (let start = 0; start < customers.length; start += BATCH_SIZE) {
+      const writeBatch = firestore.batch();
+      customers.slice(start, start + BATCH_SIZE).forEach((customer) => {
+        const notifRef = firestore
+          .collection('customerNotifications')
+          .doc(customer.id)
+          .collection('notifications')
+          .doc(`slots_released_${releaseBatchId}_${customer.id}`);
+        writeBatch.set(notifRef, {
+          type: 'slots_released',
+          severity: 'success',
+          title: 'נפתחו תורים חדשים',
+          message: 'נפתחו תורים חדשים ל־OST BARBER. היכנסו לשריין מקום.',
+          targetType: 'single_customer',
+          targetCustomerId: customer.id,
+          targetPhone: customer.phoneNumber || null,
+          status: 'unread',
+          source: 'manual_slot_release',
+          releaseBatchId,
+          fromDate,
+          toDate,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          expiresAt: null,
+        });
+        pushJobs.push(buildPushJobForSlotsReleased(customer.id, releaseBatchId, now));
+      });
+      await writeBatch.commit();
+    }
 
     if (pushJobs.length > 0) {
       await notificationJobs.enqueue(pushJobs);
@@ -988,5 +1064,12 @@ export const notifyWaitingListForSlotsReleased = onDocumentCreated(
         );
       }
     }
+
+    return {
+      releaseBatchId,
+      datesCreated,
+      datesSkipped,
+      notified: customers.length,
+    };
   },
 );

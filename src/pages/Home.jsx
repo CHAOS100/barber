@@ -168,10 +168,6 @@ export default function Home() {
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-background" />
-        <div className="absolute inset-x-6 top-16 text-right">
-          <p className="text-primary text-xs font-black tracking-[0.35em] uppercase">OST BARBER</p>
-          <h2 className="mt-3 text-4xl font-black text-white leading-tight">חוויה נקייה<br />בלי תמונות רקע</h2>
-        </div>
         <div className="absolute top-4 left-4">
           <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
             <Share2 className="w-5 h-5 text-white" />

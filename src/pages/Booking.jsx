@@ -283,8 +283,8 @@ export default function Booking() {
     if (!hours?.is_open) return 'העסק סגור ביום הזה.';
     if (bookingSettings?.availabilityMode === 'manual') {
       const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
-      if (barberReleases.length === 0) return 'אין שעות פנויות ביום זה — המנהל טרם שחרר שעות.';
-      return 'אין שעות פנויות ביום זה';
+      if (barberReleases.length === 0) return 'עדיין לא נפתחו תורים חדשים. נעדכן אותך כשייפתחו תורים.';
+      return 'אין שעות פנויות ביום הזה. נסה לבחור יום אחר.';
     }
     const [openHour, openMinute] = String(hours.open_time || '00:00').split(':').map(Number);
     const [closeHour, closeMinute] = String(hours.close_time || '00:00').split(':').map(Number);

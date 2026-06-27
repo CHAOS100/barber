@@ -469,23 +469,21 @@ export const buildPushJobForProfileStatus = (
 });
 
 /**
- * Build a push notification job sent to a waiting-list customer when the admin
- * manually releases booking slots for a date they are waiting for.
+ * Build a push notification job announcing new available slots to a customer.
+ * One job per customer per batch — dedup ID is slots_released_{batchId}_{customerId}.
  */
 export const buildPushJobForSlotsReleased = (
-  waitingListId,
   customerId,
-  dateStr,
-  releaseId,
+  releaseBatchId,
   now = new Date(),
 ) => buildPushJob({
-  id: `${waitingListId}_slots_released_${releaseId}`,
+  id: `slots_released_${releaseBatchId}_${customerId}`,
   customerId,
   customerPhone: null,
   type: 'slots_released',
-  title: '🗓️ שעות חדשות נפתחו!',
-  body: `שעות הזמנה חדשות נפתחו ב-OST BARBER לתאריך ${dateStr}. היכנס לאפליקציה לבחור שעה.`,
-  data: { date: dateStr, releaseId },
+  title: 'נפתחו תורים חדשים',
+  body: 'נפתחו תורים חדשים ל־OST BARBER. היכנסו לשריין מקום.',
+  data: { releaseBatchId },
   scheduledFor: now,
   createdAt: now,
 });
