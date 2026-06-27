@@ -4,20 +4,17 @@ import { useMutation } from '@tanstack/react-query';
 import {
   ArrowRight,
   Bell,
+  Calendar,
   CheckCheck,
   MessageSquareText,
-  Phone,
-  Plus,
   Send,
   ShieldAlert,
   UserRound,
   Users,
-  X,
 } from 'lucide-react';
 import { subscribeToAdminNotificationJobs } from '@/lib/notificationJobsFirestore';
 import { subscribeToAllCustomerProfiles } from '@/lib/customerProfilesFirestore';
 import { sendAdminCustomerMessage, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
-import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
 const STATUS_LABELS = {
@@ -39,47 +36,34 @@ const JOB_TYPE_LABELS = {
 
 const MESSAGE_TYPE_OPTIONS = [
   { value: 'admin_custom', label: 'הודעה אישית מהעסק' },
-  { value: 'broadcast', label: 'עדכון כללי / הודעה לכלל הלקוחות' },
+  { value: 'broadcast', label: 'עדכון כללי' },
   { value: 'free_slot', label: 'תור שהתפנה' },
   { value: 'warning', label: 'אזהרה' },
   { value: 'block', label: 'הודעת חסימה' },
-  { value: 'payment_request', label: 'דרישת תשלום / אי הגעה' },
-  { value: 'no_show_payment_required', label: 'תשלום נדרש עקב אי-הגעה' },
+  { value: 'payment_request', label: 'דרישת תשלום' },
+  { value: 'no_show_payment_required', label: 'תשלום - אי הגעה' },
   { value: 'appointment', label: 'עדכון תור' },
   { value: 'system', label: 'עדכון מערכת' },
 ];
 
-const SEVERITY_OPTIONS = [
-  { value: 'info', label: 'מידע רגיל' },
-  { value: 'success', label: 'חיובי / הצלחה' },
-  { value: 'warning', label: 'חשוב' },
-  { value: 'danger', label: 'דחוף' },
-];
+const MESSAGE_TYPE_LABELS = MESSAGE_TYPE_OPTIONS.reduce((acc, option) => ({
+  ...acc,
+  [option.value]: option.label,
+}), {});
 
-const TARGET_OPTIONS = [
+const AUDIENCE_OPTIONS = [
   { value: 'all_customers', label: 'כל הלקוחות', Icon: Users },
-  { value: 'single_customer', label: 'לקוח מסוים', Icon: UserRound },
-  { value: 'phone', label: 'לפי טלפון', Icon: Phone },
-  { value: 'future_appointments', label: 'לקוחות עם תור עתידי', Icon: Bell },
-  { value: 'waiting_list', label: 'לקוחות ברשימת המתנה', Icon: Bell },
+  { value: 'single_customer', label: 'לקוח ספציפי', Icon: UserRound },
+  { value: 'future_appointments', label: 'לקוחות עם תור עתידי', Icon: Calendar },
+  { value: 'waiting_list', label: 'רשימת המתנה', Icon: Bell },
 ];
 
 const INITIAL_FORM = {
-  type: 'admin_custom',
-  severity: 'info',
   targetType: 'all_customers',
   targetCustomerId: '',
-  targetPhone: '',
   title: '',
   message: '',
-  expiresAt: '',
-  requiresAction: false,
 };
-
-const MESSAGE_TYPE_LABELS = MESSAGE_TYPE_OPTIONS.reduce((labels, option) => ({
-  ...labels,
-  [option.value]: option.label,
-}), {});
 
 const formatTimestamp = (timestamp) => {
   if (!timestamp?.toDate) return '-';
@@ -97,240 +81,37 @@ const getCleanErrorMessage = (error) => {
   return getUserFacingErrorMessage(error);
 };
 
-function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loading, sendError }) {
-  const justOpenedRef = React.useRef(true);
-
-  React.useEffect(() => {
-    console.log('[ADMIN_MESSAGES_DEBUG] modal mounted');
-    const timer = setTimeout(() => {
-      justOpenedRef.current = false;
-      console.log('[ADMIN_MESSAGES_DEBUG] open guard cleared — backdrop clicks now active');
-    }, 350);
-    return () => {
-      clearTimeout(timer);
-      console.log('[ADMIN_MESSAGES_DEBUG] modal unmounted');
-    };
-  }, []);
-
-  const handleBackdropClick = () => {
-    if (justOpenedRef.current) {
-      console.log('[ADMIN_MESSAGES_DEBUG] close blocked: phantom click within 350ms of open');
-      return;
-    }
-    console.log('[ADMIN_MESSAGES_DEBUG] close reason: backdrop');
-    onClose();
-  };
-
-  const handleCloseButton = () => {
-    console.log('[ADMIN_MESSAGES_DEBUG] close reason: close-button');
-    onClose();
-  };
-
-  const selectedTarget = TARGET_OPTIONS.find((option) => option.value === form.targetType);
-  const TargetIcon = selectedTarget?.Icon || Users;
-
-  return (
-    <div
-      className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center backdrop-blur-md"
-      onClick={handleBackdropClick}
-      dir="rtl"
-    >
-      <div
-        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* Fixed header — always visible */}
-        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 flex-shrink-0">
-          <div>
-            <div className="w-10 h-10 glass-gold rounded-2xl flex items-center justify-center mb-2">
-              <Send className="w-5 h-5 text-primary" />
-            </div>
-            <h2 className="text-xl font-black">שליחת הודעה ללקוחות</h2>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              ההודעה תופיע בתוך האפליקציה אצל הלקוחות שנבחרו.
-            </p>
-          </div>
-          <button type="button" onClick={handleCloseButton} className="glass p-2 rounded-xl press-scale flex-shrink-0 mt-1">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Form: scrollable body + pinned submit */}
-        <form onSubmit={onSubmit} className="flex flex-col flex-1 min-h-0">
-          <div className="modal-scroll-body px-5 space-y-4">
-            <label className="block text-xs text-muted-foreground">
-              סוג הודעה
-              <select
-                value={form.type}
-                onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-              >
-                {MESSAGE_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block text-xs text-muted-foreground">
-              רמת חשיבות
-              <select
-                value={form.severity}
-                onChange={(event) => setForm((prev) => ({ ...prev, severity: event.target.value }))}
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-              >
-                {SEVERITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">למי לשלוח?</p>
-              <div className="grid grid-cols-2 gap-2">
-                {TARGET_OPTIONS.map((option) => {
-                  const OptionIcon = option.Icon;
-                  const active = form.targetType === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setForm((prev) => ({ ...prev, targetType: option.value }))}
-                      className={`rounded-2xl border px-2 py-3 text-xs font-bold transition-colors press-scale ${
-                        active
-                          ? 'border-primary bg-primary/15 text-primary'
-                          : 'border-white/10 bg-secondary/60 text-muted-foreground'
-                      }`}
-                    >
-                      <OptionIcon className="w-4 h-4 mx-auto mb-1" />
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {form.targetType === 'single_customer' && (
-              <label className="block text-xs text-muted-foreground">
-                בחירת לקוח
-                <select
-                  value={form.targetCustomerId}
-                  onChange={(event) => setForm((prev) => ({ ...prev, targetCustomerId: event.target.value }))}
-                  className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-                >
-                  <option value="">בחר לקוח</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name || customer.phoneNumber || customer.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {form.targetType === 'phone' && (
-              <label className="block text-xs text-muted-foreground">
-                מספר טלפון של לקוח רשום
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={form.targetPhone}
-                  onChange={(event) => setForm((prev) => ({ ...prev, targetPhone: event.target.value }))}
-                  placeholder="טלפון לקוח"
-                  className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-                  dir="ltr"
-                  style={{ textAlign: 'left' }}
-                />
-              </label>
-            )}
-
-            <label className="block text-xs text-muted-foreground">
-              כותרת
-              <input
-                value={form.title}
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-                dir="rtl"
-              />
-            </label>
-
-            <label className="block text-xs text-muted-foreground">
-              תוכן ההודעה
-              <textarea
-                value={form.message}
-                onChange={(event) => setForm((prev) => ({ ...prev, message: event.target.value }))}
-                rows={3}
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground resize-none focus:outline-none focus:border-primary"
-                dir="rtl"
-              />
-            </label>
-
-            <label className="block text-xs text-muted-foreground">
-              תוקף הודעה, אופציונלי
-              <input
-                type="datetime-local"
-                value={form.expiresAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-              />
-            </label>
-
-            {form.type === 'warning' && (
-              <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground leading-5">
-                אזהרות הן התראות חשובות: הלקוח יכול לסמן שקרא, אבל לא למחוק אותן בעצמו.
-              </div>
-            )}
-          </div>
-
-          {/* Submit button always pinned at bottom */}
-          <div className="modal-actions px-5">
-            {sendError && (
-              <div className="mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm text-right">
-                {sendError}
-              </div>
-            )}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-2xl bg-primary py-3.5 text-sm font-black text-black press-scale disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <TargetIcon className="w-4 h-4" />
-              {loading ? 'שולח...' : 'שלח הודעה'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 export default function AdminMessages() {
   const navigate = useNavigate();
   const [jobs, setJobs] = React.useState([]);
   const [customers, setCustomers] = React.useState([]);
   const [customerNotifications, setCustomerNotifications] = React.useState([]);
-  const [error, setError] = React.useState('');
-  const [modalOpen, setModalOpen] = React.useState(false);
-  const [sendError, setSendError] = React.useState('');
+  const [dataError, setDataError] = React.useState('');
   const [form, setForm] = React.useState(INITIAL_FORM);
+  const [sendSuccess, setSendSuccess] = React.useState(false);
+  const [sendError, setSendError] = React.useState('');
+
+  React.useEffect(() => {
+    console.log('[ADMIN_MESSAGES_DEBUG] page mounted');
+  }, []);
 
   React.useEffect(() => subscribeToAdminNotificationJobs(
     setJobs,
     (listenerError) => {
       console.error('[Firestore] Admin notification jobs listener failed', JSON.stringify({
         code: listenerError?.code || 'unknown',
-        message: listenerError?.message || 'Unknown Firestore error',
+        message: listenerError?.message || 'Unknown error',
       }));
-      setError(getUserFacingErrorMessage(listenerError, DATA_LOAD_ERROR_MESSAGE));
+      setDataError(getUserFacingErrorMessage(listenerError, DATA_LOAD_ERROR_MESSAGE));
     },
   ), []);
 
   React.useEffect(() => subscribeToAllCustomerProfiles(
     setCustomers,
     (listenerError) => {
-      console.warn('[Firestore] Admin customer list for messages failed', JSON.stringify({
+      console.warn('[Firestore] Customer list listener failed', JSON.stringify({
         code: listenerError?.code || 'unknown',
-        message: listenerError?.message || 'Unknown customer listener error',
+        message: listenerError?.message || 'Unknown error',
       }));
     },
   ), []);
@@ -338,9 +119,9 @@ export default function AdminMessages() {
   React.useEffect(() => subscribeToAdminCustomerNotifications(
     setCustomerNotifications,
     (listenerError) => {
-      console.warn('[Firestore] Admin customer notifications listener failed', JSON.stringify({
+      console.warn('[Firestore] Customer notifications listener failed', JSON.stringify({
         code: listenerError?.code || 'unknown',
-        message: listenerError?.message || 'Unknown customer notifications listener error',
+        message: listenerError?.message || 'Unknown error',
       }));
     },
   ), []);
@@ -372,7 +153,10 @@ export default function AdminMessages() {
       if (readMs > currentLatestMs) current.latestReadAt = notification.readAt;
 
       current.sampleCustomerName = current.sampleCustomerName || notification.readByName || '';
-      current.sampleCustomerPhone = current.sampleCustomerPhone || notification.readByPhone || notification.targetPhone || '';
+      current.sampleCustomerPhone = current.sampleCustomerPhone
+        || notification.readByPhone
+        || notification.targetPhone
+        || '';
 
       byBatch.set(key, current);
     });
@@ -387,37 +171,65 @@ export default function AdminMessages() {
   const createMessageMutation = useMutation({
     mutationFn: sendAdminCustomerMessage,
     onSuccess: (result) => {
-      console.log('[ADMIN_MESSAGES_DEBUG] submit success', JSON.stringify({ createdCount: result?.createdCount, sentCount: result?.sentCount }));
-      toast({
-        title: 'ההודעה נשמרה',
-        description: `נוצרו ${result.createdCount} הודעות ונשלחו ${result.sentCount || 0} התראות Push.`,
-      });
-      setForm(INITIAL_FORM);
+      console.log('[ADMIN_MESSAGES_DEBUG] submit success');
+      console.log('[ADMIN_MESSAGES_DEBUG] in-app created count', result?.createdCount);
+      console.log('[ADMIN_MESSAGES_DEBUG] push jobs created count', result?.pushJobCount);
+      console.log('[ADMIN_MESSAGES_DEBUG] push sent count', result?.sentCount);
+      setSendSuccess(true);
       setSendError('');
-      console.log('[ADMIN_MESSAGES_DEBUG] close reason: submit-success');
-      setModalOpen(false);
+      setForm(INITIAL_FORM);
     },
     onError: (mutationError) => {
-      const msg = getCleanErrorMessage(mutationError);
-      console.error('[ADMIN_MESSAGES_DEBUG] submit failed', JSON.stringify({ message: mutationError?.message }));
-      setSendError(msg || 'אירעה שגיאה בשליחת ההודעה');
-      toast({
-        variant: 'destructive',
-        title: 'שליחת ההודעה נכשלה',
-        description: msg,
-      });
+      console.error('[ADMIN_MESSAGES_DEBUG] submit failed', JSON.stringify({
+        code: mutationError?.code,
+        message: mutationError?.message,
+      }));
+      setSendError(getCleanErrorMessage(mutationError) || 'אירעה שגיאה בשליחת ההודעה');
+      setSendSuccess(false);
     },
   });
 
-  const submitMessage = (event) => {
-    event.preventDefault();
-    console.log('[ADMIN_MESSAGES_DEBUG] submit started', JSON.stringify({ targetType: form.targetType, type: form.type }));
+  const handleSend = () => {
+    console.log('[ADMIN_MESSAGES_DEBUG] send clicked', JSON.stringify({
+      targetType: form.targetType,
+      hasTitle: Boolean(form.title.trim()),
+      hasMessage: Boolean(form.message.trim()),
+    }));
+
+    if (!form.title.trim()) {
+      setSendError('יש להזין כותרת להודעה.');
+      return;
+    }
+    if (!form.message.trim()) {
+      setSendError('יש להזין תוכן להודעה.');
+      return;
+    }
+    if (form.targetType === 'single_customer' && !form.targetCustomerId) {
+      setSendError('יש לבחור לקוח.');
+      return;
+    }
+
     setSendError('');
-    createMessageMutation.mutate(form);
+    setSendSuccess(false);
+
+    const payload = {
+      targetType: form.targetType,
+      targetCustomerId: form.targetCustomerId || undefined,
+      title: form.title.trim(),
+      message: form.message.trim(),
+    };
+
+    console.log('[ADMIN_MESSAGES_DEBUG] submit started', JSON.stringify({
+      targetType: payload.targetType,
+      hasCustomer: Boolean(payload.targetCustomerId),
+    }));
+
+    createMessageMutation.mutate(payload);
   };
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
+      {/* Page header */}
       <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => navigate('/admin')} className="press-scale">
@@ -425,57 +237,155 @@ export default function AdminMessages() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-black">הודעות</h1>
-            <p className="text-muted-foreground text-xs">הודעות ללקוחות ומעקב אחרי Push</p>
+            <p className="text-muted-foreground text-xs">שליחת הודעות ומעקב Push</p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              console.log('[ADMIN_MESSAGES_DEBUG] open button clicked (header)');
-              setSendError('');
-              setModalOpen(true);
-            }}
-            className="rounded-2xl bg-primary px-3 py-2 text-xs font-black text-black press-scale flex items-center gap-1"
-          >
-            <Plus className="w-4 h-4" />
-            שליחת הודעה ללקוחות
-          </button>
         </div>
       </div>
 
-      <div className="px-4 py-6 space-y-4">
-        <div className="glass-gold rounded-2xl p-4 text-sm text-muted-foreground leading-6">
-          הודעות בתוך האפליקציה נשמרות ללקוחות ב־Firestore ובמקביל נוצרת התראת Push דרך Firebase Cloud Messaging.
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            console.log('[ADMIN_MESSAGES_DEBUG] open button clicked (card)');
-            setSendError('');
-            setModalOpen(true);
-          }}
-          className="w-full rounded-3xl border border-primary/25 bg-primary/10 p-4 text-right press-scale"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-primary/15 flex items-center justify-center">
-              <Bell className="w-6 h-6 text-primary" />
-            </div>
-            <div className="flex-1">
-              <h2 className="font-black">שליחת הודעה ללקוחות</h2>
-              <p className="text-muted-foreground text-sm mt-1">
-                הודעה לכל הלקוחות, ללקוח מסוים או לפי מספר טלפון של לקוח רשום.
-              </p>
-            </div>
-            <Plus className="w-5 h-5 text-primary" />
-          </div>
-        </button>
-
-        {error && (
+      <div className="px-4 py-6 space-y-6">
+        {/* Data-load error */}
+        {dataError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
-            {error}
+            {dataError}
           </div>
         )}
 
+        {/* ===== INLINE COMPOSER ===== */}
+        <div className="dark-card rounded-3xl p-5 space-y-4">
+          {/* Composer heading */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 glass-gold rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Send className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="font-black text-lg">שליחת הודעה</h2>
+              <p className="text-xs text-muted-foreground">ההודעה תופיע בתוך האפליקציה ותישלח כהתראת Push</p>
+            </div>
+          </div>
+
+          {/* Audience selector */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">למי לשלוח?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {AUDIENCE_OPTIONS.map((option) => {
+                const AudienceIcon = option.Icon;
+                const active = form.targetType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      console.log('[ADMIN_MESSAGES_DEBUG] audience selected', option.value);
+                      setForm((prev) => ({ ...prev, targetType: option.value, targetCustomerId: '' }));
+                      setSendSuccess(false);
+                      setSendError('');
+                    }}
+                    className={`rounded-2xl border px-3 py-3 text-xs font-bold transition-colors press-scale ${
+                      active
+                        ? 'border-primary bg-primary/15 text-primary'
+                        : 'border-white/10 bg-secondary/60 text-muted-foreground'
+                    }`}
+                  >
+                    <AudienceIcon className="w-4 h-4 mx-auto mb-1" />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Customer dropdown — only when targeting a single customer */}
+          {form.targetType === 'single_customer' && (
+            <label className="block text-xs text-muted-foreground">
+              בחירת לקוח
+              <select
+                value={form.targetCustomerId}
+                onChange={(e) => setForm((prev) => ({ ...prev, targetCustomerId: e.target.value }))}
+                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+              >
+                <option value="">בחר לקוח...</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name || customer.phoneNumber || customer.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Title */}
+          <label className="block text-xs text-muted-foreground">
+            כותרת
+            <input
+              type="text"
+              value={form.title}
+              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="כותרת ההודעה"
+              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+              dir="rtl"
+            />
+          </label>
+
+          {/* Message body */}
+          <label className="block text-xs text-muted-foreground">
+            תוכן ההודעה
+            <textarea
+              value={form.message}
+              onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))}
+              placeholder="כתוב כאן את ההודעה ללקוח..."
+              rows={4}
+              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground resize-none focus:outline-none focus:border-primary"
+              dir="rtl"
+            />
+          </label>
+
+          {/* Preview card — shows once user types anything */}
+          {(form.title.trim() || form.message.trim()) && (
+            <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
+              <p className="text-xs text-muted-foreground mb-2">תצוגה מקדימה</p>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-primary/15 border border-primary/25 flex-shrink-0">
+                  <Bell className="w-4 h-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-black text-sm leading-snug">
+                    {form.title.trim() || 'כותרת ההודעה'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-5 line-clamp-2">
+                    {form.message.trim() || 'תוכן ההודעה'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Success feedback */}
+          {sendSuccess && (
+            <div className="rounded-2xl border border-[#93E3BD]/30 bg-[#93E3BD]/10 p-3 text-sm text-[#93E3BD] text-right">
+              ההודעה נשלחה בהצלחה
+            </div>
+          )}
+
+          {/* Error feedback */}
+          {sendError && (
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 text-right">
+              {sendError}
+            </div>
+          )}
+
+          {/* Send button */}
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={createMessageMutation.isPending}
+            className="w-full rounded-2xl bg-primary py-3.5 text-sm font-black text-black press-scale disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <Send className="w-4 h-4" />
+            {createMessageMutation.isPending ? 'שולח...' : 'שלח הודעה'}
+          </button>
+        </div>
+
+        {/* ===== IN-APP MESSAGE HISTORY ===== */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-black">הודעות בתוך האפליקציה</h2>
@@ -504,7 +414,9 @@ export default function AdminMessages() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-black truncate">{summary.title}</h3>
-                          {summary.severity === 'danger' && <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                          {summary.severity === 'danger' && (
+                            <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />
+                          )}
                         </div>
                         <p className="text-muted-foreground text-xs">
                           {MESSAGE_TYPE_LABELS[summary.type] || 'הודעת מערכת'} · {formatTimestamp(summary.createdAt)}
@@ -550,6 +462,7 @@ export default function AdminMessages() {
           )}
         </div>
 
+        {/* ===== PUSH JOB QUEUE ===== */}
         <div>
           <h2 className="font-black mb-3">תור התראות Push</h2>
           {jobs.length === 0 ? (
@@ -610,21 +523,6 @@ export default function AdminMessages() {
           )}
         </div>
       </div>
-
-      {modalOpen && (
-        <AdminMessageModal
-          customers={customers}
-          form={form}
-          setForm={setForm}
-          onClose={() => {
-            setSendError('');
-            setModalOpen(false);
-          }}
-          onSubmit={submitMessage}
-          loading={createMessageMutation.isPending}
-          sendError={sendError}
-        />
-      )}
     </div>
   );
 }
