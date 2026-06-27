@@ -95,6 +95,19 @@ const normalizeInstagramUrl = (value) => {
   return username ? `https://instagram.com/${username}` : '';
 };
 
+const timestampVersion = (timestamp) => (
+  timestamp?.toMillis?.()
+  || (timestamp?.seconds ? timestamp.seconds * 1000 : '')
+  || ''
+);
+
+const withImageVersion = (url, timestamp) => {
+  const cleanUrl = String(url || '').trim();
+  const version = timestampVersion(timestamp);
+  if (!cleanUrl || !version) return cleanUrl;
+  return `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}v=${version}`;
+};
+
 export default function Home() {
   const navigate = useNavigate();
   const open = isOpenNow();
@@ -105,7 +118,7 @@ export default function Home() {
   const { reviews } = usePublishedReviewsRealtime();
   const { photos } = usePublishedGalleryRealtime();
   const { messages: customerMessages, unreadCount: msgUnreadCount, isLoggedIn } = useCustomerMessages();
-  const { settings: businessSettings } = useBusinessSettingsRealtime();
+  const { settings: businessSettings, loading: businessSettingsLoading } = useBusinessSettingsRealtime();
   const previewMessages = customerMessages.slice(0, 3);
   const averageRating = reviews.length
     ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
@@ -124,6 +137,12 @@ export default function Home() {
     || BUSINESS_INFO.instagramUrl
     || BUSINESS_INFO.instagram,
   );
+  const heroImageUrl = businessSettingsLoading
+    ? ''
+    : withImageVersion(businessSettings?.homeHeroImageUrl, businessSettings?.homeHeroImageUpdatedAt);
+  const profileImageUrl = businessSettingsLoading
+    ? ''
+    : withImageVersion(businessSettings?.profileImageUrl, businessSettings?.profileImageUpdatedAt);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -138,6 +157,16 @@ export default function Home() {
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Hero Cover */}
       <div className="relative h-72 overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(147,227,189,0.16),transparent_34%),linear-gradient(135deg,#101713_0%,#050706_65%,#0d1110_100%)]">
+        {businessSettingsLoading && (
+          <div className="absolute inset-0 animate-pulse bg-[linear-gradient(135deg,#101713_0%,#050706_65%,#0d1110_100%)]" />
+        )}
+        {!businessSettingsLoading && heroImageUrl && (
+          <img
+            src={heroImageUrl}
+            alt="OST BARBER"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-background" />
         <div className="absolute inset-x-6 top-16 text-right">
           <p className="text-primary text-xs font-black tracking-[0.35em] uppercase">OST BARBER</p>
@@ -155,9 +184,17 @@ export default function Home() {
         </div>
         {/* Barber avatar */}
         <div className="absolute bottom-4 left-4">
-          <div className="w-14 h-14 rounded-full border-2 border-primary gold-shadow gold-gradient text-black font-black flex items-center justify-center">
-            OST
-          </div>
+          {profileImageUrl ? (
+            <img
+              src={profileImageUrl}
+              alt="OST BARBER"
+              className="w-14 h-14 rounded-full border-2 border-primary gold-shadow object-cover bg-secondary"
+            />
+          ) : (
+            <div className="w-14 h-14 rounded-full border-2 border-primary gold-shadow gold-gradient text-black font-black flex items-center justify-center">
+              OST
+            </div>
+          )}
         </div>
       </div>
 

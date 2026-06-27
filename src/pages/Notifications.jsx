@@ -85,6 +85,11 @@ function MessageIcon({ message }) {
 
 const canMarkMessageRead = (message) => !message.isRead && !String(message.id).startsWith('profile_');
 
+const safeText = (value, fallback) => {
+  const text = String(value || '').trim();
+  return text || fallback;
+};
+
 function MessageCard({ message, onOpen, onMarkRead, onDismiss }) {
   const severity = SEVERITY[message.severity] || SEVERITY.info;
 
@@ -111,7 +116,7 @@ function MessageCard({ message, onOpen, onMarkRead, onDismiss }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <h3 className={`font-black text-sm leading-snug ${message.isRead ? 'text-muted-foreground' : 'text-foreground'}`}>
-              {message.title}
+              {safeText(message.title, 'הודעה')}
             </h3>
             <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
               {!message.isRead && (
@@ -126,7 +131,7 @@ function MessageCard({ message, onOpen, onMarkRead, onDismiss }) {
           </div>
 
           <p className={`text-xs leading-relaxed line-clamp-2 ${message.isRead ? 'text-muted-foreground/60' : 'text-muted-foreground'}`}>
-            {message.message}
+            {safeText(message.message, 'אין תוכן להצגה')}
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -172,7 +177,17 @@ function MessageCard({ message, onOpen, onMarkRead, onDismiss }) {
 
 export default function Notifications() {
   const navigate = useNavigate();
-  const { messages, unreadCount, markAsRead, markAllAsRead, dismissMessage } = useCustomerMessages();
+  const {
+    messages,
+    unreadCount,
+    loading,
+    error,
+    markAsRead,
+    markAllAsRead,
+    clearReadMessages,
+    clearCompletedAppointmentMessages,
+    dismissMessage,
+  } = useCustomerMessages();
   const [selectedMessage, setSelectedMessage] = React.useState(null);
   const hasUnreadMessages = messages.some(canMarkMessageRead);
 
@@ -230,11 +245,37 @@ export default function Notifications() {
             </button>
           )}
         </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={clearReadMessages}
+            className="glass rounded-full px-3 py-1.5 text-[11px] font-bold text-muted-foreground press-scale"
+          >
+            נקה הודעות שנקראו
+          </button>
+          <button
+            type="button"
+            onClick={clearCompletedAppointmentMessages}
+            className="glass rounded-full px-3 py-1.5 text-[11px] font-bold text-muted-foreground press-scale"
+          >
+            נקה עדכוני תורים שהסתיימו
+          </button>
+        </div>
       </div>
 
       <div className="px-4 py-4 space-y-2.5">
+        {error && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+        {loading && (
+          <div className="glass rounded-3xl p-8 text-center text-sm text-muted-foreground">
+            טוען הודעות...
+          </div>
+        )}
         <AnimatePresence mode="popLayout">
-          {messages.length === 0 ? (
+          {!loading && messages.length === 0 ? (
             <motion.div
               key="empty"
               initial={{ opacity: 0 }}
@@ -287,17 +328,17 @@ export default function Notifications() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <h2 className="text-xl font-black leading-tight">{selectedMessage.title}</h2>
+              <h2 className="text-xl font-black leading-tight">{safeText(selectedMessage.title, 'הודעה')}</h2>
               {selectedMessage.createdAt && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {selectedMessage.createdAt.toDate().toLocaleString('he-IL', {
+                  {selectedMessage.createdAt.toDate?.()?.toLocaleString('he-IL', {
                     dateStyle: 'short',
                     timeStyle: 'short',
-                  })}
+                  }) || ''}
                 </p>
               )}
               <p className="mt-4 text-sm text-muted-foreground leading-7 whitespace-pre-line">
-                {selectedMessage.message}
+                {safeText(selectedMessage.message, 'אין תוכן להצגה')}
               </p>
 
               {selectedMessage.isCritical && (

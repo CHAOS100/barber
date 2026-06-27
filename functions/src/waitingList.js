@@ -2,9 +2,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { buildWaitingListManualSmsJob, buildPushJobForWaitlistManual } from './notifications/notificationJobs.js';
+import { buildPushJobForWaitlistManual } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
-import { sendSmsNotificationJob } from './notifications/smsProvider.js';
 import { processImmediatePushJobs, IMMEDIATE_PUSH_TYPES } from './notifications/pushProcessor.js';
 import { requirePhoneCustomerAuth } from './auth.js';
 import {
@@ -328,23 +327,6 @@ const handleManualNotify = async (request) => {
     throw cleanError('failed-precondition', 'Waiting list entry has invalid customer phone.', 400);
   }
 
-  const notificationJob = buildWaitingListManualSmsJob(waitingListId, entry);
-  const smsResult = await sendSmsNotificationJob(notificationJob.data);
-  const notificationJobForStorage = {
-    ...notificationJob,
-    data: {
-      ...notificationJob.data,
-      provider: smsResult.provider || null,
-      providerConfigured: smsResult.providerConfigured === true,
-      providerMessageId: smsResult.providerMessageId || null,
-      status: smsResult.sent ? 'sent' : 'pending',
-      sentAt: smsResult.sent ? FieldValue.serverTimestamp() : null,
-      error: smsResult.sent ? null : (smsResult.reason || smsResult.error || null),
-    },
-  };
-
-  await notificationJobs().enqueue([notificationJobForStorage]);
-
   if (entry.customerId) {
     await db()
       .collection('customerNotifications')
@@ -375,39 +357,22 @@ const handleManualNotify = async (request) => {
     });
   }
 
-  if (smsResult.providerConfigured === true && smsResult.sent !== true) {
-    await reference.update({
-      lastNotificationError: 'sms-send-failed',
-      smsProviderConfigured: true,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    throw cleanError('sms/send-failed', 'SMS provider failed to send the message.', 502);
-  }
-
   await reference.update({
     status: 'notified',
     notifiedAt: FieldValue.serverTimestamp(),
     manuallyNotifiedAt: FieldValue.serverTimestamp(),
     manuallyNotifiedBy: auth.uid,
-    smsProviderConfigured: smsResult.providerConfigured === true,
-    smsSent: smsResult.sent === true,
-    smsProvider: smsResult.provider || null,
-    smsProviderMessageId: smsResult.providerMessageId || null,
+    pushNotificationQueued: true,
     updatedAt: FieldValue.serverTimestamp(),
   });
 
-  const providerConfigured = smsResult.providerConfigured === true;
   return {
     ok: true,
     id: waitingListId,
-    status: smsResult.sent ? 'sent' : 'queued',
+    status: 'queued',
     notificationJobCreated: true,
-    smsProviderConfigured: providerConfigured,
-    smsSent: smsResult.sent === true,
-    provider: smsResult.provider || null,
-    message: providerConfigured
-      ? 'Notification job created and SMS sent.'
-      : 'Notification job created, but real SMS provider is not configured yet.',
+    channel: 'push',
+    message: 'In-app notification and push job created.',
   };
 };
 

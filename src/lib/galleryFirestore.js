@@ -26,36 +26,36 @@ import {
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const UPLOAD_STALL_TIMEOUT_MS = 90_000;
 const UPLOAD_TOTAL_TIMEOUT_MS = 5 * 60_000;
-const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
 const ALLOWED_CATEGORIES = new Set(['gallery', 'business', 'barber', 'service']);
 const galleryCollection = () => collection(getFirestoreDb(), 'gallery');
 
-const serializeGalleryError = (error) => ({
-  code: error?.code || 'unknown',
-  message: error?.message || String(error || 'Unknown gallery upload error'),
-  name: error?.name || null,
-});
-
-const logGalleryUpload = (event, payload = {}) => {
-  console.info('[Gallery Upload Debug]', JSON.stringify({
-    event,
-    ...payload,
-  }));
-};
-
-const logGalleryUploadError = (event, error, payload = {}) => {
-  console.error('[Gallery Upload Debug]', JSON.stringify({
-    event,
-    ...payload,
-    error: serializeGalleryError(error),
-  }));
-};
+const logGalleryUpload = () => {};
+const logGalleryUploadError = () => {};
 
 const fileDebugPayload = (file) => ({
   fileName: file?.name || null,
   fileSize: file?.size || null,
   mimeType: file?.type || null,
 });
+
+const getFileExtension = (file) => String(file?.name || '')
+  .split('.')
+  .pop()
+  ?.toLowerCase()
+  .replace(/[^a-z0-9]/g, '') || '';
+
+const getStorageContentType = (file) => {
+  if (file?.type === 'image/jpg') return 'image/jpeg';
+  if (file?.type) return file.type;
+  const extension = getFileExtension(file);
+  if (extension === 'jpg') return 'image/jpeg';
+  if (extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'png') return 'image/png';
+  if (extension === 'webp') return 'image/webp';
+  return 'image/jpeg';
+};
 
 const normalizeCategory = (value) =>
   ALLOWED_CATEGORIES.has(String(value || '')) ? String(value) : 'gallery';
@@ -88,16 +88,17 @@ const galleryPayload = (input, adminUid) => ({
 });
 
 const validateImageFile = (file) => {
-  logGalleryUpload('validate-file', fileDebugPayload(file));
   if (!file) throw Object.assign(new Error('יש לבחור קובץ תמונה.'), { code: 'gallery/file-required' });
   const mimeType = String(file.type || '');
-  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
+  const extension = getFileExtension(file);
+  const supportedMime = mimeType && ALLOWED_IMAGE_TYPES.has(mimeType);
+  const supportedExtension = ALLOWED_IMAGE_EXTENSIONS.has(extension);
+  if (!supportedMime && !supportedExtension) {
     throw Object.assign(new Error('פורמט התמונה לא נתמך. בחר JPG, PNG או WEBP.'), { code: 'gallery/invalid-file-type' });
   }
   if (file.size > MAX_IMAGE_BYTES) {
     throw Object.assign(new Error('התמונה גדולה מדי. בחר תמונה עד 10MB.'), { code: 'gallery/file-too-large' });
   }
-  logGalleryUpload('validate-file-success', fileDebugPayload(file));
 };
 
 export const getGalleryUploadErrorMessage = (error) => {
@@ -114,16 +115,11 @@ export const getGalleryUploadErrorMessage = (error) => {
 export const validateGalleryImageFile = validateImageFile;
 
 const buildStoragePath = (imageId, file) => {
+  const timestamp = Date.now();
   const safeName = String(file.name || 'image')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  const storagePath = `gallery/${imageId}/${safeName || 'image'}`;
-  logGalleryUpload('generated-storage-path', {
-    imageId,
-    storagePath,
-    ...fileDebugPayload(file),
-  });
-  return storagePath;
+  return `gallery/${imageId}/${timestamp}-${safeName || 'image'}`;
 };
 
 const createUploadTimeoutError = (phase, progress) => Object.assign(
@@ -193,7 +189,7 @@ const uploadFileWithProgress = (imageRef, file, adminUid, imageId, onProgress) =
     contentType: file.type,
   });
   uploadTask = uploadBytesResumable(imageRef, file, {
-    contentType: file.type,
+    contentType: getStorageContentType(file),
     customMetadata: {
       uploadedBy: adminUid,
       imageId,

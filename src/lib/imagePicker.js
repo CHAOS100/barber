@@ -14,7 +14,6 @@ export const triggerFilePicker = (input, context = 'image-picker') => {
     console.warn('[Image Picker]', JSON.stringify({ context, event: 'missing-input-ref' }));
     return false;
   }
-  console.info('[Image Picker]', JSON.stringify({ context, event: 'input-click' }));
   input.click();
   return true;
 };

@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Archive, Camera, Edit3, Instagram, Plus, Trash2, User, X } from 'lucide-react';
+import { ArrowRight, Archive, Edit3, Instagram, Plus, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -13,10 +13,11 @@ import GoldButton from '@/components/ui/GoldButton';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
-import { PICKER_INPUT_STYLE, triggerFilePicker } from '@/lib/imagePicker';
+import AdminImageUploadButton from '@/components/admin/AdminImageUploadButton';
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
-const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
 
 const emptyBarber = {
   name: '',
@@ -36,7 +37,6 @@ export default function AdminBarbers() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoProgress, setPhotoProgress] = useState(0);
-  const fileInputRef = useRef(null);
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
   const saveMutation = useMutation({
@@ -77,7 +77,8 @@ export default function AdminBarbers() {
   const handlePhotoSelect = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+    const extension = String(file.name || '').split('.').pop()?.toLowerCase() || '';
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type) && !ALLOWED_PHOTO_EXTENSIONS.includes(extension)) {
       toast({ variant: 'destructive', title: 'סוג קובץ לא נתמך', description: 'יש לבחור תמונת JPG, PNG, WEBP או HEIC' });
       return;
     }
@@ -185,39 +186,27 @@ export default function AdminBarbers() {
               </div>
               <div className="space-y-3">
                 {/* Photo upload */}
-                <div className="flex flex-col items-center gap-2">
-                  <div className="relative w-20 h-20">
-                    <button
-                      type="button"
-                      className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-border cursor-pointer"
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        triggerFilePicker(fileInputRef.current, 'barber-photo');
-                      }}
-                    >
-                      {(photoPreview || form.photo_url) ? (
-                        <img
-                          src={photoPreview || form.photo_url}
-                          alt="תמונת ספר"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full glass-gold flex items-center justify-center">
-                          <User className="w-8 h-8 text-primary" />
-                        </div>
-                      )}
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 flex items-center justify-center py-1">
-                        <Camera className="w-3.5 h-3.5 text-white" />
-                      </div>
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                      style={PICKER_INPUT_STYLE}
-                      onChange={handlePhotoSelect}
-                    />
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-border bg-secondary flex items-center justify-center">
+                    {(photoPreview || form.photo_url) ? (
+                      <img
+                        src={photoPreview || form.photo_url}
+                        alt="תמונת ספר"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-8 h-8 text-primary" />
+                    )}
                   </div>
+                  <AdminImageUploadButton
+                    context="barber-photo"
+                    disabled={photoUploading}
+                    accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                    label={photoFile ? photoFile.name : 'בחר תמונת ספר'}
+                    description="JPG, PNG, WEBP ?? HEIC ?? 8MB"
+                    onFileSelected={(selectedFile) => handlePhotoSelect({ target: { files: selectedFile ? [selectedFile] : [] } })}
+                    className="w-full"
+                  />
                   {photoFile && (
                     <p className="text-xs text-primary text-center">{photoFile.name}</p>
                   )}
@@ -227,7 +216,6 @@ export default function AdminBarbers() {
                     </div>
                   )}
                 </div>
-
                 <label className="block text-xs text-muted-foreground">שם
                   <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
                 </label>

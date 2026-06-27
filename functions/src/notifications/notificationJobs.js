@@ -278,48 +278,53 @@ export const buildPushJobsForApproval = (
   }
 
   const serviceLabel = serviceName ? ` ל${serviceName}` : '';
-
-  return [
+  const jobs = [
     buildPushJob({
       id: `${appointmentId}_push_approved`,
       customerId,
       customerPhone,
       type: 'appointment_approved',
-      title: '✅ התור אושר!',
+      title: 'התור שלך אושר!',
       body: `התור שלך${serviceLabel} ב-${dateStr} בשעה ${timeStr} אושר. נתראה!`,
       data: { appointmentId, date: dateStr, startTime: timeStr },
       scheduledFor: now,
       createdAt: now,
     }),
-    buildPushJob({
+  ];
+
+  const reminder24h = start.minus({ hours: 24 }).toJSDate();
+  const reminder2h = start.minus({ hours: 2 }).toJSDate();
+
+  if (reminder24h > now) {
+    jobs.push(buildPushJob({
       id: `${appointmentId}_push_reminder_24h`,
       customerId,
       customerPhone,
       type: 'appointment_reminder_24h',
-      title: '🔔 תזכורת: תור מחר',
-      body: `מחר בשעה ${timeStr}${serviceName ? ` (${serviceName})` : ''}. אל תשכח/תשכחי!`,
+      title: 'תזכורת לתור מחר',
+      body: `יש לך תור מחר בשעה ${timeStr}${serviceName ? ` (${serviceName})` : ''}.`,
       data: { appointmentId, date: dateStr, startTime: timeStr },
-      scheduledFor: start.minus({ hours: 24 }).toJSDate(),
+      scheduledFor: reminder24h,
       createdAt: now,
-    }),
-    buildPushJob({
+    }));
+  }
+
+  if (reminder2h > now) {
+    jobs.push(buildPushJob({
       id: `${appointmentId}_push_reminder_2h`,
       customerId,
       customerPhone,
       type: 'appointment_reminder_2h',
-      title: '⏰ תזכורת: תור בעוד שעתיים',
-      body: `בעוד שעתיים יש לך תור בשעה ${timeStr}. להתראות!`,
+      title: 'התור שלך עוד שעתיים',
+      body: `התור שלך מתחיל בעוד שעתיים, בשעה ${timeStr}.`,
       data: { appointmentId, date: dateStr, startTime: timeStr },
-      scheduledFor: start.minus({ hours: 2 }).toJSDate(),
+      scheduledFor: reminder2h,
       createdAt: now,
-    }),
-  ];
-};
+    }));
+  }
 
-/**
- * Build a push notification job for a cancelled appointment.
- * Returns null if the appointment has no customerId.
- */
+  return jobs;
+};
 export const buildPushJobForCancellation = (
   appointmentId,
   appointment,
@@ -346,6 +351,73 @@ export const buildPushJobForCancellation = (
 /**
  * Build a push notification job for a manual admin notify to a waiting list customer.
  */
+export const buildPushJobForAppointmentEvent = (
+  appointmentId,
+  appointment,
+  event,
+  now = new Date(),
+) => {
+  const customerId = appointment.customerId || null;
+  const customerPhone = appointment.customerPhone || null;
+  const serviceName = appointment.serviceName || appointment.service_name || '';
+  const dateStr = appointment.date || '';
+  const timeStr = appointment.startTime || '';
+  const serviceLabel = serviceName ? ` ${serviceName}` : '';
+  const messages = {
+    rejected: {
+      type: 'appointment_rejected',
+      title: 'התור נדחה',
+      body: `התור שלך${serviceLabel} ב-${dateStr} בשעה ${timeStr} נדחה.`,
+    },
+    completed: {
+      type: 'appointment',
+      title: 'התור הושלם',
+      body: `התור שלך${serviceLabel} הושלם. נשמח לראות אותך שוב!`,
+    },
+    no_show: {
+      type: 'appointment',
+      title: 'סומן אי הגעה',
+      body: 'התור סומן כאי הגעה. לפרטים נוספים פנה לעסק.',
+    },
+  };
+  const config = messages[event];
+  if (!config) return null;
+  return buildPushJob({
+    id: `${appointmentId}_push_${event}`,
+    customerId,
+    customerPhone,
+    type: config.type,
+    title: config.title,
+    body: config.body,
+    data: { appointmentId, date: dateStr, startTime: timeStr, appointmentStatus: event },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
+
+export const buildPushJobForAdminMessage = (
+  messageBatchId,
+  target,
+  input,
+  now = new Date(),
+) => {
+  const pushType = input.type === 'admin_custom' ? 'admin_message' : (input.type || 'admin_message');
+  return buildPushJob({
+    id: `${messageBatchId}_${target.customerId}_push`,
+    customerId: target.customerId,
+    customerPhone: target.phoneNumber || null,
+    type: pushType,
+    title: input.title,
+    body: input.message,
+    data: {
+      messageBatchId,
+      notificationType: input.type || 'admin_custom',
+      severity: input.severity || 'info',
+    },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
 export const buildPushJobForWaitlistManual = (
   waitingListId,
   waitingListEntry,

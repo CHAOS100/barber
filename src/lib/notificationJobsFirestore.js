@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, limit as limitQuery, onSnapshot, orderBy, query } from 'firebase/firestore';
 import {
   ensureFirebaseAdmin,
   firebaseProjectId,
@@ -24,7 +24,7 @@ export const subscribeToAdminNotificationJobs = (onData, onError) => {
         projectId: firebaseProjectId,
       });
       unsubscribe = onSnapshot(
-        query(notificationJobsCollection()),
+        query(notificationJobsCollection(), orderBy('createdAt', 'desc'), limitQuery(50)),
         (snapshot) => {
           const jobs = snapshot.docs
             .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))

@@ -39,17 +39,37 @@ export const useAllServicesRealtime = () =>
 export const useBookingSettingsRealtime = () => {
   const [settings, setSettings] = useState(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => subscribeToBookingSettings(setSettings, setError), []);
-  return { settings, error };
+  useEffect(() => subscribeToBookingSettings(
+    (nextSettings) => {
+      setSettings(nextSettings);
+      setLoading(false);
+    },
+    (nextError) => {
+      setError(nextError);
+      setLoading(false);
+    },
+  ), []);
+  return { settings, error, loading };
 };
 
 export const useBusinessSettingsRealtime = () => {
   const [settings, setSettings] = useState(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => subscribeToBusinessSettings(setSettings, setError), []);
-  return { settings, error };
+  useEffect(() => subscribeToBusinessSettings(
+    (nextSettings) => {
+      setSettings(nextSettings);
+      setLoading(false);
+    },
+    (nextError) => {
+      setError(nextError);
+      setLoading(false);
+    },
+  ), []);
+  return { settings, error, loading };
 };
 
 export const useAppointmentBlocksRealtime = (date) => {

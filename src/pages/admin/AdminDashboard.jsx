@@ -92,7 +92,7 @@ export default function AdminDashboard() {
     { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: `${customers.length} לקוחות` },
     { icon: Star, label: 'ביקורות', path: '/admin/reviews', desc: `${reviews.length} ביקורות` },
     { icon: ListChecks, label: 'רשימת המתנה', path: '/admin/waiting-list', desc: 'לקוחות שמחכים לתור שהתפנה' },
-    { icon: MessageSquareText, label: 'הודעות', path: '/admin/messages', desc: 'מעקב אחרי הודעות WhatsApp' },
+    { icon: MessageSquareText, label: 'הודעות', path: '/admin/messages', desc: 'מעקב אחרי הודעות Push' },
     { icon: Image, label: 'ניהול תמונות', path: '/admin/gallery', desc: 'גלריה, עסק, צוות ושירותים' },
     { icon: BarChart3, label: 'אנליטיקה', path: '/admin/analytics', desc: 'דוחות מפורטים' },
     { icon: Clock, label: 'שעות עבודה', path: '/admin/hours', desc: 'ניהול לוח זמנים' },

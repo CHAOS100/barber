@@ -15,6 +15,8 @@ import {
   buildAppointmentCancelledJob,
   buildWaitingListAvailableJob,
   buildPushJobsForApproval,
+  buildPushJobForAdminMessage,
+  buildPushJobForAppointmentEvent,
   buildPushJobForCancellation,
   buildPushJobForWaitlistMatch,
   LEGACY_WHATSAPP_JOBS_ENABLED,
@@ -64,6 +66,129 @@ const pushDebug = (message, details = {}) => {
   console.log('[PUSH_DEBUG]', message, details);
 };
 
+const pushRemindersEnabled = async () => {
+  try {
+    const snapshot = await getFirestore().doc('settings/business').get();
+    const data = snapshot.exists ? snapshot.data() : {};
+    const enabled = data?.automaticPushRemindersEnabled !== false;
+    pushDebug('admin push reminder setting loaded', { enabled });
+    return enabled;
+  } catch (error) {
+    logger.warn('Push reminder setting lookup failed; defaulting to enabled', {
+      error: error.message,
+    });
+    return true;
+  }
+};
+
+const TERMINAL_APPOINTMENT_STATUSES = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
+
+const appointmentNotificationConfig = (status) => {
+  const configs = {
+    confirmed: {
+      severity: 'success',
+      title: 'התור אושר',
+      message: 'התור שלך אושר על ידי העסק. נתראה!',
+    },
+    cancelled: {
+      severity: 'warning',
+      title: 'התור בוטל',
+      message: 'התור שלך בוטל. ניתן לקבוע תור חדש באפליקציה.',
+    },
+    rejected: {
+      severity: 'warning',
+      title: 'התור נדחה',
+      message: 'התור שביקשת נדחה. ניתן לבחור מועד אחר באפליקציה.',
+    },
+    completed: {
+      severity: 'success',
+      title: 'התור הושלם',
+      message: 'התור שלך הושלם. תודה שבחרת OST BARBER.',
+    },
+    no_show: {
+      severity: 'danger',
+      title: 'סומן אי הגעה',
+      message: 'התור סומן כאי הגעה. לפרטים נוספים פנה לעסק.',
+    },
+  };
+  return configs[status] || null;
+};
+
+const createAppointmentInAppNotification = async (appointmentId, appointment) => {
+  const customerId = appointment.customerId || null;
+  const config = appointmentNotificationConfig(appointment.status);
+  if (!customerId || !config) return;
+
+  await getFirestore()
+    .collection('customerNotifications')
+    .doc(customerId)
+    .collection('notifications')
+    .add({
+      type: 'appointment',
+      severity: config.severity,
+      title: config.title,
+      message: config.message,
+      targetType: 'single_customer',
+      targetCustomerId: customerId,
+      targetPhone: appointment.customerPhone || null,
+      status: 'unread',
+      source: 'appointment_status',
+      appointmentId,
+      appointmentStatus: appointment.status,
+      date: appointment.date || null,
+      startTime: appointment.startTime || null,
+      serviceId: appointment.serviceId || null,
+      serviceName: appointment.serviceName || null,
+      barberId: appointment.barberId || null,
+      barberName: appointment.barberName || null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: null,
+    });
+};
+
+const archiveExistingAppointmentInboxNotifications = async (appointmentId, customerId) => {
+  if (!appointmentId || !customerId) return;
+  const snapshot = await getFirestore()
+    .collection('customerNotifications')
+    .doc(customerId)
+    .collection('notifications')
+    .where('appointmentId', '==', appointmentId)
+    .get()
+    .catch(() => null);
+  if (!snapshot || snapshot.empty) return;
+  const batch = getFirestore().batch();
+  snapshot.docs.forEach((docSnapshot) => {
+    if (docSnapshot.data()?.archivedFromInbox === true) return;
+    batch.update(docSnapshot.ref, {
+      archivedFromInbox: true,
+      archivedFromInboxAt: FieldValue.serverTimestamp(),
+      archivedFromInboxReason: 'appointment_terminal',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  await batch.commit();
+};
+
+const skipFutureAppointmentReminders = async (appointmentId, reason = 'appointment_terminal') => {
+  const ids = [`${appointmentId}_push_reminder_24h`, `${appointmentId}_push_reminder_2h`];
+  const refs = ids.map((id) => getFirestore().collection('notificationJobs').doc(id));
+  const snapshots = await getFirestore().getAll(...refs);
+  const batch = getFirestore().batch();
+  let count = 0;
+  snapshots.forEach((snapshot) => {
+    const data = snapshot.data();
+    if (!snapshot.exists || data?.status !== 'pending') return;
+    batch.update(snapshot.ref, {
+      status: 'skipped',
+      skipReason: reason,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    count += 1;
+  });
+  if (count > 0) await batch.commit();
+};
+
 export const queueAdminNotificationForNewAppointment = onDocumentCreated(
   'appointments/{appointmentId}',
   async (event) => {
@@ -110,7 +235,11 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
         jobsToEnqueue.push(...buildAppointmentApprovedJobs(appointmentId, after));
       }
       // Push notification jobs (Phase 1) — approval + 24h + 2h reminders
-      jobsToEnqueue.push(...buildPushJobsForApproval(appointmentId, after));
+      const approvalJobs = buildPushJobsForApproval(appointmentId, after);
+      const remindersEnabled = await pushRemindersEnabled();
+      jobsToEnqueue.push(...(remindersEnabled
+        ? approvalJobs
+        : approvalJobs.filter((job) => !['appointment_reminder_24h', 'appointment_reminder_2h'].includes(job.data?.type))));
     }
 
     if (after.status === 'cancelled') {
@@ -120,6 +249,29 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
       }
       // Push notification job
       jobsToEnqueue.push(buildPushJobForCancellation(appointmentId, after));
+    }
+
+    if (after.status === 'rejected') {
+      jobsToEnqueue.push(buildPushJobForAppointmentEvent(appointmentId, after, 'rejected'));
+    }
+
+    if (after.status === 'completed') {
+      jobsToEnqueue.push(buildPushJobForAppointmentEvent(appointmentId, after, 'completed'));
+    }
+
+    if (after.status === 'no_show') {
+      jobsToEnqueue.push(buildPushJobForAppointmentEvent(appointmentId, after, 'no_show'));
+    }
+
+    if (after.customerId && appointmentNotificationConfig(after.status)) {
+      if (TERMINAL_APPOINTMENT_STATUSES.has(after.status)) {
+        await archiveExistingAppointmentInboxNotifications(appointmentId, after.customerId);
+      }
+      await createAppointmentInAppNotification(appointmentId, after);
+    }
+
+    if (TERMINAL_APPOINTMENT_STATUSES.has(after.status)) {
+      await skipFutureAppointmentReminders(appointmentId);
     }
 
     const validJobs = jobsToEnqueue.filter(Boolean);
@@ -404,5 +556,186 @@ export const processPendingPushNotifications = onCall(
     const summary = await processPendingPushJobs();
     logger.info('processPendingPushNotifications: manual trigger', { uid: request.auth.uid, summary });
     return summary;
+  },
+);
+
+const cleanText = (value) => String(value || '').trim();
+
+const normalizeAdminMessagePhone = (phone) => {
+  const value = cleanText(phone).replace(/[^\d+]/g, '');
+  if (/^05\d{8}$/.test(value)) return `+972${value.slice(1)}`;
+  if (/^5\d{8}$/.test(value)) return `+972${value}`;
+  if (/^9725\d{8}$/.test(value)) return `+${value}`;
+  if (/^\+9725\d{8}$/.test(value)) return value;
+  return '';
+};
+
+const adminMessageInput = (data = {}) => {
+  const title = cleanText(data.title);
+  const message = cleanText(data.message);
+  if (!title || !message) {
+    throw new HttpsError('invalid-argument', 'title and message are required.');
+  }
+  return {
+    type: cleanText(data.type) || 'admin_custom',
+    severity: cleanText(data.severity) || 'info',
+    targetType: cleanText(data.targetType || data.audience) || 'all_customers',
+    targetCustomerId: cleanText(data.targetCustomerId),
+    targetPhone: cleanText(data.targetPhone),
+    title,
+    message,
+    expiresAt: data.expiresAt || null,
+  };
+};
+
+const userTargetFromSnapshot = (snapshot) => {
+  const data = snapshot.data() || {};
+  return {
+    customerId: snapshot.id,
+    phoneNumber: data.phoneNumber || data.phone || null,
+    name: cleanText(data.name || `${data.firstName || ''} ${data.lastName || ''}`),
+  };
+};
+
+const resolveAdminMessageTargets = async (input) => {
+  const firestore = getFirestore();
+
+  if (input.targetType === 'single_customer') {
+    const snapshot = await firestore.collection('users').doc(input.targetCustomerId).get();
+    if (!snapshot.exists || snapshot.data()?.role !== 'customer') return [];
+    return [userTargetFromSnapshot(snapshot)];
+  }
+
+  if (input.targetType === 'phone') {
+    const normalizedPhone = normalizeAdminMessagePhone(input.targetPhone);
+    if (!normalizedPhone) return [];
+    const snapshot = await firestore.collection('users')
+      .where('phoneNumber', '==', normalizedPhone)
+      .limit(2)
+      .get();
+    return snapshot.docs.map(userTargetFromSnapshot);
+  }
+
+  if (input.targetType === 'future_appointments') {
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const snapshot = await firestore.collection('appointments')
+      .where('date', '>=', today)
+      .get();
+    const activeFutureStatuses = new Set(['approved', 'confirmed', 'scheduled']);
+    const customerIds = [...new Set(snapshot.docs
+      .filter((item) => activeFutureStatuses.has(item.data().status))
+      .map((item) => item.data().customerId)
+      .filter(Boolean))];
+    const users = await Promise.all(customerIds.map((id) => firestore.collection('users').doc(id).get()));
+    return users.filter((snapshot) => snapshot.exists).map(userTargetFromSnapshot);
+  }
+
+  if (input.targetType === 'waiting_list') {
+    const snapshot = await firestore.collection('waitingList')
+      .where('status', '==', 'active')
+      .get();
+    const customerIds = [...new Set(snapshot.docs.map((item) => item.data().customerId).filter(Boolean))];
+    const users = await Promise.all(customerIds.map((id) => firestore.collection('users').doc(id).get()));
+    return users.filter((snapshot) => snapshot.exists).map(userTargetFromSnapshot);
+  }
+
+  const snapshot = await firestore.collection('users')
+    .where('role', '==', 'customer')
+    .get();
+  return snapshot.docs.map(userTargetFromSnapshot);
+};
+
+const createAdminMessageInAppNotifications = async (targets, input, adminUid, messageBatchId) => {
+  const firestore = getFirestore();
+  let createdCount = 0;
+  for (let start = 0; start < targets.length; start += 400) {
+    const batch = firestore.batch();
+    targets.slice(start, start + 400).forEach((target) => {
+      const ref = firestore
+        .collection('customerNotifications')
+        .doc(target.customerId)
+        .collection('notifications')
+        .doc();
+      batch.set(ref, {
+        type: input.type,
+        title: input.title,
+        message: input.message,
+        severity: input.severity,
+        targetType: input.targetType,
+        targetCustomerId: target.customerId,
+        targetPhone: target.phoneNumber || null,
+        status: 'unread',
+        source: 'admin',
+        messageBatchId,
+        createdBy: adminUid,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: null,
+        readAt: null,
+        readBy: null,
+        readByName: null,
+        readByPhone: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      });
+      createdCount += 1;
+    });
+    await batch.commit();
+  }
+  return createdCount;
+};
+
+export const sendAdminCustomerMessage = onCall(
+  { enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be signed in.');
+    }
+    const adminSnap = await getFirestore()
+      .collection('admins')
+      .doc(request.auth.uid)
+      .get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
+      throw new HttpsError('permission-denied', 'Admin access required.');
+    }
+
+    const input = adminMessageInput(request.data || {});
+    const targets = await resolveAdminMessageTargets(input);
+    if (targets.length === 0) {
+      throw new HttpsError('failed-precondition', 'No customers matched this audience.');
+    }
+
+    const messageBatchId = getFirestore().collection('customerNotificationBatches').doc().id;
+    const createdCount = await createAdminMessageInAppNotifications(
+      targets,
+      input,
+      request.auth.uid,
+      messageBatchId,
+    );
+
+    const pushJobs = targets.map((target) =>
+      buildPushJobForAdminMessage(messageBatchId, target, input));
+    await notificationJobs.enqueue(pushJobs);
+
+    const immediateIds = pushJobs
+      .filter((job) => IMMEDIATE_PUSH_TYPES.has(job.data?.type))
+      .map((job) => job.id);
+    const pushSummary = immediateIds.length > 0
+      ? await processImmediatePushJobs(immediateIds)
+      : { jobsChecked: 0, jobsSent: 0, jobsSkipped: 0, jobsFailed: 0 };
+
+    return {
+      createdCount,
+      pushJobCount: pushJobs.length,
+      sentCount: pushSummary?.jobsSent || 0,
+      skippedCount: pushSummary?.jobsSkipped || 0,
+      failedCount: pushSummary?.jobsFailed || 0,
+      messageBatchId,
+    };
   },
 );

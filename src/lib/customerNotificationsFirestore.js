@@ -14,11 +14,13 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   ensureFirebaseAdmin,
   ensureFirebaseCustomer,
   firebaseAuth,
   firebaseProjectId,
+  getFirebaseFunctions,
   getFirestoreDb,
   normalizeIsraeliPhoneNumber,
 } from '@/lib/firebase';
@@ -50,6 +52,7 @@ export const CUSTOMER_NOTIFICATION_TARGET_TYPES = [
 
 const ACTIVE_NOTIFICATION_STATUSES = new Set(['unread', 'read']);
 const MAX_BATCH_WRITES = 400;
+const CUSTOMER_NOTIFICATION_LIMIT = 50;
 const CRITICAL_NOTIFICATION_TYPES = new Set(['warning', 'block', 'payment_request', 'no_show_payment_required']);
 
 const cleanString = (value) => String(value || '').trim();
@@ -80,14 +83,20 @@ export const isCriticalCustomerNotification = (notification) => (
 );
 
 const mapNotificationDoc = (snapshot) => {
-  const data = snapshot.data();
+  const data = snapshot.data() || {};
   const status = data.status || 'unread';
   const isCritical = isCriticalCustomerNotification(data);
+  const type = CUSTOMER_NOTIFICATION_TYPES.includes(data.type) ? data.type : 'system';
+  const severity = CUSTOMER_NOTIFICATION_SEVERITIES.includes(data.severity) ? data.severity : 'info';
   return {
     id: snapshot.id,
     customerId: snapshot.ref.parent.parent?.id || data.targetCustomerId || null,
     path: snapshot.ref.path,
     ...data,
+    type,
+    severity,
+    title: cleanString(data.title) || 'הודעה',
+    message: cleanString(data.message) || 'אין תוכן להצגה',
     status,
     isRead: status === 'read' || Boolean(data.readAt),
     isCritical,
@@ -302,12 +311,14 @@ export const subscribeToCurrentCustomerNotifications = (onData, onError) => {
         query(
           customerNotificationCollection(firebaseUser.uid),
           orderBy('createdAt', 'desc'),
+          limitQuery(CUSTOMER_NOTIFICATION_LIMIT),
         ),
         (snapshot) => {
           const notifications = snapshot.docs
             .map(mapNotificationDoc)
             .filter((notification) => (
               ACTIVE_NOTIFICATION_STATUSES.has(notification.status)
+              && notification.archivedFromInbox !== true
               && !isExpired(notification)
             ));
 
@@ -407,6 +418,70 @@ export const markCustomerNotificationsRead = async (notificationIds) => {
   }
 };
 
+export const sendAdminCustomerMessage = async (input) => {
+  await ensureFirebaseAdmin();
+  const callable = httpsCallable(getFirebaseFunctions(), 'sendAdminCustomerMessage');
+  const result = await callable(input);
+  return result.data;
+};
+
+const hideNotificationRefs = async (firebaseUser, ids) => {
+  const uniqueIds = [...new Set((ids || []).map(cleanString).filter(Boolean))];
+  if (uniqueIds.length === 0) return 0;
+
+  let hiddenCount = 0;
+  for (let start = 0; start < uniqueIds.length; start += MAX_BATCH_WRITES) {
+    const batch = writeBatch(getFirestoreDb());
+    uniqueIds.slice(start, start + MAX_BATCH_WRITES).forEach((id) => {
+      batch.update(
+        doc(getFirestoreDb(), 'customerNotifications', firebaseUser.uid, 'notifications', id),
+        {
+          status: 'hidden',
+          hiddenAt: serverTimestamp(),
+          hiddenBy: firebaseUser.uid,
+          updatedAt: serverTimestamp(),
+        },
+      );
+      hiddenCount += 1;
+    });
+    await batch.commit();
+  }
+  return hiddenCount;
+};
+
+export const clearReadCustomerNotifications = async () => {
+  const firebaseUser = await ensureFirebaseCustomer();
+  const snapshot = await getDocs(query(
+    customerNotificationCollection(firebaseUser.uid),
+    where('status', '==', 'read'),
+    limitQuery(CUSTOMER_NOTIFICATION_LIMIT),
+  ));
+  const ids = snapshot.docs
+    .map(mapNotificationDoc)
+    .filter((notification) => notification.canDismiss && !notification.isCritical)
+    .map((notification) => notification.id);
+  return hideNotificationRefs(firebaseUser, ids);
+};
+
+export const clearCompletedAppointmentNotifications = async () => {
+  const firebaseUser = await ensureFirebaseCustomer();
+  const snapshot = await getDocs(query(
+    customerNotificationCollection(firebaseUser.uid),
+    orderBy('createdAt', 'desc'),
+    limitQuery(CUSTOMER_NOTIFICATION_LIMIT),
+  ));
+  const terminalStatuses = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
+  const ids = snapshot.docs
+    .map(mapNotificationDoc)
+    .filter((notification) => (
+      notification.type === 'appointment'
+      && notification.canDismiss
+      && terminalStatuses.has(notification.appointmentStatus || notification.statusType || notification.eventStatus)
+    ))
+    .map((notification) => notification.id);
+  return hideNotificationRefs(firebaseUser, ids);
+};
+
 export const updateCustomerNotificationStatus = async (notificationId, status) => {
   const nextStatus = cleanString(status);
   if (!['unread', 'read', 'hidden'].includes(nextStatus)) {
@@ -436,13 +511,18 @@ export const subscribeToAdminCustomerNotifications = (onData, onError) => {
       if (cancelled) return;
 
       unsubscribe = onSnapshot(
-        collectionGroup(getFirestoreDb(), 'notifications'),
+        query(
+          collectionGroup(getFirestoreDb(), 'notifications'),
+          orderBy('createdAt', 'desc'),
+          limitQuery(CUSTOMER_NOTIFICATION_LIMIT),
+        ),
         (snapshot) => {
           const notifications = snapshot.docs
             .filter((notificationSnapshot) => (
               notificationSnapshot.ref.parent.parent?.parent?.id === 'customerNotifications'
             ))
             .map(mapNotificationDoc)
+            .filter((notification) => notification.archivedFromInbox !== true)
             .sort((left, right) => {
               const leftTime = left.createdAt?.toMillis?.() || 0;
               const rightTime = right.createdAt?.toMillis?.() || 0;

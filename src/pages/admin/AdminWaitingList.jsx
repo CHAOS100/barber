@@ -78,10 +78,10 @@ export default function AdminWaitingList() {
     setBusyId(entryId);
     try {
       const result = await action(entryId);
-      if (result?.smsProviderConfigured === false) {
+      if (result?.channel === 'push') {
         toast({
-          title: 'הלקוח נוסף להתראה',
-          description: 'הלקוח נוסף להתראה, אבל שליחת SMS אמיתית דורשת חיבור ספק SMS.',
+          title: 'התראה נוצרה',
+          description: 'נוצרה הודעה באפליקציה ונוספה התראת Push לשליחה.',
         });
       } else {
         toast({ title: successTitle });

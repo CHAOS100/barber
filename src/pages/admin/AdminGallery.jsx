@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -8,7 +8,6 @@ import {
   EyeOff,
   Plus,
   Trash2,
-  Upload,
   X,
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
@@ -27,7 +26,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
-import { PICKER_INPUT_STYLE, triggerFilePicker } from '@/lib/imagePicker';
+import AdminImageUploadButton, { AdminCameraUploadButton } from '@/components/admin/AdminImageUploadButton';
 
 const CATEGORIES = [
   { key: 'gallery', label: 'גלריה / תיק עבודות' },
@@ -46,41 +45,12 @@ const emptyForm = {
   active: true,
 };
 
-const serializeGalleryUiError = (error) => ({
-  code: error?.code || 'unknown',
-  message: error?.message || String(error || 'Unknown gallery UI error'),
-  name: error?.name || null,
-});
-
-const galleryFileDebugPayload = (selectedFile) => ({
-  fileName: selectedFile?.name || null,
-  fileSize: selectedFile?.size || null,
-  mimeType: selectedFile?.type || null,
-});
-
-const logGalleryUi = (event, payload = {}) => {
-  console.info('[Gallery Upload UI Debug]', JSON.stringify({
-    event,
-    ...payload,
-  }));
-};
-
-const logGalleryUiError = (event, error, payload = {}) => {
-  console.error('[Gallery Upload UI Debug]', JSON.stringify({
-    event,
-    ...payload,
-    error: serializeGalleryUiError(error),
-  }));
-};
-
 export default function AdminGallery() {
   const navigate = useNavigate();
   const { isAdmin } = useCurrentUser();
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [file, setFile] = useState(null);
-  const fileInputRef = useRef(null);
-  const cameraInputRef = useRef(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
   const { photos, error } = useAdminGalleryRealtime(isAdmin);
@@ -114,9 +84,7 @@ export default function AdminGallery() {
   const handleFileSelected = (selectedFile) => {
     setUploadError('');
     setUploadProgress(0);
-    logGalleryUi('file-input-change', galleryFileDebugPayload(selectedFile));
     if (!selectedFile) {
-      logGalleryUi('file-selection-empty');
       setFile(null);
       return;
     }
@@ -124,9 +92,7 @@ export default function AdminGallery() {
     try {
       validateGalleryImageFile(selectedFile);
       setFile(selectedFile);
-      logGalleryUi('file-selection-valid', galleryFileDebugPayload(selectedFile));
     } catch (fileError) {
-      logGalleryUiError('file-selection-validation-exception', fileError, galleryFileDebugPayload(selectedFile));
       setFile(null);
       setUploadError(getGalleryUploadErrorMessage(fileError));
     }
@@ -134,13 +100,6 @@ export default function AdminGallery() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      logGalleryUi('save-mutation-start', {
-        editingId: editing?.id || null,
-        hasFile: Boolean(file),
-        formCategory: form.category,
-        formActive: form.active,
-        ...galleryFileDebugPayload(file),
-      });
       if (editing?.id) {
         if (file) return replaceGalleryImage(editing, file, form, { onProgress: setUploadProgress });
         return updateGalleryPhoto(editing.id, form);
@@ -151,26 +110,12 @@ export default function AdminGallery() {
     onMutate: () => {
       setUploadError('');
       if (file) setUploadProgress(0);
-      logGalleryUi('save-mutation-onMutate', {
-        hasFile: Boolean(file),
-        ...galleryFileDebugPayload(file),
-      });
     },
     onSuccess: (result) => {
-      logGalleryUi('save-mutation-success', {
-        resultId: result?.id || null,
-        storagePath: result?.storagePath || null,
-        imageUrl: result?.imageUrl || null,
-      });
       toast({ title: editing?.id ? 'התמונה עודכנה' : 'התמונה נוספה לגלריה' });
       closeEditor();
     },
     onError: (mutationError) => {
-      logGalleryUiError('save-mutation-caught-exception', mutationError, {
-        editingId: editing?.id || null,
-        hasFile: Boolean(file),
-        ...galleryFileDebugPayload(file),
-      });
       const message = file
         ? getGalleryUploadErrorMessage(mutationError)
         : getUserFacingErrorMessage(mutationError);
@@ -183,10 +128,6 @@ export default function AdminGallery() {
       });
     },
     onSettled: () => {
-      logGalleryUi('save-mutation-settled', {
-        hasFile: Boolean(file),
-        finalUploadProgress: uploadProgress,
-      });
       if (!file) setUploadProgress(0);
     },
   });
@@ -235,8 +176,9 @@ export default function AdminGallery() {
           <h1 className="font-black text-lg">ניהול תמונות</h1>
           <p className="text-muted-foreground text-xs">{photos.length} תמונות</p>
         </div>
-        <button onClick={() => openEditor()} className="mr-auto glass-gold p-2.5 rounded-xl">
+        <button onClick={() => openEditor()} className="mr-auto glass-gold px-3 py-2.5 rounded-xl inline-flex items-center gap-2 press-scale">
           <Plus className="w-5 h-5 text-primary" />
+          <span className="text-xs font-black text-primary">הוסף תמונה</span>
         </button>
       </div>
 
@@ -329,59 +271,21 @@ export default function AdminGallery() {
               )}
 
               <div className="space-y-3">
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="block w-full glass rounded-xl p-3 text-center cursor-pointer disabled:opacity-50"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      triggerFilePicker(fileInputRef.current, 'gallery-file');
-                    }}
-                    disabled={saveMutation.isPending}
-                  >
-                    <Upload className="w-5 h-5 text-primary mx-auto mb-1" />
-                    <span className="text-sm font-bold">{file ? file.name : 'בחר תמונה מהמכשיר'}</span>
-                    <span className="block text-xs text-muted-foreground mt-1">JPEG, PNG או WebP עד 10MB</span>
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={PICKER_INPUT_STYLE}
-                    onChange={(event) => {
-                      handleFileSelected(event.target.files?.[0] || null);
-                      event.target.value = '';
-                    }}
-                    disabled={saveMutation.isPending}
-                  />
-                </div>
+                <AdminImageUploadButton
+                  context="gallery-file"
+                  disabled={saveMutation.isPending}
+                  label={file ? file.name : 'בחר תמונה מהמכשיר'}
+                  description="JPG, PNG או WEBP עד 10MB"
+                  onFileSelected={handleFileSelected}
+                />
 
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="block w-full glass rounded-xl p-3 text-center cursor-pointer disabled:opacity-50"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      triggerFilePicker(cameraInputRef.current, 'gallery-camera');
-                    }}
-                    disabled={saveMutation.isPending}
-                  >
-                    <span className="text-sm font-bold">צלם תמונה במצלמה</span>
-                    <span className="block text-xs text-muted-foreground mt-1">מותאם לניידים שתומכים בפתיחת מצלמה</span>
-                  </button>
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    style={PICKER_INPUT_STYLE}
-                    onChange={(event) => {
-                      handleFileSelected(event.target.files?.[0] || null);
-                      event.target.value = '';
-                    }}
-                    disabled={saveMutation.isPending}
-                  />
-                </div>
+                <AdminCameraUploadButton
+                  context="gallery-camera"
+                  disabled={saveMutation.isPending}
+                  label="צלם תמונה במצלמה"
+                  description="פתיחת המצלמה במכשירים תומכים"
+                  onFileSelected={handleFileSelected}
+                />
 
                 {(saveMutation.isPending && file) && (
                   <div className="rounded-xl bg-secondary p-3">

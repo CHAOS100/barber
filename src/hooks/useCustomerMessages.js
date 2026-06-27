@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
+  clearCompletedAppointmentNotifications,
+  clearReadCustomerNotifications,
   hideCustomerNotification,
   markCustomerNotificationRead,
   markCustomerNotificationsRead,
@@ -80,20 +82,31 @@ export function useCustomerMessages() {
   const uid = currentUser?.uid || null;
   const isAdmin = currentUser?.isAdmin === true;
   const [notifications, setNotifications] = useState([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!uid || isAdmin) {
       setNotifications([]);
+      setError('');
+      setLoading(false);
       return undefined;
     }
 
+    setLoading(true);
+    setError('');
     return subscribeToCurrentCustomerNotifications(
-      setNotifications,
+      (nextNotifications) => {
+        setNotifications(nextNotifications);
+        setLoading(false);
+      },
       (error) => {
         console.warn('[useCustomerMessages] customer notifications listener failed', JSON.stringify({
           code: error?.code || 'unknown',
           message: error?.message || 'Unknown notification listener error',
         }));
+        setError('לא הצלחנו לטעון את ההודעות. נסה לרענן.');
+        setLoading(false);
         setNotifications([]);
       },
     );
@@ -151,11 +164,41 @@ export function useCustomerMessages() {
     }
   }, [uid]);
 
+  const clearReadMessages = useCallback(async () => {
+    if (!uid) return 0;
+    try {
+      return await clearReadCustomerNotifications();
+    } catch (error) {
+      console.warn('[useCustomerMessages] clear read notifications failed', JSON.stringify({
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown notification cleanup error',
+      }));
+      return 0;
+    }
+  }, [uid]);
+
+  const clearCompletedAppointmentMessages = useCallback(async () => {
+    if (!uid) return 0;
+    try {
+      return await clearCompletedAppointmentNotifications();
+    } catch (error) {
+      console.warn('[useCustomerMessages] clear appointment notifications failed', JSON.stringify({
+        code: error?.code || 'unknown',
+        message: error?.message || 'Unknown appointment notification cleanup error',
+      }));
+      return 0;
+    }
+  }, [uid]);
+
   return {
     messages,
     unreadCount,
+    loading,
+    error,
     markAsRead,
     markAllAsRead,
+    clearReadMessages,
+    clearCompletedAppointmentMessages,
     dismissMessage,
     isLoggedIn: Boolean(uid && !isAdmin),
   };

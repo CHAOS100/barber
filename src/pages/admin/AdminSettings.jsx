@@ -10,11 +10,15 @@ import {
   saveBookingSettings,
   saveBusinessSettings,
   saveBusinessFeatures,
+  uploadHeroImage,
+  uploadProfileImage,
 } from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import AdminImageUploadButton from '@/components/admin/AdminImageUploadButton';
+import { getGalleryUploadErrorMessage, validateGalleryImageFile } from '@/lib/galleryFirestore';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
@@ -24,6 +28,8 @@ export default function AdminSettings() {
   const [bufferMinutes, setBufferMinutes] = useState(null);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(null);
   const [cancellationDeadlineMinutes, setCancellationDeadlineMinutes] = useState(null);
+  const [heroUploadProgress, setHeroUploadProgress] = useState(0);
+  const [profileUploadProgress, setProfileUploadProgress] = useState(0);
 
   // Features state
   const [features, setFeatures] = useState(/** @type {null|Array<any>} */ (null));
@@ -93,6 +99,42 @@ export default function AdminSettings() {
     }),
   });
 
+  const uploadHeroMutation = useMutation({
+    mutationFn: (file) => {
+      validateGalleryImageFile(file);
+      setHeroUploadProgress(0);
+      return uploadHeroImage(file, setHeroUploadProgress);
+    },
+    onSuccess: (url) => {
+      setInfo(prev => ({ ...prev, homeHeroImageUrl: url }));
+      toast({ title: 'תמונת מסך הבית עודכנה' });
+    },
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'העלאת תמונת מסך הבית נכשלה',
+      description: getGalleryUploadErrorMessage(error),
+    }),
+    onSettled: () => setHeroUploadProgress(0),
+  });
+
+  const uploadProfileMutation = useMutation({
+    mutationFn: (file) => {
+      validateGalleryImageFile(file);
+      setProfileUploadProgress(0);
+      return uploadProfileImage(file, setProfileUploadProgress);
+    },
+    onSuccess: (url) => {
+      setInfo(prev => ({ ...prev, profileImageUrl: url }));
+      toast({ title: 'תמונת הספר עודכנה' });
+    },
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'העלאת תמונת הספר נכשלה',
+      description: getGalleryUploadErrorMessage(error),
+    }),
+    onSettled: () => setProfileUploadProgress(0),
+  });
+
   const moveFeature = (index, direction) => {
     setFeatures(prev => {
       const arr = [...prev];
@@ -157,6 +199,55 @@ export default function AdminSettings() {
               className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right text-sm focus:outline-none focus:border-primary resize-none h-24"
               dir="rtl"
             />
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="font-bold">תמונות עסק</h3>
+          <p className="text-xs text-muted-foreground">
+            התמונות נשמרות ב־Firebase Storage ומוצגות ללקוחות אחרי שההעלאה מסתיימת.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="dark-card rounded-2xl p-3 space-y-3">
+              <div>
+                <div className="text-sm font-black">תמונת מסך בית</div>
+                <div className="text-xs text-muted-foreground">מוצגת בחלק העליון של דף הבית.</div>
+              </div>
+              {(info.homeHeroImageUrl || businessSettings?.homeHeroImageUrl) && (
+                <img
+                  src={info.homeHeroImageUrl || businessSettings?.homeHeroImageUrl}
+                  alt="תמונת מסך בית"
+                  className="h-28 w-full rounded-2xl object-cover border border-white/10"
+                />
+              )}
+              <AdminImageUploadButton
+                context="settings-hero-image"
+                disabled={uploadHeroMutation.isPending}
+                label={uploadHeroMutation.isPending ? `מעלה תמונה... ${heroUploadProgress}%` : 'שנה תמונת מסך בית'}
+                onFileSelected={(file) => file && uploadHeroMutation.mutate(file)}
+              />
+            </div>
+
+            <div className="dark-card rounded-2xl p-3 space-y-3">
+              <div>
+                <div className="text-sm font-black">תמונת ספר / עסק</div>
+                <div className="text-xs text-muted-foreground">מוצגת בפרופיל העסק ובמקומות תדמיתיים.</div>
+              </div>
+              {(info.profileImageUrl || businessSettings?.profileImageUrl) && (
+                <img
+                  src={info.profileImageUrl || businessSettings?.profileImageUrl}
+                  alt="תמונת ספר"
+                  className="h-28 w-full rounded-2xl object-cover border border-white/10"
+                />
+              )}
+              <AdminImageUploadButton
+                context="settings-profile-image"
+                disabled={uploadProfileMutation.isPending}
+                label={uploadProfileMutation.isPending ? `מעלה תמונה... ${profileUploadProgress}%` : 'שנה תמונת ספר'}
+                onFileSelected={(file) => file && uploadProfileMutation.mutate(file)}
+              />
+            </div>
           </div>
         </div>
 

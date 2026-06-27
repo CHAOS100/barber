@@ -289,16 +289,25 @@ export const deleteBarber = async (id) => {
   console.info('[Firestore Barbers] barber deleted', { barberId: id });
 };
 
+const imageContentType = (file) => {
+  if (file?.type === 'image/jpg') return 'image/jpeg';
+  if (file?.type) return file.type;
+  const ext = String(file?.name || '').split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  return 'image/jpeg';
+};
+
 export const uploadBarberPhoto = async (barberId, file, onProgress) => {
   const { getDownloadURL, ref: storageRef, uploadBytesResumable } = await import('firebase/storage');
   const { firebaseStorage } = await import('@/lib/firebase');
 
   const adminUser = await ensureFirebaseAdmin();
-  const ext = String(file.name || '').split('.').pop() || 'jpg';
-  const storagePath = `barbers/${barberId}/photo.${ext}`;
+  const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const storagePath = `barbers/${barberId}/photo-${Date.now()}.${ext || 'jpg'}`;
   const imageRef = storageRef(firebaseStorage, storagePath);
   const uploadTask = uploadBytesResumable(imageRef, file, {
-    contentType: file.type,
+    contentType: imageContentType(file),
     customMetadata: { uploadedBy: adminUser.uid },
   });
 
@@ -317,6 +326,7 @@ export const uploadBarberPhoto = async (barberId, file, onProgress) => {
           await updateDoc(doc(getFirestoreDb(), 'barbers', barberId), {
             photoUrl,
             photoStoragePath: storagePath,
+            photoUpdatedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
           resolve(photoUrl);
@@ -528,11 +538,11 @@ export const uploadHeroImage = async (file, onProgress) => {
   const { getDownloadURL, ref: storageRef, uploadBytesResumable } = await import('firebase/storage');
   const { firebaseStorage } = await import('@/lib/firebase');
   const adminUser = await ensureFirebaseAdmin();
-  const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase();
-  const storagePath = `settings/hero-image.${ext}`;
+  const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const storagePath = `settings/hero-image-${Date.now()}.${ext || 'jpg'}`;
   const imageRef = storageRef(firebaseStorage, storagePath);
   const uploadTask = uploadBytesResumable(imageRef, file, {
-    contentType: file.type,
+    contentType: imageContentType(file),
     customMetadata: { uploadedBy: adminUser.uid },
   });
   return new Promise((resolve, reject) => {
@@ -554,6 +564,44 @@ export const uploadHeroImage = async (file, onProgress) => {
           }, { merge: true });
           console.info('[Firestore Settings] hero image uploaded', { storagePath });
           resolve(homeHeroImageUrl);
+        } catch (err) {
+          reject(err);
+        }
+      },
+    );
+  });
+};
+
+export const uploadProfileImage = async (file, onProgress) => {
+  const { getDownloadURL, ref: storageRef, uploadBytesResumable } = await import('firebase/storage');
+  const { firebaseStorage } = await import('@/lib/firebase');
+  const adminUser = await ensureFirebaseAdmin();
+  const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const storagePath = `settings/profile-image-${Date.now()}.${ext || 'jpg'}`;
+  const imageRef = storageRef(firebaseStorage, storagePath);
+  const uploadTask = uploadBytesResumable(imageRef, file, {
+    contentType: imageContentType(file),
+    customMetadata: { uploadedBy: adminUser.uid },
+  });
+  return new Promise((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes) {
+          onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+        }
+      },
+      reject,
+      async () => {
+        try {
+          const profileImageUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          await setDoc(doc(getFirestoreDb(), 'settings', 'business'), {
+            profileImageUrl,
+            profileImagePath: storagePath,
+            profileImageUpdatedAt: serverTimestamp(),
+          }, { merge: true });
+          console.info('[Firestore Settings] profile image uploaded', { storagePath });
+          resolve(profileImageUrl);
         } catch (err) {
           reject(err);
         }

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { subscribeToAdminNotificationJobs } from '@/lib/notificationJobsFirestore';
 import { subscribeToAllCustomerProfiles } from '@/lib/customerProfilesFirestore';
-import { createAdminCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
+import { sendAdminCustomerMessage, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
@@ -34,7 +34,7 @@ const JOB_TYPE_LABELS = {
   appointment_cancelled: 'ביטול תור',
   waiting_list_slot_available: 'תור התפנה לרשימת המתנה',
   waiting_list_manual_notify: 'הודעה ידנית לרשימת המתנה',
-  waiting_list_manual_sms_notify: 'SMS ידני לרשימת המתנה',
+  waiting_list_manual_sms_notify: 'התראת רשימת המתנה ישנה',
 };
 
 const MESSAGE_TYPE_OPTIONS = [
@@ -60,6 +60,8 @@ const TARGET_OPTIONS = [
   { value: 'all_customers', label: 'כל הלקוחות', Icon: Users },
   { value: 'single_customer', label: 'לקוח מסוים', Icon: UserRound },
   { value: 'phone', label: 'לפי טלפון', Icon: Phone },
+  { value: 'future_appointments', label: 'לקוחות עם תור עתידי', Icon: Bell },
+  { value: 'waiting_list', label: 'לקוחות ברשימת המתנה', Icon: Bell },
 ];
 
 const INITIAL_FORM = {
@@ -153,7 +155,7 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
 
           <div>
             <p className="text-xs text-muted-foreground mb-2">למי לשלוח?</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {TARGET_OPTIONS.map((option) => {
                 const OptionIcon = option.Icon;
                 const active = form.targetType === option.value;
@@ -342,11 +344,11 @@ export default function AdminMessages() {
   }, [customerNotifications]);
 
   const createMessageMutation = useMutation({
-    mutationFn: createAdminCustomerNotification,
+    mutationFn: sendAdminCustomerMessage,
     onSuccess: (result) => {
       toast({
         title: 'ההודעה נשמרה',
-        description: `נוצרו ${result.createdCount} הודעות לקוח.`,
+        description: `נוצרו ${result.createdCount} הודעות ונשלחו ${result.sentCount || 0} התראות Push.`,
       });
       setForm(INITIAL_FORM);
       setModalOpen(false);
@@ -374,7 +376,7 @@ export default function AdminMessages() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-black">הודעות</h1>
-            <p className="text-muted-foreground text-xs">הודעות ללקוחות ומעקב אחרי התראות חיצוניות</p>
+            <p className="text-muted-foreground text-xs">הודעות ללקוחות ומעקב אחרי Push</p>
           </div>
           <button
             type="button"
@@ -389,7 +391,7 @@ export default function AdminMessages() {
 
       <div className="px-4 py-6 space-y-4">
         <div className="glass-gold rounded-2xl p-4 text-sm text-muted-foreground leading-6">
-          הודעות בתוך האפליקציה נשמרות ללקוחות ב־Firestore. שליחת SMS/WhatsApp בפועל עדיין תלויה בחיבור ספק הודעות חיצוני דרך backend.
+          הודעות בתוך האפליקציה נשמרות ללקוחות ב־Firestore ובמקביל נוצרת התראת Push דרך Firebase Cloud Messaging.
         </div>
 
         <button
@@ -492,13 +494,13 @@ export default function AdminMessages() {
         </div>
 
         <div>
-          <h2 className="font-black mb-3">תור הודעות חיצוניות</h2>
+          <h2 className="font-black mb-3">תור התראות Push</h2>
           {jobs.length === 0 ? (
             <div className="glass rounded-3xl p-8 text-center">
               <MessageSquareText className="w-12 h-12 text-primary mx-auto mb-3" />
               <h3 className="font-black text-lg mb-1">אין הודעות בתור</h3>
               <p className="text-muted-foreground text-sm">
-                כשמערכת ההתראות תיצור עבודות SMS/WhatsApp, הן יופיעו כאן.
+                כשמערכת ההתראות תיצור עבודות Push, הן יופיעו כאן.
               </p>
             </div>
           ) : (
@@ -536,7 +538,7 @@ export default function AdminMessages() {
                     </div>
                     <div className="glass rounded-xl p-3">
                       <span className="block text-muted-foreground text-xs mb-1">ערוץ</span>
-                      <span className="font-bold">{job.channel || 'whatsapp'}</span>
+                      <span className="font-bold">{job.channel || 'push'}</span>
                     </div>
                   </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Archive, Check, X, UserX, Plus, Edit3, Calendar, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
+import { ArrowRight, Archive, Check, X, UserX, Plus, Edit3, Calendar, CalendarPlus, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { localDateToString } from '../../lib/slotEngine';
 import {
@@ -18,6 +18,7 @@ import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFa
 import { getCancellationReasonLabel } from '@/lib/labels';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
 import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
+import { downloadAppointmentsIcs, isCalendarExportableAppointment } from '@/lib/calendarExport';
 
 const STATUS_CONFIG = {
   pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
@@ -466,6 +467,27 @@ export default function AdminAppointments() {
       return matchesRange && matchesStatus;
     });
   const archivedCount = appointments.filter((appt) => appt.archivedFromActive).length;
+  const exportableAppointments = filtered.filter(isCalendarExportableAppointment);
+
+  const handleExportAppointment = (appointment) => {
+    const exportedCount = downloadAppointmentsIcs([appointment], `ost-barber-${appointment.id}.ics`);
+    toast({
+      title: exportedCount ? 'קובץ יומן נוצר' : 'אין תור מתאים לייצוא',
+      description: exportedCount
+        ? 'פתח את הקובץ במכשיר כדי להוסיף את התור ליומן.'
+        : 'ניתן לייצא רק תורים עתידיים מאושרים.',
+    });
+  };
+
+  const handleExportVisibleAppointments = () => {
+    const exportedCount = downloadAppointmentsIcs(exportableAppointments, 'ost-barber-upcoming.ics');
+    toast({
+      title: exportedCount ? 'קובץ יומן נוצר' : 'אין תורים לייצוא',
+      description: exportedCount
+        ? `${exportedCount} תורים עתידיים מאושרים מוכנים להוספה ליומן.`
+        : 'אין ברשימה הנוכחית תורים עתידיים מאושרים.',
+    });
+  };
 
   const BLANK_APPT = {
     id: '__new__',
@@ -519,6 +541,15 @@ export default function AdminAppointments() {
           <p className="text-muted-foreground text-xs">{filtered.length} תורים</p>
         </div>
         <div className="mr-auto flex items-center gap-2">
+          <button
+            onClick={handleExportVisibleAppointments}
+            disabled={exportableAppointments.length === 0}
+            title="עדכן לוח שנה"
+            className="glass px-3 py-2.5 rounded-xl text-primary text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-40"
+          >
+            <CalendarPlus className="w-4 h-4" />
+            <span className="hidden sm:inline">עדכן לוח שנה</span>
+          </button>
           <button
             onClick={() => {
               if (!window.confirm('להעביר לארכיון את כל התורים שהסתיימו, בוטלו או נדחו?')) return;
@@ -730,6 +761,16 @@ export default function AdminAppointments() {
                     </button>
                   );
                 })()}
+                {isCalendarExportableAppointment(appt) && (
+                  <button
+                    type="button"
+                    onClick={() => handleExportAppointment(appt)}
+                    className="flex-1 py-1.5 rounded-xl bg-primary/10 text-primary text-xs font-bold flex items-center justify-center gap-1"
+                  >
+                    <CalendarPlus className="w-3 h-3" />
+                    הוסף ליומן
+                  </button>
+                )}
                 {!appt.archivedFromActive && ['completed', 'cancelled', 'no_show', 'rejected'].includes(appt.status) && (() => {
                   const key = `${appt.id}:archive`;
                   const loading = isActionLoading(key);

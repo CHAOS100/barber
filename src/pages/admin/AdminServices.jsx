@@ -136,9 +136,11 @@ export default function AdminServices() {
                 </button>
                 <button
                   onClick={() => toggleMutation.mutate({ id: service.id, is_active: !service.is_active })}
-                  className="glass p-2 rounded-lg"
+                  disabled={toggleMutation.isPending}
+                  title={service.is_active ? 'הסתר מהזמנות' : 'החזר להזמנות'}
+                  className="glass px-2 py-1.5 rounded-lg text-[11px] font-bold text-muted-foreground disabled:opacity-50"
                 >
-                  <div className={`w-4 h-4 rounded-full border-2 ${service.is_active ? 'border-green-400 bg-green-400' : 'border-muted'}`} />
+                  {toggleMutation.isPending ? 'מעדכן...' : service.is_active ? 'הסתר' : 'הפעל'}
                 </button>
                 <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="glass p-2 rounded-lg">
                   <Trash2 className="w-4 h-4 text-red-400" />
