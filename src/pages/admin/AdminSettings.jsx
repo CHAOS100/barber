@@ -224,7 +224,9 @@ export default function AdminSettings() {
               <AdminImageUploadButton
                 context="settings-hero-image"
                 disabled={uploadHeroMutation.isPending}
-                label={uploadHeroMutation.isPending ? `מעלה תמונה... ${heroUploadProgress}%` : 'שנה תמונת מסך בית'}
+                isUploading={uploadHeroMutation.isPending}
+                loadingLabel={`מעלה תמונה... ${heroUploadProgress}%`}
+                label="שנה תמונת מסך בית"
                 onFileSelected={(file) => file && uploadHeroMutation.mutate(file)}
               />
             </div>
@@ -244,7 +246,9 @@ export default function AdminSettings() {
               <AdminImageUploadButton
                 context="settings-profile-image"
                 disabled={uploadProfileMutation.isPending}
-                label={uploadProfileMutation.isPending ? `מעלה תמונה... ${profileUploadProgress}%` : 'שנה תמונת ספר'}
+                isUploading={uploadProfileMutation.isPending}
+                loadingLabel={`מעלה תמונה... ${profileUploadProgress}%`}
+                label="שנה תמונת ספר"
                 onFileSelected={(file) => file && uploadProfileMutation.mutate(file)}
               />
             </div>

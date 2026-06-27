@@ -305,6 +305,7 @@ export const uploadBarberPhoto = async (barberId, file, onProgress) => {
   const adminUser = await ensureFirebaseAdmin();
   const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
   const storagePath = `barbers/${barberId}/photo-${Date.now()}.${ext || 'jpg'}`;
+  console.info('[IMAGE_UPLOAD]', JSON.stringify({ context: 'barber-photo', event: 'upload-start', storagePath, fileName: file.name, size: file.size }));
   const imageRef = storageRef(firebaseStorage, storagePath);
   const uploadTask = uploadBytesResumable(imageRef, file, {
     contentType: imageContentType(file),
@@ -539,7 +540,8 @@ export const uploadHeroImage = async (file, onProgress) => {
   const { firebaseStorage } = await import('@/lib/firebase');
   const adminUser = await ensureFirebaseAdmin();
   const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const storagePath = `settings/hero-image-${Date.now()}.${ext || 'jpg'}`;
+  const storagePath = `settings/hero/hero-${Date.now()}.${ext || 'jpg'}`;
+  console.info('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-hero-image', event: 'upload-start', storagePath, fileName: file.name, size: file.size }));
   const imageRef = storageRef(firebaseStorage, storagePath);
   const uploadTask = uploadBytesResumable(imageRef, file, {
     contentType: imageContentType(file),
@@ -553,7 +555,10 @@ export const uploadHeroImage = async (file, onProgress) => {
           onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
         }
       },
-      reject,
+      (err) => {
+        console.error('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-hero-image', event: 'upload-error', code: err?.code, message: err?.message }));
+        reject(err);
+      },
       async () => {
         try {
           const homeHeroImageUrl = await getDownloadURL(uploadTask.snapshot.ref);
@@ -562,9 +567,10 @@ export const uploadHeroImage = async (file, onProgress) => {
             homeHeroImagePath: storagePath,
             homeHeroImageUpdatedAt: serverTimestamp(),
           }, { merge: true });
-          console.info('[Firestore Settings] hero image uploaded', { storagePath });
+          console.info('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-hero-image', event: 'upload-success', storagePath }));
           resolve(homeHeroImageUrl);
         } catch (err) {
+          console.error('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-hero-image', event: 'firestore-save-error', message: err?.message }));
           reject(err);
         }
       },
@@ -577,7 +583,8 @@ export const uploadProfileImage = async (file, onProgress) => {
   const { firebaseStorage } = await import('@/lib/firebase');
   const adminUser = await ensureFirebaseAdmin();
   const ext = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const storagePath = `settings/profile-image-${Date.now()}.${ext || 'jpg'}`;
+  const storagePath = `settings/profile/profile-${Date.now()}.${ext || 'jpg'}`;
+  console.info('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-profile-image', event: 'upload-start', storagePath, fileName: file.name, size: file.size }));
   const imageRef = storageRef(firebaseStorage, storagePath);
   const uploadTask = uploadBytesResumable(imageRef, file, {
     contentType: imageContentType(file),
@@ -591,7 +598,10 @@ export const uploadProfileImage = async (file, onProgress) => {
           onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
         }
       },
-      reject,
+      (err) => {
+        console.error('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-profile-image', event: 'upload-error', code: err?.code, message: err?.message }));
+        reject(err);
+      },
       async () => {
         try {
           const profileImageUrl = await getDownloadURL(uploadTask.snapshot.ref);
@@ -600,9 +610,10 @@ export const uploadProfileImage = async (file, onProgress) => {
             profileImagePath: storagePath,
             profileImageUpdatedAt: serverTimestamp(),
           }, { merge: true });
-          console.info('[Firestore Settings] profile image uploaded', { storagePath });
+          console.info('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-profile-image', event: 'upload-success', storagePath }));
           resolve(profileImageUrl);
         } catch (err) {
+          console.error('[IMAGE_UPLOAD]', JSON.stringify({ context: 'settings-profile-image', event: 'firestore-save-error', message: err?.message }));
           reject(err);
         }
       },

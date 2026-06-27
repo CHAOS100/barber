@@ -11,9 +11,10 @@ export const PICKER_INPUT_STYLE = {
 
 export const triggerFilePicker = (input, context = 'image-picker') => {
   if (!input) {
-    console.warn('[Image Picker]', JSON.stringify({ context, event: 'missing-input-ref' }));
+    console.warn('[IMAGE_UPLOAD]', JSON.stringify({ context, event: 'missing-input-ref' }));
     return false;
   }
+  console.info('[IMAGE_UPLOAD]', JSON.stringify({ context, event: 'input-click' }));
   input.click();
   return true;
 };

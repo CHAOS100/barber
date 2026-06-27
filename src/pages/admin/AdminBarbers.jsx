@@ -74,8 +74,7 @@ export default function AdminBarbers() {
     setEditing(barber || { isNew: true });
   };
 
-  const handlePhotoSelect = (event) => {
-    const file = event.target.files?.[0];
+  const handlePhotoSelect = (file) => {
     if (!file) return;
     const extension = String(file.name || '').split('.').pop()?.toLowerCase() || '';
     if (!ALLOWED_PHOTO_TYPES.includes(file.type) && !ALLOWED_PHOTO_EXTENSIONS.includes(extension)) {
@@ -201,10 +200,12 @@ export default function AdminBarbers() {
                   <AdminImageUploadButton
                     context="barber-photo"
                     disabled={photoUploading}
+                    isUploading={photoUploading}
+                    loadingLabel={`מעלה תמונה... ${photoProgress}%`}
                     accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
                     label={photoFile ? photoFile.name : 'בחר תמונת ספר'}
-                    description="JPG, PNG, WEBP ?? HEIC ?? 8MB"
-                    onFileSelected={(selectedFile) => handlePhotoSelect({ target: { files: selectedFile ? [selectedFile] : [] } })}
+                    description="JPG, PNG, WEBP או HEIC עד 8MB"
+                    onFileSelected={handlePhotoSelect}
                     className="w-full"
                   />
                   {photoFile && (
