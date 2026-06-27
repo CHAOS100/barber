@@ -30,6 +30,54 @@ const getTargetUserId = (jobData = {}) => (
   || null
 );
 
+// Reminder job types that also need an in-app inbox notification when they fire
+const REMINDER_TYPES = new Set(['appointment_reminder_24h', 'appointment_reminder_2h']);
+
+const createReminderInAppNotification = async (firestore, jobId, jobData) => {
+  const customerId = getTargetUserId(jobData);
+  if (!customerId) return;
+  try {
+    const inAppRef = firestore
+      .collection('customerNotifications')
+      .doc(customerId)
+      .collection('notifications')
+      .doc(`${jobId}_inbox`);
+    const snap = await inAppRef.get();
+    if (snap.exists) return;
+    await inAppRef.set({
+      type: 'appointment',
+      severity: 'info',
+      title: jobData.title || 'תזכורת לתור',
+      message: jobData.body || 'יש לך תור בקרוב.',
+      targetType: 'single_customer',
+      targetCustomerId: customerId,
+      targetPhone: jobData.customerPhone || null,
+      status: 'unread',
+      source: 'reminder',
+      appointmentId: jobData.data?.appointmentId || jobData.appointmentId || null,
+      date: jobData.data?.date || null,
+      startTime: jobData.data?.startTime || null,
+      serviceId: jobData.data?.serviceId || null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: null,
+      readAt: null,
+      readBy: null,
+      readByName: null,
+      readByPhone: null,
+      hiddenAt: null,
+      hiddenBy: null,
+    });
+    pushDebug('[INBOX_DEBUG] reminder in-app notification created', {
+      jobId, type: jobData.type, customerId,
+    });
+  } catch (error) {
+    logger.warn('[INBOX_DEBUG] failed to create reminder in-app notification', {
+      jobId, error: error.message,
+    });
+  }
+};
+
 // Job types that are immediate (not time-scheduled) — processed inline after enqueue
 export const IMMEDIATE_PUSH_TYPES = new Set([
   'appointment_approved',
@@ -410,12 +458,19 @@ export const processPendingPushJobs = async () => {
       if (result.skipped) {
         await markJobSkipped(firestore, jobId, result.skipReason, attempts);
         summary.jobsSkipped += 1;
+        // Still create inbox notification for reminders even when push is skipped (no tokens)
+        if (REMINDER_TYPES.has(jobData.type) && result.skipReason === 'no_tokens') {
+          await createReminderInAppNotification(firestore, jobId, jobData);
+        }
         continue;
       }
 
       if (result.sent) {
         await markJobSent(firestore, jobId, attempts);
         summary.jobsSent += 1;
+        if (REMINDER_TYPES.has(jobData.type)) {
+          await createReminderInAppNotification(firestore, jobId, jobData);
+        }
       } else {
         // All tokens failed — may be transient; keep pending until MAX_ATTEMPTS
         const firstError = result.tokenResults.find((r) => !r.success);

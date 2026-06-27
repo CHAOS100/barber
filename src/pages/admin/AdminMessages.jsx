@@ -108,156 +108,163 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
       dir="rtl"
     >
       <div
-        className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-md overflow-y-auto"
+        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 mb-5">
+        {/* Fixed header — always visible */}
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 flex-shrink-0">
           <div>
-            <div className="w-12 h-12 glass-gold rounded-2xl flex items-center justify-center mb-3">
-              <Send className="w-6 h-6 text-primary" />
+            <div className="w-10 h-10 glass-gold rounded-2xl flex items-center justify-center mb-2">
+              <Send className="w-5 h-5 text-primary" />
             </div>
             <h2 className="text-xl font-black">שליחת הודעה ללקוחות</h2>
-            <p className="text-muted-foreground text-sm mt-1">
+            <p className="text-muted-foreground text-sm mt-0.5">
               ההודעה תופיע בתוך האפליקציה אצל הלקוחות שנבחרו.
             </p>
           </div>
-          <button type="button" onClick={onClose} className="glass p-2 rounded-xl press-scale">
+          <button type="button" onClick={onClose} className="glass p-2 rounded-xl press-scale flex-shrink-0 mt-1">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <label className="block text-xs text-muted-foreground">
-            סוג הודעה
-            <select
-              value={form.type}
-              onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
-              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              {MESSAGE_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block text-xs text-muted-foreground">
-            רמת חשיבות
-            <select
-              value={form.severity}
-              onChange={(event) => setForm((prev) => ({ ...prev, severity: event.target.value }))}
-              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              {SEVERITY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">למי לשלוח?</p>
-            <div className="grid grid-cols-2 gap-2">
-              {TARGET_OPTIONS.map((option) => {
-                const OptionIcon = option.Icon;
-                const active = form.targetType === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setForm((prev) => ({ ...prev, targetType: option.value }))}
-                    className={`rounded-2xl border px-2 py-3 text-xs font-bold transition-colors press-scale ${
-                      active
-                        ? 'border-primary bg-primary/15 text-primary'
-                        : 'border-white/10 bg-secondary/60 text-muted-foreground'
-                    }`}
-                  >
-                    <OptionIcon className="w-4 h-4 mx-auto mb-1" />
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {form.targetType === 'single_customer' && (
+        {/* Form: scrollable body + pinned submit */}
+        <form onSubmit={onSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="modal-scroll-body px-5 space-y-4">
             <label className="block text-xs text-muted-foreground">
-              בחירת לקוח
+              סוג הודעה
               <select
-                value={form.targetCustomerId}
-                onChange={(event) => setForm((prev) => ({ ...prev, targetCustomerId: event.target.value }))}
+                value={form.type}
+                onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
                 className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
               >
-                <option value="">בחר לקוח</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name || customer.phoneNumber || customer.id}
-                  </option>
+                {MESSAGE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </label>
-          )}
 
-          {form.targetType === 'phone' && (
             <label className="block text-xs text-muted-foreground">
-              מספר טלפון של לקוח רשום
+              רמת חשיבות
+              <select
+                value={form.severity}
+                onChange={(event) => setForm((prev) => ({ ...prev, severity: event.target.value }))}
+                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+              >
+                {SEVERITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">למי לשלוח?</p>
+              <div className="grid grid-cols-2 gap-2">
+                {TARGET_OPTIONS.map((option) => {
+                  const OptionIcon = option.Icon;
+                  const active = form.targetType === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, targetType: option.value }))}
+                      className={`rounded-2xl border px-2 py-3 text-xs font-bold transition-colors press-scale ${
+                        active
+                          ? 'border-primary bg-primary/15 text-primary'
+                          : 'border-white/10 bg-secondary/60 text-muted-foreground'
+                      }`}
+                    >
+                      <OptionIcon className="w-4 h-4 mx-auto mb-1" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {form.targetType === 'single_customer' && (
+              <label className="block text-xs text-muted-foreground">
+                בחירת לקוח
+                <select
+                  value={form.targetCustomerId}
+                  onChange={(event) => setForm((prev) => ({ ...prev, targetCustomerId: event.target.value }))}
+                  className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+                >
+                  <option value="">בחר לקוח</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name || customer.phoneNumber || customer.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {form.targetType === 'phone' && (
+              <label className="block text-xs text-muted-foreground">
+                מספר טלפון של לקוח רשום
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={form.targetPhone}
+                  onChange={(event) => setForm((prev) => ({ ...prev, targetPhone: event.target.value }))}
+                  placeholder="טלפון לקוח"
+                  className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+                  dir="ltr"
+                  style={{ textAlign: 'left' }}
+                />
+              </label>
+            )}
+
+            <label className="block text-xs text-muted-foreground">
+              כותרת
               <input
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                value={form.targetPhone}
-                onChange={(event) => setForm((prev) => ({ ...prev, targetPhone: event.target.value }))}
-                placeholder="טלפון לקוח"
-                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground text-left focus:outline-none focus:border-primary"
-                dir="ltr"
-                style={{ textAlign: 'left' }}
+                value={form.title}
+                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+                dir="rtl"
               />
             </label>
-          )}
 
-          <label className="block text-xs text-muted-foreground">
-            כותרת
-            <input
-              value={form.title}
-              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-              dir="rtl"
-            />
-          </label>
+            <label className="block text-xs text-muted-foreground">
+              תוכן ההודעה
+              <textarea
+                value={form.message}
+                onChange={(event) => setForm((prev) => ({ ...prev, message: event.target.value }))}
+                rows={3}
+                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground resize-none focus:outline-none focus:border-primary"
+                dir="rtl"
+              />
+            </label>
 
-          <label className="block text-xs text-muted-foreground">
-            תוכן ההודעה
-            <textarea
-              value={form.message}
-              onChange={(event) => setForm((prev) => ({ ...prev, message: event.target.value }))}
-              rows={4}
-              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground resize-none focus:outline-none focus:border-primary"
-              dir="rtl"
-            />
-          </label>
+            <label className="block text-xs text-muted-foreground">
+              תוקף הודעה, אופציונלי
+              <input
+                type="datetime-local"
+                value={form.expiresAt}
+                onChange={(event) => setForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
+                className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
+              />
+            </label>
 
-          <label className="block text-xs text-muted-foreground">
-            תוקף הודעה, אופציונלי
-            <input
-              type="datetime-local"
-              value={form.expiresAt}
-              onChange={(event) => setForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-              className="mt-1 w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary"
-            />
-          </label>
+            {form.type === 'warning' && (
+              <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground leading-5">
+                אזהרות הן התראות חשובות: הלקוח יכול לסמן שקרא, אבל לא למחוק אותן בעצמו.
+              </div>
+            )}
+          </div>
 
-          {form.type === 'warning' && (
-            <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs text-muted-foreground leading-5">
-              אזהרות הן התראות חשובות: הלקוח יכול לסמן שקרא, אבל לא למחוק אותן בעצמו.
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-2xl bg-primary py-3.5 text-sm font-black text-black press-scale disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <TargetIcon className="w-4 h-4" />
-            {loading ? 'שולח...' : 'שלח הודעה'}
-          </button>
+          {/* Submit button always pinned at bottom */}
+          <div className="modal-actions px-5">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-primary py-3.5 text-sm font-black text-black press-scale disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <TargetIcon className="w-4 h-4" />
+              {loading ? 'שולח...' : 'שלח הודעה'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
