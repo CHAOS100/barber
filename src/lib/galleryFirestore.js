@@ -92,18 +92,18 @@ const validateImageFile = (file) => {
   if (!file) throw Object.assign(new Error('יש לבחור קובץ תמונה.'), { code: 'gallery/file-required' });
   const mimeType = String(file.type || '');
   if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
-    throw Object.assign(new Error('סוג קובץ לא נתמך'), { code: 'gallery/invalid-file-type' });
+    throw Object.assign(new Error('פורמט התמונה לא נתמך. בחר JPG, PNG או WEBP.'), { code: 'gallery/invalid-file-type' });
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    throw Object.assign(new Error('הקובץ גדול מדי'), { code: 'gallery/file-too-large' });
+    throw Object.assign(new Error('התמונה גדולה מדי. בחר תמונה עד 10MB.'), { code: 'gallery/file-too-large' });
   }
   logGalleryUpload('validate-file-success', fileDebugPayload(file));
 };
 
 export const getGalleryUploadErrorMessage = (error) => {
-  if (error?.code === 'gallery/file-too-large') return 'הקובץ גדול מדי';
-  if (error?.code === 'gallery/invalid-file-type') return 'סוג קובץ לא נתמך';
-  if (error?.code === 'storage/unauthorized') return 'אין לך הרשאה להעלות תמונות.';
+  if (error?.code === 'gallery/file-too-large') return 'התמונה גדולה מדי. בחר תמונה עד 10MB.';
+  if (error?.code === 'gallery/invalid-file-type') return 'פורמט התמונה לא נתמך. בחר JPG, PNG או WEBP.';
+  if (error?.code === 'storage/unauthorized') return 'אין הרשאה להעלות תמונה. בדוק Storage Rules.';
   if (error?.code === 'storage/canceled') return 'העלאת התמונה בוטלה.';
   if (error?.code === 'storage/upload-stalled') return 'העלאת התמונה נתקעה. בדוק חיבור אינטרנט ונסה שוב.';
   if (error?.code === 'storage/retry-limit-exceeded') return 'החיבור ל־Storage נכשל. נסה שוב בעוד רגע.';

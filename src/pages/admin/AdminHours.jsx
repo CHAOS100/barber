@@ -231,7 +231,7 @@ export default function AdminHours() {
       <div className="px-4 py-4 space-y-3">
         <div className="glass-gold rounded-2xl p-3 flex items-center gap-2 text-xs text-muted-foreground mb-2">
           <Clock className="w-4 h-4 text-primary flex-shrink-0" />
-          לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים
+          <span>לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים</span>
         </div>
 
         {settingsError && (

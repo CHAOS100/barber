@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Bell, Edit3, Instagram, Image as ImageIcon, MessageCircle, MapPin, Navigation2, Phone, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
+import { ArrowRight, Bell, Edit3, Image as ImageIcon, MessageCircle, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
 import {

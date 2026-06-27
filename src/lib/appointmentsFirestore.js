@@ -190,6 +190,16 @@ export const deleteAppointment = async (appointmentId) => {
   await callAppointmentFunction('deleteAdminAppointment', { appointmentId });
 };
 
+export const archiveAppointmentByAdmin = async (appointmentId) => {
+  await ensureFirebaseAdmin();
+  return callAppointmentFunction('archiveAdminAppointment', { appointmentId });
+};
+
+export const batchArchiveAppointmentsByAdmin = async () => {
+  await ensureFirebaseAdmin();
+  return callAppointmentFunction('batchArchiveAdminAppointments', {});
+};
+
 const logListenerError = (audience, stage, error) => {
   const details = {
     projectId: firebaseProjectId,

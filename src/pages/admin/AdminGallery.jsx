@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -27,6 +27,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { PICKER_INPUT_STYLE, triggerFilePicker } from '@/lib/imagePicker';
 
 const CATEGORIES = [
   { key: 'gallery', label: 'גלריה / תיק עבודות' },
@@ -78,6 +79,8 @@ export default function AdminGallery() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [file, setFile] = useState(null);
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
   const { photos, error } = useAdminGalleryRealtime(isAdmin);
@@ -326,37 +329,59 @@ export default function AdminGallery() {
               )}
 
               <div className="space-y-3">
-                <label className="block glass rounded-xl p-3 cursor-pointer text-center">
-                  <Upload className="w-5 h-5 text-primary mx-auto mb-1" />
-                  <span className="text-sm font-bold">{file ? file.name : 'בחר תמונה מהמכשיר'}</span>
-                  <span className="block text-xs text-muted-foreground mt-1">JPEG, PNG או WebP עד 10MB</span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="block w-full glass rounded-xl p-3 text-center cursor-pointer disabled:opacity-50"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      triggerFilePicker(fileInputRef.current, 'gallery-file');
+                    }}
+                    disabled={saveMutation.isPending}
+                  >
+                    <Upload className="w-5 h-5 text-primary mx-auto mb-1" />
+                    <span className="text-sm font-bold">{file ? file.name : 'בחר תמונה מהמכשיר'}</span>
+                    <span className="block text-xs text-muted-foreground mt-1">JPEG, PNG או WebP עד 10MB</span>
+                  </button>
                   <input
+                    ref={fileInputRef}
                     type="file"
                     accept="image/*"
-                    className="hidden"
+                    style={PICKER_INPUT_STYLE}
                     onChange={(event) => {
                       handleFileSelected(event.target.files?.[0] || null);
                       event.target.value = '';
                     }}
                     disabled={saveMutation.isPending}
                   />
-                </label>
+                </div>
 
-                <label className="block glass rounded-xl p-3 cursor-pointer text-center">
-                  <span className="text-sm font-bold">צלם תמונה במצלמה</span>
-                  <span className="block text-xs text-muted-foreground mt-1">מותאם לניידים שתומכים בפתיחת מצלמה</span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="block w-full glass rounded-xl p-3 text-center cursor-pointer disabled:opacity-50"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      triggerFilePicker(cameraInputRef.current, 'gallery-camera');
+                    }}
+                    disabled={saveMutation.isPending}
+                  >
+                    <span className="text-sm font-bold">צלם תמונה במצלמה</span>
+                    <span className="block text-xs text-muted-foreground mt-1">מותאם לניידים שתומכים בפתיחת מצלמה</span>
+                  </button>
                   <input
+                    ref={cameraInputRef}
                     type="file"
                     accept="image/*"
                     capture="environment"
-                    className="hidden"
+                    style={PICKER_INPUT_STYLE}
                     onChange={(event) => {
                       handleFileSelected(event.target.files?.[0] || null);
                       event.target.value = '';
                     }}
                     disabled={saveMutation.isPending}
                   />
-                </label>
+                </div>
 
                 {(saveMutation.isPending && file) && (
                   <div className="rounded-xl bg-secondary p-3">

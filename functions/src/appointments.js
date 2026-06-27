@@ -720,3 +720,54 @@ export const deleteAdminAppointment = onCall(async (request) => {
   await db().doc(`appointments/${appointmentId}`).delete();
   return { id: appointmentId };
 });
+
+const ARCHIVABLE_STATUSES = new Set(['completed', 'cancelled', 'no_show', 'rejected']);
+
+export const archiveAdminAppointment = onCall(async (request) => {
+  const auth = await requireAdmin(request);
+  const appointmentId = text(request.data.appointmentId);
+  if (!appointmentId) throw new HttpsError('invalid-argument', 'appointmentId is required.');
+
+  const ref = db().doc(`appointments/${appointmentId}`);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'Appointment not found.');
+
+  const data = snapshot.data();
+  if (!ARCHIVABLE_STATUSES.has(data.status)) {
+    throw new HttpsError('failed-precondition', 'Only completed, cancelled, no_show, or rejected appointments can be archived.');
+  }
+
+  await ref.update({
+    archivedFromActive: true,
+    archivedAt: FieldValue.serverTimestamp(),
+    archivedBy: auth.uid,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return { id: appointmentId };
+});
+
+export const batchArchiveAdminAppointments = onCall(async (request) => {
+  const auth = await requireAdmin(request);
+
+  const snapshot = await db().collection('appointments')
+    .where('status', 'in', [...ARCHIVABLE_STATUSES])
+    .get();
+
+  const toArchive = snapshot.docs.filter((docSnapshot) => !docSnapshot.data().archivedFromActive);
+  if (toArchive.length === 0) return { count: 0 };
+
+  const batch = db().batch();
+  const now = FieldValue.serverTimestamp();
+  toArchive.forEach((docSnapshot) => {
+    batch.update(docSnapshot.ref, {
+      archivedFromActive: true,
+      archivedAt: now,
+      archivedBy: auth.uid,
+      updatedAt: now,
+    });
+  });
+
+  await batch.commit();
+  return { count: toArchive.length };
+});

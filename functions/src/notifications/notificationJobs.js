@@ -327,6 +327,37 @@ export const buildPushJobForCancellation = (
 };
 
 /**
+ * Build a push notification job for a manual admin notify to a waiting list customer.
+ */
+export const buildPushJobForWaitlistManual = (
+  waitingListId,
+  waitingListEntry,
+  now = new Date(),
+) => {
+  const customerId = waitingListEntry.customerId || null;
+  const customerPhone = waitingListEntry.phoneNumber || null;
+  const requestedTime = waitingListEntry.exactTime
+    || waitingListEntry.availableStartTime
+    || waitingListEntry.startTime
+    || '';
+  const dateStr = waitingListEntry.date || '';
+
+  return pushJob({
+    id: `${waitingListId}_manual_push`,
+    customerId,
+    customerPhone,
+    type: 'waiting_list_manual_notify',
+    title: '🎉 התפנה תור!',
+    body: requestedTime
+      ? `התפנה תור ב-OST BARBER בתאריך ${dateStr} בשעה ${requestedTime}. היכנס לאפליקציה לפני שמישהו אחר יתפוס!`
+      : `ייתכן שהתפנה תור ב-OST BARBER בתאריך ${dateStr}. היכנס לאפליקציה לבדוק זמינות.`,
+    data: { waitingListId, date: dateStr, startTime: requestedTime },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
+
+/**
  * Build a push notification job for a waiting list slot becoming available.
  */
 export const buildPushJobForWaitlistMatch = (

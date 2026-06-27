@@ -26,6 +26,8 @@ export {
   createWebCustomTokenFromNativeAuth,
 } from './auth.js';
 export {
+  archiveAdminAppointment,
+  batchArchiveAdminAppointments,
   createAdminAppointment,
   createCustomerAppointment,
   deleteAdminAppointment,

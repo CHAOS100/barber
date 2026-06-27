@@ -13,6 +13,7 @@ import GoldButton from '@/components/ui/GoldButton';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { PICKER_INPUT_STYLE, triggerFilePicker } from '@/lib/imagePicker';
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -185,32 +186,38 @@ export default function AdminBarbers() {
               <div className="space-y-3">
                 {/* Photo upload */}
                 <div className="flex flex-col items-center gap-2">
-                  <div
-                    className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-border cursor-pointer"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {(photoPreview || form.photo_url) ? (
-                      <img
-                        src={photoPreview || form.photo_url}
-                        alt="תמונת ספר"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full glass-gold flex items-center justify-center">
-                        <User className="w-8 h-8 text-primary" />
+                  <div className="relative w-20 h-20">
+                    <button
+                      type="button"
+                      className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-border cursor-pointer"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        triggerFilePicker(fileInputRef.current, 'barber-photo');
+                      }}
+                    >
+                      {(photoPreview || form.photo_url) ? (
+                        <img
+                          src={photoPreview || form.photo_url}
+                          alt="תמונת ספר"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full glass-gold flex items-center justify-center">
+                          <User className="w-8 h-8 text-primary" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 flex items-center justify-center py-1">
+                        <Camera className="w-3.5 h-3.5 text-white" />
                       </div>
-                    )}
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 flex items-center justify-center py-1">
-                      <Camera className="w-3.5 h-3.5 text-white" />
-                    </div>
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      style={PICKER_INPUT_STYLE}
+                      onChange={handlePhotoSelect}
+                    />
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                    className="hidden"
-                    onChange={handlePhotoSelect}
-                  />
                   {photoFile && (
                     <p className="text-xs text-primary text-center">{photoFile.name}</p>
                   )}

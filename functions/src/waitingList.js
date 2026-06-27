@@ -2,9 +2,10 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { buildWaitingListManualSmsJob } from './notifications/notificationJobs.js';
+import { buildWaitingListManualSmsJob, buildPushJobForWaitlistManual } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
 import { sendSmsNotificationJob } from './notifications/smsProvider.js';
+import { processImmediatePushJobs, IMMEDIATE_PUSH_TYPES } from './notifications/pushProcessor.js';
 import { requirePhoneCustomerAuth } from './auth.js';
 import {
   addMinutes,
@@ -347,6 +348,17 @@ const handleManualNotify = async (request) => {
       .doc(entry.customerId)
       .collection('notifications')
       .add(buildManualInAppNotification(waitingListId, entry));
+  }
+
+  const pushJob = buildPushJobForWaitlistManual(waitingListId, entry);
+  await notificationJobs().enqueue([pushJob]);
+  if (IMMEDIATE_PUSH_TYPES.has(pushJob.data?.type)) {
+    processImmediatePushJobs([pushJob.id]).catch((pushError) => {
+      logger.warn('manual waitlist push delivery failed (scheduler will retry)', {
+        error: pushError.message,
+        waitingListId,
+      });
+    });
   }
 
   if (smsResult.providerConfigured === true && smsResult.sent !== true) {
