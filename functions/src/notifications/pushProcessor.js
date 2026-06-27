@@ -17,6 +17,19 @@ import { sendPushJob } from './pushSender.js';
 const BATCH_LIMIT = 25;
 const MAX_ATTEMPTS = 5;
 
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
+
+const getTargetUserId = (jobData = {}) => (
+  jobData.customerId
+  || jobData.targetUserId
+  || jobData.userId
+  || jobData.recipientId
+  || jobData.uid
+  || null
+);
+
 // Job types that are immediate (not time-scheduled) — processed inline after enqueue
 export const IMMEDIATE_PUSH_TYPES = new Set([
   'appointment_approved',
@@ -36,22 +49,50 @@ export const IMMEDIATE_PUSH_TYPES = new Set([
 // ── Firestore helpers ─────────────────────────────────────────────────────────
 
 const fetchEnabledTokens = async (firestore, customerId) => {
-  if (!customerId) return [];
+  if (!customerId) {
+    pushDebug('token lookup skipped: missing target user id', {
+      tokenPath: null,
+      tokenCount: 0,
+    });
+    return [];
+  }
+  const tokenPath = `users/${customerId}/pushTokens`;
   const snap = await firestore
     .collection('users')
     .doc(customerId)
     .collection('pushTokens')
     .where('enabled', '==', true)
     .get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const tokens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  pushDebug('token lookup complete', {
+    tokenPath,
+    tokenCount: tokens.length,
+    tokenIds: tokens.map((token) => token.id),
+  });
+  return tokens;
 };
 
 const fetchCustomerPreferences = async (firestore, customerId) => {
-  if (!customerId) return {};
+  if (!customerId) {
+    pushDebug('preferences lookup skipped: missing target user id', {
+      userPath: null,
+      preferencesPresent: false,
+    });
+    return {};
+  }
   try {
     const snap = await firestore.collection('users').doc(customerId).get();
-    return snap.exists ? (snap.data().notificationPreferences || {}) : {};
+    const preferences = snap.exists ? (snap.data().notificationPreferences || {}) : {};
+    pushDebug('preferences lookup complete', {
+      userPath: `users/${customerId}`,
+      userExists: snap.exists,
+      preferenceKeys: Object.keys(preferences),
+    });
+    return preferences;
   } catch {
+    console.warn('[PUSH_DEBUG]', 'preferences lookup failed, defaulting to allow', {
+      userPath: `users/${customerId}`,
+    });
     return {};
   }
 };
@@ -72,30 +113,41 @@ const disableToken = async (firestore, customerId, tokenId) => {
 
 // ── Job result writers ────────────────────────────────────────────────────────
 
-const markJobSent = (firestore, jobId, attempts) =>
-  firestore.collection('notificationJobs').doc(jobId).update({
+const markJobSent = (firestore, jobId, attempts) => {
+  pushDebug('final job status', { jobId, status: 'sent', attempts: attempts + 1 });
+  return firestore.collection('notificationJobs').doc(jobId).update({
     status: 'sent',
     sentAt: FieldValue.serverTimestamp(),
     attempts: attempts + 1,
     lastError: null,
     updatedAt: FieldValue.serverTimestamp(),
   });
+};
 
-const markJobSkipped = (firestore, jobId, reason, attempts) =>
-  firestore.collection('notificationJobs').doc(jobId).update({
+const markJobSkipped = (firestore, jobId, reason, attempts) => {
+  pushDebug('final job status', { jobId, status: 'skipped', skipReason: reason, attempts: attempts + 1 });
+  return firestore.collection('notificationJobs').doc(jobId).update({
     status: 'skipped',
     skipReason: reason,
     attempts: attempts + 1,
     updatedAt: FieldValue.serverTimestamp(),
   });
+};
 
-const markJobFailed = (firestore, jobId, errorMessage, attempts, permanent) =>
-  firestore.collection('notificationJobs').doc(jobId).update({
+const markJobFailed = (firestore, jobId, errorMessage, attempts, permanent) => {
+  pushDebug('final job status', {
+    jobId,
+    status: permanent ? 'failed' : 'pending',
+    errorMessage: String(errorMessage || 'unknown'),
+    attempts: attempts + 1,
+  });
+  return firestore.collection('notificationJobs').doc(jobId).update({
     status: permanent ? 'failed' : 'pending',   // keep 'pending' for transient errors
     lastError: String(errorMessage || 'unknown'),
     attempts: attempts + 1,
     updatedAt: FieldValue.serverTimestamp(),
   });
+};
 
 // ── Single-job processor (for immediate inline delivery) ──────────────────────
 
@@ -122,6 +174,11 @@ export const processImmediatePushJobs = async (jobIds) => {
     errors: [],
   };
 
+  pushDebug('processImmediatePushJobs starts', {
+    requestedJobIds: jobIds,
+    count: jobIds.length,
+  });
+
   for (const jobId of jobIds) {
     const docRef = firestore.collection('notificationJobs').doc(jobId);
     let doc;
@@ -132,19 +189,41 @@ export const processImmediatePushJobs = async (jobIds) => {
       continue;
     }
 
-    if (!doc.exists) continue;
+    if (!doc.exists) {
+      pushDebug('immediate job missing', { jobId });
+      continue;
+    }
 
     const jobData = doc.data();
     summary.jobsChecked += 1;
+    const customerId = getTargetUserId(jobData);
+
+    pushDebug('immediate job loaded', {
+      jobId,
+      type: jobData.type || null,
+      channel: jobData.channel || null,
+      status: jobData.status || null,
+      customerId: jobData.customerId || null,
+      targetUserId: jobData.targetUserId || null,
+      userId: jobData.userId || null,
+      recipientId: jobData.recipientId || null,
+      resolvedTargetUserId: customerId,
+      scheduledFor: jobData.scheduledFor || null,
+    });
 
     // Skip if already processed (scheduler may have beaten us, or job is wrong channel)
     if (jobData.status !== 'pending' || jobData.channel !== 'push') {
+      pushDebug('immediate job skipped before send', {
+        jobId,
+        type: jobData.type || null,
+        channel: jobData.channel || null,
+        status: jobData.status || null,
+      });
       summary.jobsSkipped += 1;
       continue;
     }
 
     const attempts = Number(jobData.attempts || 0);
-    const customerId = jobData.customerId || null;
 
     try {
       const [tokens, preferences] = await Promise.all([
@@ -153,6 +232,23 @@ export const processImmediatePushJobs = async (jobIds) => {
       ]);
 
       const result = await sendPushJob(jobData, tokens, preferences);
+      pushDebug('immediate send result', {
+        jobId,
+        type: jobData.type || null,
+        resolvedTargetUserId: customerId,
+        sent: result.sent,
+        skipped: result.skipped,
+        skipReason: result.skipReason || null,
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        tokenResults: result.tokenResults.map((item) => ({
+          tokenId: item.tokenId,
+          success: item.success,
+          messageId: item.messageId || null,
+          errorCode: item.errorCode || null,
+          errorMessage: item.errorMessage || null,
+        })),
+      });
 
       if (result.tokensToDisable.length > 0) {
         await Promise.all(
@@ -211,6 +307,11 @@ export const processPendingPushJobs = async () => {
   const firestore = getFirestore();
   const now = new Date();
 
+  pushDebug('processPendingPushJobs starts', {
+    now,
+    batchLimit: BATCH_LIMIT,
+  });
+
   const snap = await firestore
     .collection('notificationJobs')
     .where('channel', '==', 'push')
@@ -221,9 +322,17 @@ export const processPendingPushJobs = async () => {
     .get();
 
   if (snap.empty) {
+    pushDebug('processPendingPushJobs query complete', {
+      jobsFound: 0,
+    });
     logger.info('pushProcessor: no pending push jobs');
     return { jobsChecked: 0, jobsSent: 0, jobsSkipped: 0, jobsFailed: 0, tokensDisabled: 0, errors: [] };
   }
+
+  pushDebug('processPendingPushJobs query complete', {
+    jobsFound: snap.docs.length,
+    jobIds: snap.docs.map((item) => item.id),
+  });
 
   const summary = {
     jobsChecked: snap.docs.length,
@@ -238,7 +347,21 @@ export const processPendingPushJobs = async () => {
     const jobId = doc.id;
     const jobData = doc.data();
     const attempts = Number(jobData.attempts || 0);
-    const customerId = jobData.customerId || null;
+    const customerId = getTargetUserId(jobData);
+
+    pushDebug('pending job loaded', {
+      jobId,
+      type: jobData.type || null,
+      channel: jobData.channel || null,
+      status: jobData.status || null,
+      customerId: jobData.customerId || null,
+      targetUserId: jobData.targetUserId || null,
+      userId: jobData.userId || null,
+      recipientId: jobData.recipientId || null,
+      resolvedTargetUserId: customerId,
+      scheduledFor: jobData.scheduledFor || null,
+      attempts,
+    });
 
     // Safety valve: give up after MAX_ATTEMPTS
     if (attempts >= MAX_ATTEMPTS) {
@@ -254,6 +377,23 @@ export const processPendingPushJobs = async () => {
       ]);
 
       const result = await sendPushJob(jobData, tokens, preferences);
+      pushDebug('pending send result', {
+        jobId,
+        type: jobData.type || null,
+        resolvedTargetUserId: customerId,
+        sent: result.sent,
+        skipped: result.skipped,
+        skipReason: result.skipReason || null,
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        tokenResults: result.tokenResults.map((item) => ({
+          tokenId: item.tokenId,
+          success: item.success,
+          messageId: item.messageId || null,
+          errorCode: item.errorCode || null,
+          errorMessage: item.errorMessage || null,
+        })),
+      });
 
       // Disable stale tokens in parallel — non-blocking for the job result
       if (result.tokensToDisable.length > 0) {

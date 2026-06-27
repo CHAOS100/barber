@@ -20,6 +20,10 @@ export const NOTIFICATION_STATUS = 'pending';
 export const LEGACY_WHATSAPP_JOBS_ENABLED = false;
 export const BUSINESS_SMS_REMINDERS_ENABLED = false;
 
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
+
 const normalizeIsraeliPhone = (phone) => {
   const value = String(phone || '').replace(/[^\d+]/g, '');
   if (/^05\d{8}$/.test(value)) return `+972${value.slice(1)}`;
@@ -234,6 +238,19 @@ const pushJob = ({ id, customerId, customerPhone, type, title, body, data = {}, 
   },
 });
 
+const buildPushJob = (input) => {
+  const built = pushJob(input);
+  pushDebug('notification job built', {
+    jobId: built.id,
+    type: built.data.type,
+    customerId: built.data.customerId || null,
+    targetUserId: built.data.targetUserId || null,
+    channel: built.data.channel,
+    scheduledFor: built.data.scheduledFor,
+  });
+  return built;
+};
+
 /**
  * Build push notification jobs for an approved appointment:
  * - immediate approval confirmation
@@ -263,7 +280,7 @@ export const buildPushJobsForApproval = (
   const serviceLabel = serviceName ? ` ל${serviceName}` : '';
 
   return [
-    pushJob({
+    buildPushJob({
       id: `${appointmentId}_push_approved`,
       customerId,
       customerPhone,
@@ -274,7 +291,7 @@ export const buildPushJobsForApproval = (
       scheduledFor: now,
       createdAt: now,
     }),
-    pushJob({
+    buildPushJob({
       id: `${appointmentId}_push_reminder_24h`,
       customerId,
       customerPhone,
@@ -285,7 +302,7 @@ export const buildPushJobsForApproval = (
       scheduledFor: start.minus({ hours: 24 }).toJSDate(),
       createdAt: now,
     }),
-    pushJob({
+    buildPushJob({
       id: `${appointmentId}_push_reminder_2h`,
       customerId,
       customerPhone,
@@ -313,7 +330,7 @@ export const buildPushJobForCancellation = (
   const serviceName = appointment.serviceName || appointment.service_name || '';
   const serviceLabel = serviceName ? ` ל${serviceName}` : '';
 
-  return pushJob({
+  return buildPushJob({
     id: `${appointmentId}_push_cancelled`,
     customerId,
     customerPhone,
@@ -342,7 +359,7 @@ export const buildPushJobForWaitlistManual = (
     || '';
   const dateStr = waitingListEntry.date || '';
 
-  return pushJob({
+  return buildPushJob({
     id: `${waitingListId}_manual_push`,
     customerId,
     customerPhone,
@@ -372,7 +389,7 @@ export const buildPushJobForWaitlistMatch = (
   const dateStr = appointment.date || waitingListEntry.date || '';
   const timeStr = appointment.startTime || '';
 
-  return pushJob({
+  return buildPushJob({
     id: `${waitingListId}_${appointmentId}_push_available`,
     customerId,
     customerPhone,

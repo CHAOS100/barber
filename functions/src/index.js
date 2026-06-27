@@ -60,6 +60,10 @@ initializeApp();
 const ADMIN_WHATSAPP_PHONE = defineString('ADMIN_WHATSAPP_PHONE', { default: '' });
 const notificationJobs = new NotificationJobService(getFirestore());
 
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
+
 export const queueAdminNotificationForNewAppointment = onDocumentCreated(
   'appointments/{appointmentId}',
   async (event) => {
@@ -91,6 +95,15 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
     const appointmentId = event.params.appointmentId;
     const jobsToEnqueue = [];
 
+    pushDebug('appointment status trigger fired', {
+      appointmentId,
+      beforeStatus: before.status || null,
+      afterStatus: after.status || null,
+      customerId: after.customerId || null,
+      targetUserId: after.targetUserId || null,
+      customerPhonePresent: Boolean(after.customerPhone),
+    });
+
     if (after.status === 'confirmed') {
       // Legacy WhatsApp jobs — only enqueue when explicitly enabled
       if (LEGACY_WHATSAPP_JOBS_ENABLED) {
@@ -110,12 +123,28 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
     }
 
     const validJobs = jobsToEnqueue.filter(Boolean);
+    pushDebug('appointment status jobs prepared', {
+      appointmentId,
+      jobCount: validJobs.length,
+      jobs: validJobs.map((job) => ({
+        jobId: job.id,
+        type: job.data?.type || null,
+        channel: job.data?.channel || null,
+        customerId: job.data?.customerId || null,
+        targetUserId: job.data?.targetUserId || null,
+        scheduledFor: job.data?.scheduledFor || null,
+      })),
+    });
     if (validJobs.length > 0) {
       await notificationJobs.enqueue(validJobs);
       // Immediately deliver push jobs for time-sensitive status events
       const immediateIds = validJobs
         .filter((j) => j.data?.channel === 'push' && IMMEDIATE_PUSH_TYPES.has(j.data?.type))
         .map((j) => j.id);
+      pushDebug('appointment status immediate push ids', {
+        appointmentId,
+        immediateIds,
+      });
       if (immediateIds.length > 0) {
         await processImmediatePushJobs(immediateIds).catch((error) =>
           logger.warn('immediate push delivery failed (scheduler will retry)', { error: error.message }),
@@ -237,8 +266,21 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
     if (!wasBlocking || !isFreed || !after.date || !after.startTime || !after.barberId) return;
 
     const appointmentId = event.params.appointmentId;
+    pushDebug('waiting list freed appointment trigger fired', {
+      appointmentId,
+      beforeStatus: before.status || null,
+      afterStatus: after.status || null,
+      date: after.date || null,
+      startTime: after.startTime || null,
+      barberId: after.barberId || null,
+    });
     const available = await slotIsStillAvailable(appointmentId, after);
-    if (!available) return;
+    if (!available) {
+      pushDebug('waiting list freed slot not available after conflict check', {
+        appointmentId,
+      });
+      return;
+    }
 
     const snapshot = await getFirestore()
       .collection('waitingList')
@@ -249,6 +291,13 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
     const matching = snapshot.docs
       .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
       .filter((entry) => waitingListMatches(entry, after));
+
+    pushDebug('waiting list matching entries checked', {
+      appointmentId,
+      activeEntriesForDate: snapshot.size,
+      matchingCount: matching.length,
+      matchingIds: matching.map((entry) => entry.id),
+    });
 
     if (matching.length === 0) return;
 
@@ -261,6 +310,16 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
       buildPushJobForWaitlistMatch(entry.id, appointmentId, entry, after));
 
     const allJobs = [...legacyJobs, ...pushJobs].filter(Boolean);
+    pushDebug('waiting list push jobs prepared', {
+      appointmentId,
+      jobCount: allJobs.length,
+      jobs: allJobs.map((job) => ({
+        jobId: job.id,
+        type: job.data?.type || null,
+        channel: job.data?.channel || null,
+        customerId: job.data?.customerId || null,
+      })),
+    });
     await notificationJobs.enqueue(allJobs);
 
     // Immediately deliver waitlist push alerts — these are real-time, not scheduled
@@ -268,6 +327,10 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
       .filter((j) => j && IMMEDIATE_PUSH_TYPES.has(j.data?.type))
       .map((j) => j.id);
     if (immediateWaitlistIds.length > 0) {
+      pushDebug('waiting list immediate push ids', {
+        appointmentId,
+        immediateWaitlistIds,
+      });
       await processImmediatePushJobs(immediateWaitlistIds).catch((error) =>
         logger.warn('immediate waitlist push delivery failed (scheduler will retry)', { error: error.message }),
       );

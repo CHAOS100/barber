@@ -24,6 +24,9 @@ const ALLOWED_ORIGINS = new Set([
 const db = () => getFirestore();
 const notificationJobs = () => new NotificationJobService(getFirestore());
 const text = (value) => String(value || '').trim();
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 const activeWaitingListStatuses = new Set(['active', 'notified']);
 const preferenceTypes = new Set(['exact_time', 'time_range', 'day_part', 'whole_day']);
@@ -351,8 +354,19 @@ const handleManualNotify = async (request) => {
   }
 
   const pushJob = buildPushJobForWaitlistManual(waitingListId, entry);
+  pushDebug('manual waiting list push job prepared', {
+    waitingListId,
+    jobId: pushJob.id,
+    type: pushJob.data?.type || null,
+    channel: pushJob.data?.channel || null,
+    customerId: pushJob.data?.customerId || null,
+  });
   await notificationJobs().enqueue([pushJob]);
   if (IMMEDIATE_PUSH_TYPES.has(pushJob.data?.type)) {
+    pushDebug('manual waiting list immediate push ids', {
+      waitingListId,
+      immediateIds: [pushJob.id],
+    });
     processImmediatePushJobs([pushJob.id]).catch((pushError) => {
       logger.warn('manual waitlist push delivery failed (scheduler will retry)', {
         error: pushError.message,

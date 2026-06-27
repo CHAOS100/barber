@@ -31,6 +31,10 @@ const PREF_KEY_FOR_TYPE = {
   broadcast: 'barberMessagesEnabled',
 };
 
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
+
 /**
  * Returns true if this job type is allowed by the customer's stored preferences.
  * Missing keys default to true (opt-in by default).
@@ -40,6 +44,19 @@ export const isAllowedByPreferences = (jobType, preferences = {}) => {
   const key = PREF_KEY_FOR_TYPE[jobType];
   if (!key) return true; // unknown type → allow
   return preferences[key] !== false;
+};
+
+export const getPreferenceDecision = (jobType, preferences = {}) => {
+  const key = PREF_KEY_FOR_TYPE[jobType] || null;
+  const allowed = isAllowedByPreferences(jobType, preferences);
+  return {
+    jobType,
+    preferenceKey: key,
+    notificationsEnabled: preferences.notificationsEnabled,
+    preferenceValue: key ? preferences[key] : undefined,
+    allowed,
+    skipReason: allowed ? null : 'preference_disabled',
+  };
 };
 
 // ── FCM error codes that mean the token is permanently invalid ────────────────
@@ -59,6 +76,7 @@ export const isUnrecoverableFcmError = (errorCode) =>
  * Sends one FCM message. Returns { success, messageId?, errorCode?, errorMessage? }.
  */
 export const sendToToken = async (token, notification, dataPayload) => {
+  const tokenMasked = token ? `${String(token).slice(0, 8)}...${String(token).slice(-6)}` : '';
   const message = {
     token,
     notification: {
@@ -84,9 +102,25 @@ export const sendToToken = async (token, notification, dataPayload) => {
   };
 
   try {
+    pushDebug('FCM send called', {
+      tokenMasked,
+      titlePresent: Boolean(notification.title),
+      bodyPresent: Boolean(notification.body),
+      dataKeys: Object.keys(dataPayload || {}),
+      androidChannelId: message.android?.notification?.channelId || null,
+    });
     const messageId = await getMessaging().send(message);
+    pushDebug('FCM send succeeded', {
+      tokenMasked,
+      messageId,
+    });
     return { success: true, messageId };
   } catch (error) {
+    console.warn('[PUSH_DEBUG]', 'FCM send failed', {
+      tokenMasked,
+      errorCode: error.code || 'unknown',
+      errorMessage: error.message || String(error),
+    });
     return {
       success: false,
       errorCode: error.code || 'unknown',
@@ -134,8 +168,27 @@ export const buildDataPayload = (jobData) => {
  */
 export const sendPushJob = async (jobData, tokens, preferences) => {
   const enabledTokens = tokens.filter((t) => t.enabled !== false && t.token);
+  const preferenceDecision = getPreferenceDecision(jobData.type, preferences);
+
+  pushDebug('sendPushJob start', {
+    type: jobData.type || null,
+    customerId: jobData.customerId || null,
+    targetUserId: jobData.targetUserId || null,
+    userId: jobData.userId || null,
+    recipientId: jobData.recipientId || null,
+    tokenCount: tokens.length,
+    enabledTokenCount: enabledTokens.length,
+    preferenceDecision,
+    titlePresent: Boolean(jobData.title),
+    bodyPresent: Boolean(jobData.body),
+  });
 
   if (enabledTokens.length === 0) {
+    pushDebug('sendPushJob skipped', {
+      type: jobData.type || null,
+      customerId: jobData.customerId || null,
+      skipReason: 'no_tokens',
+    });
     return {
       sent: false,
       skipped: true,
@@ -147,7 +200,13 @@ export const sendPushJob = async (jobData, tokens, preferences) => {
     };
   }
 
-  if (!isAllowedByPreferences(jobData.type, preferences)) {
+  if (!preferenceDecision.allowed) {
+    pushDebug('sendPushJob skipped', {
+      type: jobData.type || null,
+      customerId: jobData.customerId || null,
+      skipReason: 'preference_disabled',
+      preferenceDecision,
+    });
     return {
       sent: false,
       skipped: true,
@@ -179,6 +238,15 @@ export const sendPushJob = async (jobData, tokens, preferences) => {
       }
     }
   }
+
+  pushDebug('sendPushJob result', {
+    type: jobData.type || null,
+    customerId: jobData.customerId || null,
+    sent: successCount > 0,
+    successCount,
+    failureCount,
+    tokensToDisable,
+  });
 
   return {
     sent: successCount > 0,

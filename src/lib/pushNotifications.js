@@ -27,6 +27,14 @@ import { getFirestoreDb } from '@/lib/firebase';
 export const isNativePlatform = () => Capacitor.isNativePlatform();
 export const getPlatformName = () => Capacitor.getPlatform(); // 'android' | 'ios' | 'web'
 
+const pushDebug = (message, details = {}) => {
+  console.log('[PUSH_DEBUG]', message, details);
+};
+
+const maskToken = (token) => (
+  token ? `${String(token).slice(0, 8)}...${String(token).slice(-6)}` : ''
+);
+
 // ── Push token Firestore helpers ──────────────────────────────────────────────
 
 /**
@@ -42,6 +50,12 @@ export const savePushToken = async (uid, token) => {
   const platform = getPlatformName();
 
   const ref = doc(getFirestoreDb(), 'users', uid, 'pushTokens', tokenSlug);
+  pushDebug('client saving push token', {
+    uid,
+    tokenPath: `users/${uid}/pushTokens/${tokenSlug}`,
+    tokenMasked: maskToken(token),
+    platform,
+  });
   await setDoc(ref, {
     token,
     platform,
@@ -50,6 +64,35 @@ export const savePushToken = async (uid, token) => {
     updatedAt: serverTimestamp(),
     lastSeenAt: serverTimestamp(),
   }, { merge: true });
+  pushDebug('client push token saved', {
+    uid,
+    tokenPath: `users/${uid}/pushTokens/${tokenSlug}`,
+    platform,
+  });
+};
+
+const ensureAndroidNotificationChannel = async (PushNotifications) => {
+  if (getPlatformName() !== 'android') return;
+  try {
+    await PushNotifications.createChannel({
+      id: 'appointments',
+      name: 'תורים ועדכונים',
+      description: 'התראות תורים ועדכונים מ-OST BARBER',
+      importance: 5,
+      visibility: 1,
+      sound: 'default',
+      vibration: true,
+    });
+    pushDebug('android notification channel ensured', {
+      channelId: 'appointments',
+    });
+  } catch (error) {
+    console.warn('[PUSH_DEBUG]', 'android notification channel creation failed', {
+      channelId: 'appointments',
+      errorCode: error?.code || 'unknown',
+      errorMessage: error?.message || String(error),
+    });
+  }
 };
 
 // ── Main push notification setup ──────────────────────────────────────────────
@@ -68,29 +111,50 @@ let _errorListener = null;
  */
 export const initPushNotifications = async (uid, { silent = false } = {}) => {
   if (!isNativePlatform()) {
+    pushDebug('push registration skipped: web not supported', { uidPresent: Boolean(uid) });
     return { granted: false, reason: 'web-not-supported' };
   }
 
   // Dynamic import keeps this out of the web bundle entirely
   const { PushNotifications } = await import('@capacitor/push-notifications');
 
+  pushDebug('push registration requested', {
+    uid,
+    platform: getPlatformName(),
+    silent,
+  });
+
   // Check existing permission
   let { receive: existingPermission } = await PushNotifications.checkPermissions();
+  pushDebug('push permission checked', {
+    uid,
+    platform: getPlatformName(),
+    receive: existingPermission,
+  });
 
   if (existingPermission === 'denied') {
+    pushDebug('push registration skipped: permission denied', { uid });
     return { granted: false, reason: 'permission-denied' };
   }
 
   if (existingPermission !== 'granted' && silent) {
+    pushDebug('push registration skipped: silent and not granted', { uid, receive: existingPermission });
     return { granted: false, reason: 'not-requested' };
   }
 
   if (existingPermission !== 'granted') {
     const { receive } = await PushNotifications.requestPermissions();
+    pushDebug('push permission requested', {
+      uid,
+      platform: getPlatformName(),
+      receive,
+    });
     if (receive !== 'granted') {
       return { granted: false, reason: 'permission-denied' };
     }
   }
+
+  await ensureAndroidNotificationChannel(PushNotifications);
 
   // Remove existing listeners to avoid duplicates
   if (_registrationListener) {
@@ -106,6 +170,11 @@ export const initPushNotifications = async (uid, { silent = false } = {}) => {
     PushNotifications.addListener('registration', async (registration) => {
       const token = registration.value;
       try {
+        pushDebug('push registration token received', {
+          uid,
+          platform: getPlatformName(),
+          tokenMasked: maskToken(token),
+        });
         if (uid && token) {
           await savePushToken(uid, token);
         }
@@ -117,10 +186,19 @@ export const initPushNotifications = async (uid, { silent = false } = {}) => {
     }).then((listener) => { _registrationListener = listener; });
 
     PushNotifications.addListener('registrationError', (error) => {
-      console.warn('[Push] Registration error:', error);
+      console.warn('[PUSH_DEBUG]', 'push registration error', {
+        uid,
+        platform: getPlatformName(),
+        errorCode: error?.code || 'unknown',
+        errorMessage: error?.error || error?.message || String(error),
+      });
       resolve({ granted: false, reason: 'registration-error', error: error.error });
     }).then((listener) => { _errorListener = listener; });
 
+    pushDebug('PushNotifications.register called', {
+      uid,
+      platform: getPlatformName(),
+    });
     PushNotifications.register();
   });
 };
