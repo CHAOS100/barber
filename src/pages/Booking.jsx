@@ -17,9 +17,10 @@ import {
   useAppointmentBlocksRealtime,
   useBusinessSettingsRealtime,
   useBookingSettingsRealtime,
+  useBookingSlotReleasesRealtime,
 } from '@/hooks/useBookingData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
+import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS, timeToMinutes } from '../lib/slotEngine';
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -198,6 +199,7 @@ export default function Booking() {
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
   const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
+  const { data: slotReleases } = useBookingSlotReleasesRealtime(selectedDateStr);
   const activeAppointment = customerAppointments.find((appointment) =>
     ['pending', 'approved', 'confirmed', 'scheduled'].includes(appointment.status));
 
@@ -250,7 +252,7 @@ export default function Booking() {
     const ds = dateToStr(selectedDate);
     const wh = getWorkingHoursForDate(ds, workingHours);
     if (!wh || !wh.is_open) return [];
-    return getAvailableSlots({
+    const allSlots = getAvailableSlots({
       date: ds,
       serviceDuration: selectedService.duration,
       service: selectedService,
@@ -262,13 +264,28 @@ export default function Booking() {
       bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
       settings: bookingSettings || {},
     });
-  }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings]);
+    if (bookingSettings?.availabilityMode !== 'manual') return allSlots;
+    const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
+    return allSlots.filter((slot) => {
+      const slotMinutes = timeToMinutes(slot);
+      return barberReleases.some((r) => {
+        const from = timeToMinutes(r.startTime);
+        const to = timeToMinutes(r.endTime);
+        return slotMinutes >= from && slotMinutes < to;
+      });
+    });
+  }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings, slotReleases]);
 
   const slotGroups = useMemo(() => groupSlots(availableSlots), [availableSlots]);
   const emptyAvailabilityMessage = useMemo(() => {
     if (!selectedDate || !selectedService) return 'אין שעות פנויות ביום זה';
     const hours = getWorkingHoursForDate(dateToStr(selectedDate), workingHours);
     if (!hours?.is_open) return 'העסק סגור ביום הזה.';
+    if (bookingSettings?.availabilityMode === 'manual') {
+      const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
+      if (barberReleases.length === 0) return 'אין שעות פנויות ביום זה — המנהל טרם שחרר שעות.';
+      return 'אין שעות פנויות ביום זה';
+    }
     const [openHour, openMinute] = String(hours.open_time || '00:00').split(':').map(Number);
     const [closeHour, closeMinute] = String(hours.close_time || '00:00').split(':').map(Number);
     const availableMinutes = ((closeHour * 60) + closeMinute) - ((openHour * 60) + openMinute);
@@ -276,7 +293,7 @@ export default function Booking() {
       return 'משך השירות לא נכנס בחלון הזמן הפנוי.';
     }
     return 'אין שעות פנויות ביום זה';
-  }, [selectedDate, selectedService, workingHours]);
+  }, [selectedDate, selectedService, workingHours, bookingSettings, slotReleases, selectedBarber]);
 
   useEffect(() => {
     if (!preselect?.startTime || !selectedDate || !selectedService) return;

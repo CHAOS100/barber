@@ -469,6 +469,28 @@ export const buildPushJobForProfileStatus = (
 });
 
 /**
+ * Build a push notification job sent to a waiting-list customer when the admin
+ * manually releases booking slots for a date they are waiting for.
+ */
+export const buildPushJobForSlotsReleased = (
+  waitingListId,
+  customerId,
+  dateStr,
+  releaseId,
+  now = new Date(),
+) => buildPushJob({
+  id: `${waitingListId}_slots_released_${releaseId}`,
+  customerId,
+  customerPhone: null,
+  type: 'slots_released',
+  title: '🗓️ שעות חדשות נפתחו!',
+  body: `שעות הזמנה חדשות נפתחו ב-OST BARBER לתאריך ${dateStr}. היכנס לאפליקציה לבחור שעה.`,
+  data: { date: dateStr, releaseId },
+  scheduledFor: now,
+  createdAt: now,
+});
+
+/**
  * Build a push notification job for a waiting list slot becoming available.
  */
 export const buildPushJobForWaitlistMatch = (

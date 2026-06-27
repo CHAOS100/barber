@@ -131,6 +131,7 @@ const getBookingSettings = async (transaction) => {
     workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
       ? settings.workingHours
       : DEFAULT_WORKING_HOURS,
+    availabilityMode: settings.availabilityMode === 'manual' ? 'manual' : 'automatic',
   };
 };
 
@@ -374,6 +375,26 @@ const buildCustomerAppointment = (requested, customer, service, barber, customer
     barberName: barber.name,
   }, customerId, 'pending');
 
+const rejectManualModeSlot = async (transaction, appointment) => {
+  const releasesSnapshot = await transaction.get(
+    db().collection('bookingSlotReleases').where('date', '==', appointment.date),
+  );
+  const activeReleases = releasesSnapshot.docs
+    .map((item) => item.data())
+    .filter((r) => r.barberId === appointment.barberId && r.status === 'active');
+  const slotMinutes = timeToMinutes(appointment.startTime);
+  const isReleased = activeReleases.some((r) => {
+    const from = timeToMinutes(r.startTime);
+    const to = timeToMinutes(r.endTime);
+    return slotMinutes >= from && slotMinutes < to;
+  });
+  if (!isReleased) {
+    throw new HttpsError('failed-precondition', 'This time slot has not been released for booking.', {
+      code: 'appointment/slot-not-released',
+    });
+  }
+};
+
 export const createCustomerAppointment = onCall(async (request) => {
   const auth = await requireCustomer(request);
   const requested = normalizeAppointment(request.data, auth.uid, 'pending');
@@ -411,6 +432,9 @@ export const createCustomerAppointment = onCall(async (request) => {
     }
 
     rejectSchedule(appointment, settings.workingHours);
+    if (settings.availabilityMode === 'manual') {
+      await rejectManualModeSlot(transaction, appointment);
+    }
     rejectConflict(findConflict(
       appointment,
       appointments,
@@ -495,6 +519,9 @@ export const replaceCustomerAppointment = onCall(async (request) => {
     }
 
     rejectSchedule(replacement, settings.workingHours);
+    if (settings.availabilityMode === 'manual') {
+      await rejectManualModeSlot(transaction, replacement);
+    }
     rejectConflict(findConflict(
       replacement,
       appointments,

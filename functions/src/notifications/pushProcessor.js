@@ -96,6 +96,7 @@ export const IMMEDIATE_PUSH_TYPES = new Set([
   'barber_message',
   'broadcast',
   'appointment_created_admin',
+  'slots_released',
 ]);
 
 // ── Firestore helpers ─────────────────────────────────────────────────────────

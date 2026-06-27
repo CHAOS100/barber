@@ -1,12 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2 } from 'lucide-react';
+import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2, Unlock, Lock } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { BUSINESS_INFO } from '../../lib/businessConfig';
 import GoldButton from '../../components/ui/GoldButton';
-import { saveBookingSettings } from '@/lib/businessFirestore';
-import { useBookingSettingsRealtime } from '@/hooks/useBookingData';
+import {
+  saveBookingSettings,
+  publishBookingSlotRelease,
+  cancelBookingSlotRelease,
+} from '@/lib/businessFirestore';
+import {
+  useBookingSettingsRealtime,
+  useUpcomingBookingSlotReleasesRealtime,
+  useAllBarbersRealtime,
+} from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 
@@ -26,6 +34,21 @@ for (let h = 0; h < 24; h++) {
   }
 }
 
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const formatTime = (t) => t || '';
+
+const DAY_NAMES_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+
 function TimeSelect({ value, onChange }) {
   return (
     <select
@@ -44,7 +67,6 @@ function DayCard({ day, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
 
   const toggleOpen = () => onUpdate({ ...day, is_open: !day.is_open });
-
   const updateTime = (field, val) => onUpdate({ ...day, [field]: val });
 
   const addBreak = () => onUpdate({
@@ -68,7 +90,6 @@ function DayCard({ day, onUpdate }) {
       animate={{ opacity: 1, y: 0 }}
       className={`dark-card rounded-2xl overflow-hidden border ${day.is_open ? 'border-primary/10' : 'border-transparent'}`}
     >
-      {/* Day header */}
       <div className="flex items-center gap-3 p-4">
         <div
           onClick={toggleOpen}
@@ -98,7 +119,6 @@ function DayCard({ day, onUpdate }) {
         )}
       </div>
 
-      {/* Expanded settings */}
       <AnimatePresence>
         {day.is_open && expanded && (
           <motion.div
@@ -108,7 +128,6 @@ function DayCard({ day, onUpdate }) {
             className="border-t border-white/5"
           >
             <div className="p-4 pt-3 space-y-4">
-              {/* Open / Close times */}
               <div className="flex items-center gap-3">
                 <div className="flex-1">
                   <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ פתיחה</label>
@@ -121,7 +140,6 @@ function DayCard({ day, onUpdate }) {
                 </div>
               </div>
 
-              {/* Breaks */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
@@ -163,13 +181,139 @@ function DayCard({ day, onUpdate }) {
   );
 }
 
+function SlotReleaseForm({ barbers, onPublish, disabled }) {
+  const [date, setDate] = useState(todayStr());
+  const [barberId, setBarberId] = useState(barbers[0]?.id || '');
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('18:00');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    if (barbers.length > 0 && !barberId) setBarberId(barbers[0].id);
+  }, [barbers, barberId]);
+
+  const handlePublish = () => {
+    if (!date || !barberId || !startTime || !endTime) return;
+    onPublish({ date, barberId, startTime, endTime, note });
+    setNote('');
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 תאריך</label>
+          <input
+            type="date"
+            value={date}
+            min={todayStr()}
+            onChange={e => setDate(e.target.value)}
+            className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+          />
+        </div>
+        {barbers.length > 1 && (
+          <div>
+            <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">✂️ ספר</label>
+            <select
+              value={barberId}
+              onChange={e => setBarberId(e.target.value)}
+              className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
+            >
+              {barbers.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ משעה</label>
+          <TimeSelect value={startTime} onChange={setStartTime} />
+        </div>
+        <div className="text-muted-foreground mt-5">—</div>
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ עד שעה</label>
+          <TimeSelect value={endTime} onChange={setEndTime} />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📝 הערה (אופציונלי)</label>
+        <input
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="למשל: חזרתי מחופשה!"
+          className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary"
+          dir="rtl"
+        />
+      </div>
+
+      <GoldButton
+        onClick={handlePublish}
+        disabled={disabled || !date || !barberId || !startTime || !endTime || startTime >= endTime}
+        className="w-full"
+        size="sm"
+      >
+        <Unlock className="w-4 h-4 ml-1" /> פרסם שעות פנויות
+      </GoldButton>
+    </div>
+  );
+}
+
+function SlotReleaseList({ releases, barbers, onCancel, cancellingId }) {
+  const barberName = (id) => barbers.find(b => b.id === id)?.name || id;
+
+  if (releases.length === 0) {
+    return (
+      <p className="text-muted-foreground/60 text-xs text-center py-3">אין שעות מפורסמות</p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {releases.map((r) => (
+        <div key={r.id} className="flex items-center gap-3 glass rounded-xl px-3 py-2.5">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-foreground">
+              {formatDate(r.date)}
+              {barbers.length > 1 && <span className="text-muted-foreground font-normal"> · {barberName(r.barberId)}</span>}
+            </div>
+            <div className="text-xs text-primary mt-0.5">
+              {formatTime(r.startTime)} – {formatTime(r.endTime)}
+              {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+            </div>
+          </div>
+          <button
+            onClick={() => onCancel(r.id)}
+            disabled={cancellingId === r.id}
+            className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminHours() {
   const navigate = useNavigate();
   const [days, setDays] = useState(DEFAULT_DAYS);
   const [appointmentBufferMinutes, setAppointmentBufferMinutes] = useState(0);
   const [slotInterval, setSlotInterval] = useState(10);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(30);
+  const [availabilityMode, setAvailabilityMode] = useState('automatic');
+  const [cancellingId, setCancellingId] = useState(null);
+
   const { settings, error: settingsError } = useBookingSettingsRealtime();
+  const { data: allBarbers } = useAllBarbersRealtime();
+  const activeBarbers = useMemo(
+    () => allBarbers.filter(b => b.is_active && !b.archived),
+    [allBarbers],
+  );
+  const { data: upcomingReleases } = useUpcomingBookingSlotReleasesRealtime(todayStr());
 
   useEffect(() => {
     if (!settings) return;
@@ -185,6 +329,7 @@ export default function AdminHours() {
     );
     setVisibleSlotIntervalMinutes(settings.visibleSlotIntervalMinutes);
     setSlotInterval(settings.slotInterval);
+    setAvailabilityMode(settings.availabilityMode || 'automatic');
   }, [settings]);
 
   const saveMutation = useMutation({
@@ -199,6 +344,7 @@ export default function AdminHours() {
       defaultAppointmentBufferAfterMinutes: appointmentBufferMinutes,
       visibleSlotIntervalMinutes,
       slotInterval,
+      availabilityMode,
     }),
     onSuccess: () => {
       toast({ title: 'נשמר בהצלחה', description: 'ימי העבודה והזמינות עודכנו בזמן אמת.' });
@@ -210,11 +356,36 @@ export default function AdminHours() {
     }),
   });
 
+  const publishMutation = useMutation({
+    mutationFn: (input) => publishBookingSlotRelease(input),
+    onSuccess: () => {
+      toast({ title: 'שעות פורסמו', description: 'הלקוחות יוכלו לקבוע תורים בחלון הזמן שנבחר.' });
+    },
+    onError: (error) => toast({
+      variant: 'destructive',
+      title: 'פרסום השעות נכשל',
+      description: getUserFacingErrorMessage(error),
+    }),
+  });
+
+  const handleCancelRelease = async (id) => {
+    setCancellingId(id);
+    try {
+      await cancelBookingSlotRelease(id);
+      toast({ title: 'השעות בוטלו' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'ביטול נכשל', description: getUserFacingErrorMessage(error) });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const updateDay = (updated) => {
     setDays(prev => prev.map(d => d.day_of_week === updated.day_of_week ? updated : d));
   };
 
   const openDays = days.filter(d => d.is_open).length;
+  const isManual = availabilityMode === 'manual';
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -229,16 +400,84 @@ export default function AdminHours() {
       </div>
 
       <div className="px-4 py-4 space-y-3">
-        <div className="glass-gold rounded-2xl p-3 flex items-center gap-2 text-xs text-muted-foreground mb-2">
-          <Clock className="w-4 h-4 text-primary flex-shrink-0" />
-          <span>לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים</span>
-        </div>
-
         {settingsError && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
+
+        {/* ── Availability mode toggle ── */}
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h2 className="text-sm font-black text-foreground">מצב פתיחת תורים</h2>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setAvailabilityMode('automatic')}
+              className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                !isManual ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+              }`}
+            >
+              <Unlock className="w-4 h-4" />
+              אוטומטי
+            </button>
+            <button
+              onClick={() => setAvailabilityMode('manual')}
+              className={`flex flex-col items-center gap-1.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                isManual ? 'gold-gradient text-black' : 'glass text-muted-foreground'
+              }`}
+            >
+              <Lock className="w-4 h-4" />
+              ידני
+            </button>
+          </div>
+          <p className="text-muted-foreground/70 text-xs">
+            {isManual
+              ? 'בפתיחה ידנית, הלקוחות רואים רק שעות שאתה משחרר במפורש.'
+              : 'בפתיחה אוטומטית, כל שעות העסק הפנויות מוצגות ללקוחות.'}
+          </p>
+        </div>
+
+        {/* ── Manual slot release panel ── */}
+        <AnimatePresence>
+          {isManual && (
+            <motion.div
+              key="manual-panel"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="glass-gold rounded-2xl p-4 space-y-4">
+                <h3 className="text-sm font-black text-foreground flex items-center gap-2">
+                  <Unlock className="w-4 h-4 text-primary" /> שחרור שעות
+                </h3>
+                {activeBarbers.length === 0 ? (
+                  <p className="text-muted-foreground/60 text-xs">אין ספרים פעילים</p>
+                ) : (
+                  <SlotReleaseForm
+                    barbers={activeBarbers}
+                    onPublish={(input) => publishMutation.mutate(input)}
+                    disabled={publishMutation.isPending}
+                  />
+                )}
+              </div>
+
+              <div className="glass rounded-2xl p-4 mt-3">
+                <h3 className="text-sm font-black text-foreground mb-3">שעות מפורסמות</h3>
+                <SlotReleaseList
+                  releases={upcomingReleases}
+                  barbers={activeBarbers}
+                  onCancel={handleCancelRelease}
+                  cancellingId={cancellingId}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="glass-gold rounded-2xl p-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock className="w-4 h-4 text-primary flex-shrink-0" />
+          <span>לחץ על החץ בכל יום לעריכה מלאה של שעות, הפסקות ומרווחי תורים</span>
+        </div>
 
         <div className="glass rounded-2xl p-4 space-y-4">
           <div>

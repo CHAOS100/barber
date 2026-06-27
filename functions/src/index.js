@@ -20,6 +20,7 @@ import {
   buildPushJobForCancellation,
   buildPushJobForWaitlistMatch,
   buildPushJobForProfileStatus,
+  buildPushJobForSlotsReleased,
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
@@ -891,5 +892,101 @@ export const sendAdminCustomerMessage = onCall(
       failedCount: pushSummary?.jobsFailed || 0,
       messageBatchId,
     };
+  },
+);
+
+// ── Slot release → notify waiting list customers ──────────────────────────────
+//
+// Fires when admin publishes a new bookingSlotRelease document.
+// Finds all active waiting-list entries for that date, creates an inbox
+// notification and an immediate push for each affected customer.
+
+export const notifyWaitingListForSlotsReleased = onDocumentCreated(
+  'bookingSlotReleases/{releaseId}',
+  async (event) => {
+    const release = event.data?.data();
+    const releaseId = event.params.releaseId;
+    if (!release || release.status !== 'active' || !release.date) return;
+
+    const firestore = getFirestore();
+    const now = new Date();
+
+    pushDebug('slot release trigger fired', {
+      releaseId,
+      date: release.date,
+      barberId: release.barberId || null,
+      startTime: release.startTime || null,
+      endTime: release.endTime || null,
+    });
+
+    const snapshot = await firestore
+      .collection('waitingList')
+      .where('date', '==', release.date)
+      .get();
+
+    const matchingEntries = snapshot.docs
+      .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
+      .filter((entry) => ['active', 'notified'].includes(entry.status) && entry.customerId);
+
+    pushDebug('slot release waiting list matches', {
+      releaseId,
+      date: release.date,
+      totalEntries: snapshot.size,
+      matchingCount: matchingEntries.length,
+    });
+
+    if (matchingEntries.length === 0) return;
+
+    const batch = firestore.batch();
+    const pushJobs = [];
+
+    matchingEntries.forEach((entry) => {
+      const notificationRef = firestore
+        .collection('customerNotifications')
+        .doc(entry.customerId)
+        .collection('notifications')
+        .doc(`slots_released_${releaseId}_${entry.id}`);
+
+      batch.set(notificationRef, {
+        type: 'slots_released',
+        severity: 'success',
+        title: '🗓️ שעות חדשות נפתחו!',
+        message: `שעות הזמנה חדשות נפתחו ב-OST BARBER לתאריך ${release.date} בין ${release.startTime} ל-${release.endTime}. היכנס לאפליקציה לבחור שעה.`,
+        targetType: 'single_customer',
+        targetCustomerId: entry.customerId,
+        targetPhone: entry.phoneNumber || null,
+        status: 'unread',
+        source: 'slot_release',
+        date: release.date,
+        barberId: release.barberId || null,
+        releaseId,
+        waitingListId: entry.id,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: null,
+      }, { merge: false });
+
+      pushJobs.push(buildPushJobForSlotsReleased(
+        entry.id,
+        entry.customerId,
+        release.date,
+        releaseId,
+        now,
+      ));
+    });
+
+    await batch.commit();
+
+    if (pushJobs.length > 0) {
+      await notificationJobs.enqueue(pushJobs);
+      const immediateIds = pushJobs
+        .filter((j) => IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+        .map((j) => j.id);
+      if (immediateIds.length > 0) {
+        await processImmediatePushJobs(immediateIds).catch((error) =>
+          logger.warn('slot release immediate push delivery failed (scheduler will retry)', { error: error.message }),
+        );
+      }
+    }
   },
 );

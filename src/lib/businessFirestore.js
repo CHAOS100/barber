@@ -379,6 +379,7 @@ const mapBookingSettings = (data = {}) => {
       Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
     ),
     workingHours: normalizeWorkingHours(data.workingHours),
+    availabilityMode: data.availabilityMode === 'manual' ? 'manual' : 'automatic',
   };
 };
 
@@ -419,6 +420,9 @@ export const saveBookingSettings = async (input) => {
   if (input.workingHours !== undefined) {
     payload.workingHours = normalizeWorkingHours(input.workingHours);
     validateWorkingHours(payload.workingHours);
+  }
+  if (input.availabilityMode !== undefined) {
+    payload.availabilityMode = input.availabilityMode === 'manual' ? 'manual' : 'automatic';
   }
   console.info('[Firestore Settings] saving booking settings', payload);
   await setDoc(doc(getFirestoreDb(), 'settings', 'booking'), {
@@ -626,3 +630,65 @@ export const subscribeToAppointmentBlocks = (date, onData, onError) => onSnapsho
   (snapshot) => onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
   onError,
 );
+
+export const subscribeToBookingSlotReleases = (date, onData, onError) => onSnapshot(
+  query(
+    collection(getFirestoreDb(), 'bookingSlotReleases'),
+    where('date', '==', date),
+  ),
+  (snapshot) => onData(
+    snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .filter((r) => r.status === 'active'),
+  ),
+  onError,
+);
+
+export const subscribeToUpcomingBookingSlotReleases = (fromDate, onData, onError) => onSnapshot(
+  query(
+    collection(getFirestoreDb(), 'bookingSlotReleases'),
+    where('date', '>=', fromDate),
+    where('status', '==', 'active'),
+  ),
+  (snapshot) => onData(
+    snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)),
+  ),
+  onError,
+);
+
+export const publishBookingSlotRelease = async (input) => {
+  await ensureFirebaseAdmin();
+  const date = String(input.date || '').trim();
+  const barberId = String(input.barberId || '').trim();
+  const startTime = String(input.startTime || '').trim();
+  const endTime = String(input.endTime || '').trim();
+  if (!date || !barberId || !startTime || !endTime) {
+    throw Object.assign(
+      new Error('date, barberId, startTime and endTime are required.'),
+      { code: 'slot-release/invalid' },
+    );
+  }
+  const ref = await addDoc(collection(getFirestoreDb(), 'bookingSlotReleases'), {
+    date,
+    barberId,
+    startTime,
+    endTime,
+    note: String(input.note || '').trim(),
+    status: 'active',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  console.info('[Firestore SlotReleases] slot release published', { id: ref.id, date, barberId, startTime, endTime });
+  return ref.id;
+};
+
+export const cancelBookingSlotRelease = async (id) => {
+  await ensureFirebaseAdmin();
+  await updateDoc(doc(getFirestoreDb(), 'bookingSlotReleases', id), {
+    status: 'cancelled',
+    updatedAt: serverTimestamp(),
+  });
+  console.info('[Firestore SlotReleases] slot release cancelled', { id });
+};
