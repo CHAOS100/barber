@@ -24,7 +24,7 @@ import {
   Sparkles,
   Star,
 } from 'lucide-react';
-import { BARBER_PHOTO, BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
+import { BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
 import { DEFAULT_FEATURES } from '@/lib/businessFirestore';
 import { useActiveBarbersRealtime, useActiveServicesRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
@@ -77,8 +77,6 @@ function HomeMessageCard({ msg }) {
     </div>
   );
 }
-
-const COVER_IMAGE = "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=900&q=90";
 
 const AMENITIES = [
   { Icon: Armchair, label: 'שירותים' },
@@ -139,9 +137,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Hero Cover */}
-      <div className="relative h-72 overflow-hidden">
-        <img src={businessSettings?.homeHeroImageUrl || COVER_IMAGE} alt="OST BARBER" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-background" />
+      <div className="relative h-72 overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(147,227,189,0.16),transparent_34%),linear-gradient(135deg,#101713_0%,#050706_65%,#0d1110_100%)]">
+        <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-background" />
+        <div className="absolute inset-x-6 top-16 text-right">
+          <p className="text-primary text-xs font-black tracking-[0.35em] uppercase">OST BARBER</p>
+          <h2 className="mt-3 text-4xl font-black text-white leading-tight">חוויה נקייה<br />בלי תמונות רקע</h2>
+        </div>
         <div className="absolute top-4 left-4">
           <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
             <Share2 className="w-5 h-5 text-white" />
@@ -154,11 +155,9 @@ export default function Home() {
         </div>
         {/* Barber avatar */}
         <div className="absolute bottom-4 left-4">
-          <img
-            src={BARBER_PHOTO}
-            alt="OST Barber"
-            className="w-14 h-14 rounded-full border-2 border-primary object-cover gold-shadow"
-          />
+          <div className="w-14 h-14 rounded-full border-2 border-primary gold-shadow gold-gradient text-black font-black flex items-center justify-center">
+            OST
+          </div>
         </div>
       </div>
 
@@ -453,7 +452,9 @@ export default function Home() {
               <div className="mb-5">
                 <h2 className="text-base font-black mb-3">צוות המקום</h2>
                 <div className="dark-card rounded-2xl p-4 flex items-center gap-4">
-                  <img src={BARBER_PHOTO} alt="OST" className="w-16 h-16 rounded-full object-cover border-2 border-primary" />
+                  <div className="w-16 h-16 rounded-full border-2 border-primary gold-gradient text-black font-black flex items-center justify-center flex-shrink-0">
+                    OST
+                  </div>
                   <div>
                     <div className="font-bold text-foreground">עומרי סימן טוב</div>
                     <div className="text-muted-foreground text-sm">בעלים</div>

@@ -1,7 +1,3 @@
-import barberPhoto from '@/assets/barber-original.jpg';
-
-export const BARBER_PHOTO = barberPhoto;
-
 export const BUSINESS_INFO = {
   name: 'OST BARBER',
   address: 'השומר 55, ראשון לציון',

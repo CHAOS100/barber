@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Phone, ShieldCheck, Lock, Mail, MessageCircle } from 'lucide-react';
 import { clearStoredAdminSession, loginUser } from '../lib/userStore';
-import { BARBER_PHOTO } from '../lib/businessConfig';
 import GoldButton from '../components/ui/GoldButton';
 import GalTechBadge from '@/components/branding/GalTechBadge';
 import {
@@ -512,7 +511,9 @@ export default function OTPLogin() {
         >
           {/* Header */}
           <div className="text-center mb-5 sm:mb-7">
-            <img src={BARBER_PHOTO} alt="OST Barber" className="w-20 h-20 rounded-2xl border-2 border-primary object-cover gold-shadow mx-auto mb-3" />
+            <div className="w-20 h-20 rounded-2xl border-2 border-primary gold-shadow gold-gradient text-black font-black text-xl mx-auto mb-3 flex items-center justify-center">
+              OST
+            </div>
             <h1 className="text-3xl font-black tracking-tight">OST BARBER</h1>
             <p className="text-muted-foreground mt-1">
               {mode === 'admin' ? 'כניסת מנהל' : 'כניסה לחשבון'}

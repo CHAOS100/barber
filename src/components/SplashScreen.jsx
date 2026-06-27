@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BARBER_PHOTO } from '../lib/businessConfig';
 import GalTechBadge from './branding/GalTechBadge';
 
 export default function SplashScreen({ onDone }) {
@@ -33,11 +32,9 @@ export default function SplashScreen({ onDone }) {
             <div className="absolute inset-0 rounded-3xl gold-gradient opacity-20 blur-2xl scale-125" />
             {/* Border ring */}
             <div className="absolute -inset-1 rounded-3xl gold-gradient opacity-60" />
-            <img
-              src={BARBER_PHOTO}
-              alt="OST Barber"
-              className="relative w-28 h-28 rounded-3xl object-cover"
-            />
+            <div className="relative w-28 h-28 rounded-3xl gold-gradient text-black font-black text-3xl flex items-center justify-center">
+              OST
+            </div>
           </motion.div>
 
           {/* Logo text */}

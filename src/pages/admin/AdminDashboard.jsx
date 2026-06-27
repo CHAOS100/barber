@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, TrendingUp, Users, Wallet, Clock, AlertTriangle, Ban, Bell, ChevronLeft, CreditCard, Scissors, BarChart3, Settings, UserRoundCog, Star, Image, Eye, MessageSquareText, ListChecks } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { BARBER_PHOTO } from '../../lib/businessConfig';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import MonthlyComparisonCard from '../../components/admin/MonthlyComparisonCard';
@@ -106,7 +105,9 @@ export default function AdminDashboard() {
       <div className="relative px-4 pt-12 pb-8 overflow-hidden">
         <div className="absolute inset-0 gold-gradient opacity-5" />
         <div className="relative flex items-center gap-4">
-          <img src={BARBER_PHOTO} alt="OST" className="w-14 h-14 rounded-xl object-cover border border-primary" />
+          <div className="w-14 h-14 rounded-xl border border-primary gold-gradient text-black font-black flex items-center justify-center flex-shrink-0">
+            OST
+          </div>
           <div>
             <h1 className="text-2xl font-black">לוח ניהול</h1>
             <p className="text-primary text-sm font-medium">OST BARBER</p>

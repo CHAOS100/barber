@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Bell, Edit3, Image as ImageIcon, MessageCircle, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
+import { ArrowRight, Bell, Edit3, MessageCircle, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { BUSINESS_INFO, BARBER_PHOTO } from '../../lib/businessConfig';
+import { BUSINESS_INFO } from '../../lib/businessConfig';
 import {
   DEFAULT_BOOKING_POLICY_TEXT,
   DEFAULT_BOOKING_POLICY_VERSION,
@@ -10,14 +10,11 @@ import {
   saveBookingSettings,
   saveBusinessSettings,
   saveBusinessFeatures,
-  uploadHeroImage,
 } from '@/lib/businessFirestore';
 import { useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { getUserFacingErrorMessage } from '@/lib/userFacingErrors';
-
-const FALLBACK_HERO = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=900&q=90';
 
 export default function AdminSettings() {
   const navigate = useNavigate();
@@ -33,10 +30,6 @@ export default function AdminSettings() {
   const [editingFeatureIdx, setEditingFeatureIdx] = useState(null);
   const [newFeature, setNewFeature] = useState(null);
   const featuresInitRef = useRef(false);
-
-  // Hero image upload state
-  const [heroUploadProgress, setHeroUploadProgress] = useState(null);
-  const heroImageRef = useRef(null);
 
   const displayedBuffer = bufferMinutes
     ?? bookingSettings?.appointmentBufferMinutes
@@ -90,18 +83,6 @@ export default function AdminSettings() {
     }),
   });
 
-  const heroUploadMutation = useMutation({
-    mutationFn: (file) => uploadHeroImage(file, setHeroUploadProgress),
-    onSuccess: () => {
-      setHeroUploadProgress(null);
-      toast({ title: 'תמונת הכיסוי עודכנה' });
-    },
-    onError: (error) => {
-      setHeroUploadProgress(null);
-      toast({ variant: 'destructive', title: 'העלאת התמונה נכשלה', description: getUserFacingErrorMessage(error) });
-    },
-  });
-
   const saveFeaturesMutation = useMutation({
     mutationFn: () => saveBusinessFeatures(features ?? []),
     onSuccess: () => toast({ title: 'תכונות המספרה נשמרו' }),
@@ -148,58 +129,6 @@ export default function AdminSettings() {
       </div>
 
       <div className="px-4 py-4 space-y-4">
-        {/* Profile Image */}
-        <div className="flex flex-col items-center glass rounded-2xl p-5">
-          <img src={BARBER_PHOTO} alt="OST" className="w-24 h-24 rounded-2xl object-cover border-2 border-primary mb-3" />
-          <button className="glass-gold px-4 py-2 rounded-xl text-primary text-sm font-bold">
-            שנה תמונה
-          </button>
-        </div>
-
-        {/* Hero Cover Image */}
-        <div className="glass rounded-2xl p-4 space-y-3">
-          <h3 className="font-bold flex items-center gap-2">
-            <ImageIcon className="w-4 h-4 text-primary" /> תמונת כיסוי דף הבית
-          </h3>
-          <p className="text-xs text-muted-foreground">מוצגת בראש דף הבית של הלקוח. PNG/JPG/WebP עד 10MB.</p>
-          <div className="rounded-2xl overflow-hidden h-36 bg-secondary relative">
-            <img
-              src={info.homeHeroImageUrl || FALLBACK_HERO}
-              alt="תמונת כיסוי"
-              className="w-full h-full object-cover"
-            />
-            {heroUploadProgress !== null && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
-                <div className="w-32 h-2 bg-white/20 rounded-full overflow-hidden">
-                  <div
-                    className="h-full gold-gradient transition-all duration-200"
-                    style={{ width: `${heroUploadProgress}%` }}
-                  />
-                </div>
-                <span className="text-white text-sm font-bold">{heroUploadProgress}%</span>
-              </div>
-            )}
-          </div>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="hidden"
-            ref={heroImageRef}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) heroUploadMutation.mutate(file);
-              e.target.value = '';
-            }}
-          />
-          <button
-            onClick={() => heroImageRef.current?.click()}
-            disabled={heroUploadMutation.isPending}
-            className="w-full glass py-2.5 rounded-xl text-primary text-sm font-bold press-scale disabled:opacity-50"
-          >
-            {heroUploadMutation.isPending ? `מעלה... ${heroUploadProgress ?? 0}%` : 'בחר תמונה להעלאה'}
-          </button>
-        </div>
-
         {/* Business Details */}
         <div className="glass rounded-2xl p-4 space-y-3">
           <h3 className="font-bold flex items-center gap-2">
