@@ -158,7 +158,7 @@ export default function AdminServices() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onClick={() => setEditModal(null)}
           >
             <motion.div
@@ -166,58 +166,67 @@ export default function AdminServices() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* Fixed header — always visible */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg">{editModal.isNew ? 'שירות חדש' : 'עריכת שירות'}</h3>
-                <button onClick={() => setEditModal(null)} className="glass p-2 rounded-xl">
+                <button onClick={() => setEditModal(null)} className="glass p-2 rounded-xl press-scale">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="space-y-3">
-                {[
-                  { field: 'name', label: 'שם השירות', placeholder: 'תספורת רגילה', type: 'text' },
-                  { field: 'description', label: 'תיאור', placeholder: 'תיאור קצר...', type: 'text' },
-                  { field: 'price', label: 'מחיר (₪)', placeholder: '60', type: 'number' },
-                  { field: 'duration', label: 'משך (דקות)', placeholder: '30', type: 'number' },
-                  { field: 'category', label: 'קטגוריה', placeholder: 'תספורת', type: 'text' },
-                ].map(({ field, label, placeholder, type }) => (
-                  <div key={field}>
-                    <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
-                    <input
-                      type={type}
-                      value={form[field] || ''}
-                      onChange={e => setForm(prev => ({ ...prev, [field]: e.target.value }))}
-                      placeholder={placeholder}
-                      className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right focus:outline-none focus:border-primary text-sm"
-                      dir="rtl"
-                    />
+
+              {/* Scrollable form body */}
+              <div className="modal-scroll-body px-5">
+                <div className="space-y-3 pb-1">
+                  {[
+                    { field: 'name', label: 'שם השירות', placeholder: 'תספורת רגילה', type: 'text' },
+                    { field: 'description', label: 'תיאור', placeholder: 'תיאור קצר...', type: 'text' },
+                    { field: 'price', label: 'מחיר (₪)', placeholder: '60', type: 'number' },
+                    { field: 'duration', label: 'משך (דקות)', placeholder: '30', type: 'number' },
+                    { field: 'category', label: 'קטגוריה', placeholder: 'תספורת', type: 'text' },
+                  ].map(({ field, label, placeholder, type }) => (
+                    <div key={field}>
+                      <label className="text-xs text-muted-foreground mb-1 block">{label}</label>
+                      <input
+                        type={type}
+                        value={form[field] || ''}
+                        onChange={e => setForm(prev => ({ ...prev, [field]: e.target.value }))}
+                        placeholder={placeholder}
+                        className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right focus:outline-none focus:border-primary text-sm"
+                        dir="rtl"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">שירות פעיל</span>
+                    <button
+                      onClick={() => setForm(prev => ({ ...prev, is_active: !prev.is_active }))}
+                      className={`w-12 h-6 rounded-full transition-all duration-200 relative ${form.is_active ? 'gold-gradient' : 'bg-secondary'}`}
+                    >
+                      <div className={`w-5 h-5 bg-white rounded-full shadow absolute top-0.5 transition-all duration-200 ${form.is_active ? 'right-0.5' : 'left-0.5'}`} />
+                    </button>
                   </div>
-                ))}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">שירות פעיל</span>
-                  <button
-                    onClick={() => setForm(prev => ({ ...prev, is_active: !prev.is_active }))}
-                    className={`w-12 h-6 rounded-full transition-all duration-200 relative ${form.is_active ? 'gold-gradient' : 'bg-secondary'}`}
-                  >
-                    <div className={`w-5 h-5 bg-white rounded-full shadow absolute top-0.5 transition-all duration-200 ${form.is_active ? 'right-0.5' : 'left-0.5'}`} />
-                  </button>
+                  {(validationError || saveMutation.error) && (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                      {validationError || getUserFacingErrorMessage(saveMutation.error)}
+                    </div>
+                  )}
                 </div>
               </div>
-              {(validationError || saveMutation.error) && (
-                <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-                  {validationError || getUserFacingErrorMessage(saveMutation.error)}
-                </div>
-              )}
-              <GoldButton
-                onClick={handleSave}
-                disabled={saveMutation.isPending}
-                size="lg"
-                className="w-full mt-4"
-              >
-                {saveMutation.isPending ? 'שומר...' : editModal.isNew ? 'צור שירות' : 'שמור שינויים'}
-              </GoldButton>
+
+              {/* Save button always pinned at bottom */}
+              <div className="modal-actions px-5">
+                <GoldButton
+                  onClick={handleSave}
+                  disabled={saveMutation.isPending}
+                  size="lg"
+                  className="w-full"
+                >
+                  {saveMutation.isPending ? 'שומר...' : editModal.isNew ? 'צור שירות' : 'שמור שינויים'}
+                </GoldButton>
+              </div>
             </motion.div>
           </motion.div>
         )}

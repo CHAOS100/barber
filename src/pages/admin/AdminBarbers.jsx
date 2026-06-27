@@ -168,7 +168,7 @@ export default function AdminBarbers() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onClick={() => setEditing(null)}
           >
             <motion.div
@@ -176,72 +176,81 @@ export default function AdminBarbers() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
               onClick={event => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* Fixed header — always visible */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg">{editing.isNew ? 'ספר חדש' : 'עריכת ספר'}</h3>
-                <button onClick={() => setEditing(null)} className="glass p-2 rounded-xl"><X className="w-4 h-4" /></button>
+                <button onClick={() => setEditing(null)} className="glass p-2 rounded-xl press-scale"><X className="w-4 h-4" /></button>
               </div>
-              <div className="space-y-3">
-                {/* Photo upload */}
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-border bg-secondary flex items-center justify-center">
-                    {(photoPreview || form.photo_url) ? (
-                      <img
-                        src={photoPreview || form.photo_url}
-                        alt="תמונת ספר"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-8 h-8 text-primary" />
+
+              {/* Scrollable form body */}
+              <div className="modal-scroll-body px-5">
+                <div className="space-y-3 pb-1">
+                  {/* Photo upload */}
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-border bg-secondary flex items-center justify-center">
+                      {(photoPreview || form.photo_url) ? (
+                        <img
+                          src={photoPreview || form.photo_url}
+                          alt="תמונת ספר"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-8 h-8 text-primary" />
+                      )}
+                    </div>
+                    <AdminImageUploadButton
+                      context="barber-photo"
+                      disabled={photoUploading}
+                      isUploading={photoUploading}
+                      loadingLabel={`מעלה תמונה... ${photoProgress}%`}
+                      accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                      label={photoFile ? photoFile.name : 'בחר תמונת ספר'}
+                      description="JPG, PNG, WEBP או HEIC עד 8MB"
+                      onFileSelected={handlePhotoSelect}
+                      className="w-full"
+                    />
+                    {photoFile && (
+                      <p className="text-xs text-primary text-center">{photoFile.name}</p>
+                    )}
+                    {photoUploading && (
+                      <div className="w-full bg-secondary rounded-full h-1.5">
+                        <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${photoProgress}%` }} />
+                      </div>
                     )}
                   </div>
-                  <AdminImageUploadButton
-                    context="barber-photo"
-                    disabled={photoUploading}
-                    isUploading={photoUploading}
-                    loadingLabel={`מעלה תמונה... ${photoProgress}%`}
-                    accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
-                    label={photoFile ? photoFile.name : 'בחר תמונת ספר'}
-                    description="JPG, PNG, WEBP או HEIC עד 8MB"
-                    onFileSelected={handlePhotoSelect}
-                    className="w-full"
-                  />
-                  {photoFile && (
-                    <p className="text-xs text-primary text-center">{photoFile.name}</p>
-                  )}
-                  {photoUploading && (
-                    <div className="w-full bg-secondary rounded-full h-1.5">
-                      <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${photoProgress}%` }} />
-                    </div>
-                  )}
+                  <label className="block text-xs text-muted-foreground">שם
+                    <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">כתובת תמונה (URL, אופציונלי)
+                    <input value={form.photo_url || ''} onChange={e => setForm({ ...form, photo_url: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://..." />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Instagram className="w-3.5 h-3.5" /> אינסטגרם (URL, אופציונלי)</span>
+                    <input value={form.instagramUrl || ''} onChange={e => setForm({ ...form, instagramUrl: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://www.instagram.com/ost.cuts?igsh=bWlmdXN5NzNvaTc4" />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">התמחויות, מופרדות בפסיק
+                    <input value={form.specialties} onChange={e => setForm({ ...form, specialties: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
+                  </label>
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm">פעיל ומוצג ללקוחות</span>
+                    <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked, archived: false })} className="accent-primary w-5 h-5" />
+                  </label>
                 </div>
-                <label className="block text-xs text-muted-foreground">שם
-                  <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
-                </label>
-                <label className="block text-xs text-muted-foreground">כתובת תמונה (URL, אופציונלי)
-                  <input value={form.photo_url || ''} onChange={e => setForm({ ...form, photo_url: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://..." />
-                </label>
-                <label className="block text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Instagram className="w-3.5 h-3.5" /> אינסטגרם (URL, אופציונלי)</span>
-                  <input value={form.instagramUrl || ''} onChange={e => setForm({ ...form, instagramUrl: e.target.value })} dir="ltr" className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" placeholder="https://www.instagram.com/ost.cuts?igsh=bWlmdXN5NzNvaTc4" />
-                </label>
-                <label className="block text-xs text-muted-foreground">התמחויות, מופרדות בפסיק
-                  <input value={form.specialties} onChange={e => setForm({ ...form, specialties: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
-                </label>
-                <label className="flex items-center justify-between">
-                  <span className="text-sm">פעיל ומוצג ללקוחות</span>
-                  <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked, archived: false })} className="accent-primary w-5 h-5" />
-                </label>
               </div>
-              <GoldButton
-                onClick={handleSaveWithPhoto}
-                disabled={photoUploading || !form.name.trim()}
-                className="w-full mt-5"
-              >
-                {photoUploading ? `מעלה תמונה... ${photoProgress}%` : 'שמור'}
-              </GoldButton>
+
+              {/* Save button always pinned at bottom */}
+              <div className="modal-actions px-5">
+                <GoldButton
+                  onClick={handleSaveWithPhoto}
+                  disabled={photoUploading || !form.name.trim()}
+                  className="w-full"
+                >
+                  {photoUploading ? `מעלה תמונה... ${photoProgress}%` : 'שמור'}
+                </GoldButton>
+              </div>
             </motion.div>
           </motion.div>
         )}

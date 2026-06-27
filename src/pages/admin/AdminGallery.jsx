@@ -248,7 +248,7 @@ export default function AdminGallery() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onClick={closeEditor}
           >
             <motion.div
@@ -256,150 +256,157 @@ export default function AdminGallery() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-md overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* Fixed header — always visible */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg">{editing.id ? 'עריכת תמונה' : 'הוספת תמונה'}</h3>
-                <button onClick={closeEditor} className="glass p-2 rounded-xl">
+                <button onClick={closeEditor} className="glass p-2 rounded-xl press-scale">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {previewUrl && (
-                <img src={previewUrl} alt="תצוגה מקדימה" className="w-full h-44 object-cover rounded-2xl mb-4" />
-              )}
+              {/* Scrollable form body */}
+              <div className="modal-scroll-body px-5">
+                <div className="space-y-3 pb-1">
+                  {previewUrl && (
+                    <img src={previewUrl} alt="תצוגה מקדימה" className="w-full h-44 object-cover rounded-2xl" />
+                  )}
 
-              <div className="space-y-3">
-                <AdminImageUploadButton
-                  context="gallery-file"
-                  disabled={saveMutation.isPending}
-                  label={file ? file.name : 'בחר תמונה מהמכשיר'}
-                  description="JPG, PNG או WEBP עד 10MB"
-                  onFileSelected={handleFileSelected}
-                />
+                  <AdminImageUploadButton
+                    context="gallery-file"
+                    disabled={saveMutation.isPending}
+                    label={file ? file.name : 'בחר תמונה מהמכשיר'}
+                    description="JPG, PNG או WEBP עד 10MB"
+                    onFileSelected={handleFileSelected}
+                  />
 
-                <AdminCameraUploadButton
-                  context="gallery-camera"
-                  disabled={saveMutation.isPending}
-                  label="צלם תמונה במצלמה"
-                  description="פתיחת המצלמה במכשירים תומכים"
-                  onFileSelected={handleFileSelected}
-                />
+                  <AdminCameraUploadButton
+                    context="gallery-camera"
+                    disabled={saveMutation.isPending}
+                    label="צלם תמונה במצלמה"
+                    description="פתיחת המצלמה במכשירים תומכים"
+                    onFileSelected={handleFileSelected}
+                  />
 
-                {(saveMutation.isPending && file) && (
-                  <div className="rounded-xl bg-secondary p-3">
-                    <div className="flex items-center justify-between text-xs mb-2">
-                      <span className="text-muted-foreground">מעלה תמונה</span>
-                      <span className="font-bold text-primary">{uploadProgress}%</span>
+                  {(saveMutation.isPending && file) && (
+                    <div className="rounded-xl bg-secondary p-3">
+                      <div className="flex items-center justify-between text-xs mb-2">
+                        <span className="text-muted-foreground">מעלה תמונה</span>
+                        <span className="font-bold text-primary">{uploadProgress}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-background overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all duration-200"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2 rounded-full bg-background overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all duration-200"
-                        style={{ width: `${uploadProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
+                  )}
 
-                {uploadError && (
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center">
-                    <p className="text-red-400 text-sm font-bold">{uploadError}</p>
-                    {canSave && !saveMutation.isPending && (
-                      <button
-                        type="button"
-                        onClick={() => saveMutation.mutate()}
-                        className="mt-2 text-primary text-sm font-bold"
+                  {uploadError && (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center">
+                      <p className="text-red-400 text-sm font-bold">{uploadError}</p>
+                      {canSave && !saveMutation.isPending && (
+                        <button
+                          type="button"
+                          onClick={() => saveMutation.mutate()}
+                          className="mt-2 text-primary text-sm font-bold"
+                        >
+                          נסה שוב
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <label className="block text-xs text-muted-foreground">
+                    או כתובת תמונה
+                    <input
+                      value={form.imageUrl}
+                      onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
+                      placeholder="https://..."
+                      dir="ltr"
+                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    כותרת
+                    <input
+                      value={form.title}
+                      onChange={(event) => setForm({ ...form, title: event.target.value })}
+                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    תיאור
+                    <textarea
+                      value={form.description}
+                      onChange={(event) => setForm({ ...form, description: event.target.value })}
+                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm h-20 resize-none"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    קטגוריה
+                    <select
+                      value={form.category}
+                      onChange={(event) => setForm({ ...form, category: event.target.value, serviceId: '', barberId: '' })}
+                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
+                    >
+                      {CATEGORIES.map((category) => (
+                        <option key={category.key} value={category.key}>{category.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {form.category === 'service' && (
+                    <label className="block text-xs text-muted-foreground">
+                      שירות משויך
+                      <select
+                        value={form.serviceId}
+                        onChange={(event) => setForm({ ...form, serviceId: event.target.value })}
+                        className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
                       >
-                        נסה שוב
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <label className="block text-xs text-muted-foreground">
-                  או כתובת תמונה
-                  <input
-                    value={form.imageUrl}
-                    onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
-                    placeholder="https://..."
-                    dir="ltr"
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
-                  />
-                </label>
-                <label className="block text-xs text-muted-foreground">
-                  כותרת
-                  <input
-                    value={form.title}
-                    onChange={(event) => setForm({ ...form, title: event.target.value })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
-                  />
-                </label>
-                <label className="block text-xs text-muted-foreground">
-                  תיאור
-                  <textarea
-                    value={form.description}
-                    onChange={(event) => setForm({ ...form, description: event.target.value })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm h-20 resize-none"
-                  />
-                </label>
-                <label className="block text-xs text-muted-foreground">
-                  קטגוריה
-                  <select
-                    value={form.category}
-                    onChange={(event) => setForm({ ...form, category: event.target.value, serviceId: '', barberId: '' })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
-                  >
-                    {CATEGORIES.map((category) => (
-                      <option key={category.key} value={category.key}>{category.label}</option>
-                    ))}
-                  </select>
-                </label>
-                {form.category === 'service' && (
-                  <label className="block text-xs text-muted-foreground">
-                    שירות משויך
-                    <select
-                      value={form.serviceId}
-                      onChange={(event) => setForm({ ...form, serviceId: event.target.value })}
-                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
-                    >
-                      <option value="">ללא שיוך</option>
-                      {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
-                    </select>
+                        <option value="">ללא שיוך</option>
+                        {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {form.category === 'barber' && (
+                    <label className="block text-xs text-muted-foreground">
+                      ספר משויך
+                      <select
+                        value={form.barberId}
+                        onChange={(event) => setForm({ ...form, barberId: event.target.value })}
+                        className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
+                      >
+                        <option value="">ללא שיוך</option>
+                        {barbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <label className="flex items-center justify-between text-sm">
+                    <span>מוצג ללקוחות</span>
+                    <input
+                      type="checkbox"
+                      checked={form.active}
+                      onChange={(event) => setForm({ ...form, active: event.target.checked })}
+                      className="accent-primary w-5 h-5"
+                    />
                   </label>
-                )}
-                {form.category === 'barber' && (
-                  <label className="block text-xs text-muted-foreground">
-                    ספר משויך
-                    <select
-                      value={form.barberId}
-                      onChange={(event) => setForm({ ...form, barberId: event.target.value })}
-                      className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm"
-                    >
-                      <option value="">ללא שיוך</option>
-                      {barbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}
-                    </select>
-                  </label>
-                )}
-                <label className="flex items-center justify-between text-sm">
-                  <span>מוצג ללקוחות</span>
-                  <input
-                    type="checkbox"
-                    checked={form.active}
-                    onChange={(event) => setForm({ ...form, active: event.target.checked })}
-                    className="accent-primary w-5 h-5"
-                  />
-                </label>
+                </div>
               </div>
 
-              <GoldButton
-                onClick={() => saveMutation.mutate()}
-                size="lg"
-                className="w-full mt-5"
-                disabled={!canSave || saveMutation.isPending}
-              >
-                {saveButtonText}
-              </GoldButton>
+              {/* Save button always pinned at bottom */}
+              <div className="modal-actions px-5">
+                <GoldButton
+                  onClick={() => saveMutation.mutate()}
+                  size="lg"
+                  className="w-full"
+                  disabled={!canSave || saveMutation.isPending}
+                >
+                  {saveButtonText}
+                </GoldButton>
+              </div>
             </motion.div>
           </motion.div>
         )}

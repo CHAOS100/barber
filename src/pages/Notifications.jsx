@@ -306,7 +306,7 @@ export default function Notifications() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center backdrop-blur-md"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center backdrop-blur-md"
             onClick={() => setSelectedMessage(null)}
           >
             <motion.div
@@ -314,10 +314,11 @@ export default function Notifications() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 18, scale: 0.96 }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-start justify-between gap-3 mb-4">
+              {/* Fixed header — always visible */}
+              <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 flex-shrink-0">
                 <MessageIcon message={selectedMessage} />
                 <button
                   type="button"
@@ -328,51 +329,58 @@ export default function Notifications() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <h2 className="text-xl font-black leading-tight">{safeText(selectedMessage.title, 'הודעה')}</h2>
-              {selectedMessage.createdAt && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {selectedMessage.createdAt.toDate?.()?.toLocaleString('he-IL', {
-                    dateStyle: 'short',
-                    timeStyle: 'short',
-                  }) || ''}
+
+              {/* Scrollable message body */}
+              <div className="modal-scroll-body px-5">
+                <h2 className="text-xl font-black leading-tight">{safeText(selectedMessage.title, 'הודעה')}</h2>
+                {selectedMessage.createdAt && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedMessage.createdAt.toDate?.()?.toLocaleString('he-IL', {
+                      dateStyle: 'short',
+                      timeStyle: 'short',
+                    }) || ''}
+                  </p>
+                )}
+                <p className="mt-4 text-sm text-muted-foreground leading-7 whitespace-pre-line pb-1">
+                  {safeText(selectedMessage.message, 'אין תוכן להצגה')}
                 </p>
-              )}
-              <p className="mt-4 text-sm text-muted-foreground leading-7 whitespace-pre-line">
-                {safeText(selectedMessage.message, 'אין תוכן להצגה')}
-              </p>
 
-              {selectedMessage.isCritical && (
-                <div className="mt-4 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs leading-5 text-yellow-200">
-                  זו התראה חשובה. אפשר לסמן שקראת אותה, אבל היא תישאר זמינה עד שהעסק יסיר או יעדכן את הדרישה.
+                {selectedMessage.isCritical && (
+                  <div className="mt-4 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs leading-5 text-yellow-200">
+                    זו התראה חשובה. אפשר לסמן שקראת אותה, אבל היא תישאר זמינה עד שהעסק יסיר או יעדכן את הדרישה.
+                  </div>
+                )}
+              </div>
+
+              {/* Action buttons always pinned at bottom */}
+              <div className="modal-actions px-5">
+                <div className="grid gap-3">
+                  {canMarkMessageRead(selectedMessage) && (
+                    <button
+                      type="button"
+                      onClick={markSelectedRead}
+                      className="w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale"
+                    >
+                      קראתי
+                    </button>
+                  )}
+                  {selectedMessage.canDismiss && (
+                    <button
+                      type="button"
+                      onClick={dismissSelected}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-black text-muted-foreground press-scale"
+                    >
+                      מחק התראה
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMessage(null)}
+                    className="w-full rounded-2xl border border-primary/20 bg-primary/10 py-3 text-sm font-black text-primary press-scale"
+                  >
+                    סגור
+                  </button>
                 </div>
-              )}
-
-              <div className="mt-5 grid gap-3">
-                {canMarkMessageRead(selectedMessage) && (
-                  <button
-                    type="button"
-                    onClick={markSelectedRead}
-                    className="w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale"
-                  >
-                    קראתי
-                  </button>
-                )}
-                {selectedMessage.canDismiss && (
-                  <button
-                    type="button"
-                    onClick={dismissSelected}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-black text-muted-foreground press-scale"
-                  >
-                    מחק התראה
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMessage(null)}
-                  className="w-full rounded-2xl border border-primary/20 bg-primary/10 py-3 text-sm font-black text-primary press-scale"
-                >
-                  סגור
-                </button>
               </div>
             </motion.div>
           </motion.div>

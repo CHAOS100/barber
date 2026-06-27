@@ -97,14 +97,42 @@ const getCleanErrorMessage = (error) => {
   return getUserFacingErrorMessage(error);
 };
 
-function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loading }) {
+function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loading, sendError }) {
+  const justOpenedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    console.log('[ADMIN_MESSAGES_DEBUG] modal mounted');
+    const timer = setTimeout(() => {
+      justOpenedRef.current = false;
+      console.log('[ADMIN_MESSAGES_DEBUG] open guard cleared — backdrop clicks now active');
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      console.log('[ADMIN_MESSAGES_DEBUG] modal unmounted');
+    };
+  }, []);
+
+  const handleBackdropClick = () => {
+    if (justOpenedRef.current) {
+      console.log('[ADMIN_MESSAGES_DEBUG] close blocked: phantom click within 350ms of open');
+      return;
+    }
+    console.log('[ADMIN_MESSAGES_DEBUG] close reason: backdrop');
+    onClose();
+  };
+
+  const handleCloseButton = () => {
+    console.log('[ADMIN_MESSAGES_DEBUG] close reason: close-button');
+    onClose();
+  };
+
   const selectedTarget = TARGET_OPTIONS.find((option) => option.value === form.targetType);
   const TargetIcon = selectedTarget?.Icon || Users;
 
   return (
     <div
-      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center backdrop-blur-md"
-      onClick={onClose}
+      className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center backdrop-blur-md"
+      onClick={handleBackdropClick}
       dir="rtl"
     >
       <div
@@ -122,7 +150,7 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
               ההודעה תופיע בתוך האפליקציה אצל הלקוחות שנבחרו.
             </p>
           </div>
-          <button type="button" onClick={onClose} className="glass p-2 rounded-xl press-scale flex-shrink-0 mt-1">
+          <button type="button" onClick={handleCloseButton} className="glass p-2 rounded-xl press-scale flex-shrink-0 mt-1">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -256,6 +284,11 @@ function AdminMessageModal({ customers, form, setForm, onClose, onSubmit, loadin
 
           {/* Submit button always pinned at bottom */}
           <div className="modal-actions px-5">
+            {sendError && (
+              <div className="mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm text-right">
+                {sendError}
+              </div>
+            )}
             <button
               type="submit"
               disabled={loading}
@@ -278,6 +311,7 @@ export default function AdminMessages() {
   const [customerNotifications, setCustomerNotifications] = React.useState([]);
   const [error, setError] = React.useState('');
   const [modalOpen, setModalOpen] = React.useState(false);
+  const [sendError, setSendError] = React.useState('');
   const [form, setForm] = React.useState(INITIAL_FORM);
 
   React.useEffect(() => subscribeToAdminNotificationJobs(
@@ -353,24 +387,32 @@ export default function AdminMessages() {
   const createMessageMutation = useMutation({
     mutationFn: sendAdminCustomerMessage,
     onSuccess: (result) => {
+      console.log('[ADMIN_MESSAGES_DEBUG] submit success', JSON.stringify({ createdCount: result?.createdCount, sentCount: result?.sentCount }));
       toast({
         title: 'ההודעה נשמרה',
         description: `נוצרו ${result.createdCount} הודעות ונשלחו ${result.sentCount || 0} התראות Push.`,
       });
       setForm(INITIAL_FORM);
+      setSendError('');
+      console.log('[ADMIN_MESSAGES_DEBUG] close reason: submit-success');
       setModalOpen(false);
     },
     onError: (mutationError) => {
+      const msg = getCleanErrorMessage(mutationError);
+      console.error('[ADMIN_MESSAGES_DEBUG] submit failed', JSON.stringify({ message: mutationError?.message }));
+      setSendError(msg || 'אירעה שגיאה בשליחת ההודעה');
       toast({
         variant: 'destructive',
         title: 'שליחת ההודעה נכשלה',
-        description: getCleanErrorMessage(mutationError),
+        description: msg,
       });
     },
   });
 
   const submitMessage = (event) => {
     event.preventDefault();
+    console.log('[ADMIN_MESSAGES_DEBUG] submit started', JSON.stringify({ targetType: form.targetType, type: form.type }));
+    setSendError('');
     createMessageMutation.mutate(form);
   };
 
@@ -387,7 +429,11 @@ export default function AdminMessages() {
           </div>
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
+            onClick={() => {
+              console.log('[ADMIN_MESSAGES_DEBUG] open button clicked (header)');
+              setSendError('');
+              setModalOpen(true);
+            }}
             className="rounded-2xl bg-primary px-3 py-2 text-xs font-black text-black press-scale flex items-center gap-1"
           >
             <Plus className="w-4 h-4" />
@@ -403,7 +449,11 @@ export default function AdminMessages() {
 
         <button
           type="button"
-          onClick={() => setModalOpen(true)}
+          onClick={() => {
+            console.log('[ADMIN_MESSAGES_DEBUG] open button clicked (card)');
+            setSendError('');
+            setModalOpen(true);
+          }}
           className="w-full rounded-3xl border border-primary/25 bg-primary/10 p-4 text-right press-scale"
         >
           <div className="flex items-center gap-3">
@@ -566,9 +616,13 @@ export default function AdminMessages() {
           customers={customers}
           form={form}
           setForm={setForm}
-          onClose={() => setModalOpen(false)}
+          onClose={() => {
+            setSendError('');
+            setModalOpen(false);
+          }}
           onSubmit={submitMessage}
           loading={createMessageMutation.isPending}
+          sendError={sendError}
         />
       )}
     </div>
