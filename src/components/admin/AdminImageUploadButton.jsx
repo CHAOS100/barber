@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useId } from 'react';
 import { Camera, Upload } from 'lucide-react';
-import { PICKER_INPUT_STYLE, triggerFilePicker } from '@/lib/imagePicker';
+import { PICKER_INPUT_STYLE } from '@/lib/imagePicker';
 
 const DEFAULT_ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp';
 
@@ -17,15 +17,9 @@ export default function AdminImageUploadButton({
   onFileSelected,
   className = '',
 }) {
-  const inputRef = useRef(null);
+  const inputId = useId();
   const isDisabled = disabled || isUploading;
   const displayLabel = isUploading ? loadingLabel : label;
-
-  const handlePointerDown = (event) => {
-    if (isDisabled) return;
-    event.preventDefault();
-    triggerFilePicker(inputRef.current, context);
-  };
 
   const handleChange = (event) => {
     const file = event.target.files?.[0] || null;
@@ -44,11 +38,13 @@ export default function AdminImageUploadButton({
 
   return (
     <div className={`relative ${className}`}>
-      <button
-        type="button"
-        disabled={isDisabled}
-        onPointerDown={handlePointerDown}
-        className="w-full glass rounded-xl p-3 text-center cursor-pointer disabled:opacity-50 press-scale"
+      <label
+        htmlFor={isDisabled ? undefined : inputId}
+        aria-disabled={isDisabled}
+        className={`w-full glass rounded-xl p-3 text-center block select-none ${
+          isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer press-scale'
+        }`}
+        style={isDisabled ? { pointerEvents: 'none' } : undefined}
       >
         {isUploading ? (
           <div className="w-5 h-5 mx-auto mb-1 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -59,9 +55,9 @@ export default function AdminImageUploadButton({
         {description && !isUploading && (
           <span className="block text-xs text-muted-foreground mt-1">{description}</span>
         )}
-      </button>
+      </label>
       <input
-        ref={inputRef}
+        id={inputId}
         type="file"
         accept={accept}
         capture={capture}
