@@ -231,6 +231,20 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
       customerPhonePresent: Boolean(after.customerPhone),
     });
 
+    // [NOTIFICATION_ROUTE_DEBUG] — trace who the notification will be addressed to
+    console.log('[NOTIFICATION_ROUTE_DEBUG]', {
+      event: 'appointment_status_change',
+      appointmentId,
+      appointmentOwnerCustomerId: after.customerId || null,
+      appointmentOwnerPhone: after.customerPhone || null,
+      notificationRecipientCustomerId: after.customerId || null,
+      notificationRecipientPhone: after.customerPhone || null,
+      inboxPath: after.customerId ? `customerNotifications/${after.customerId}/notifications` : null,
+      pushTokenPath: after.customerId ? `users/${after.customerId}/pushTokens` : null,
+      expectedPushJobId: after.status === 'cancelled' ? `${appointmentId}_push_cancelled` : null,
+      afterStatus: after.status || null,
+    });
+
     if (after.status === 'confirmed') {
       // Legacy WhatsApp jobs — only enqueue when explicitly enabled
       if (LEGACY_WHATSAPP_JOBS_ENABLED) {
@@ -471,6 +485,8 @@ const dayPartForTime = (time) => {
 };
 
 const waitingListMatches = (entry, appointment) => {
+  // barberId must match if the entry specifies one
+  if (entry.barberId && entry.barberId !== appointment.barberId) return false;
   if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
   const startTime = appointment.startTime || appointment.time;
   if (entry.preferenceType === 'exact_time') return entry.exactTime === startTime;
@@ -484,20 +500,24 @@ const waitingListMatches = (entry, appointment) => {
 
 const buildWaitingListInAppNotification = (entry, appointment, appointmentId) => {
   const startTime = appointment.startTime || appointment.time || entry.availableStartTime || entry.exactTime || '';
-  const serviceName = appointment.serviceName || appointment.service_name || entry.serviceName || '';
-  const details = [
-    appointment.date ? `תאריך ${appointment.date}` : '',
-    startTime ? `בשעה ${startTime}` : '',
-    serviceName ? `עבור ${serviceName}` : '',
-  ].filter(Boolean).join(' ');
+  const dateStr = appointment.date || entry.date || null;
+
+  console.log('[NOTIFICATION_ROUTE_DEBUG]', {
+    event: 'waiting_list_inbox',
+    waitingListEntryId: entry.id,
+    appointmentId,
+    recipientCustomerId: entry.customerId || null,
+    recipientPhone: entry.phoneNumber || null,
+    inboxPath: entry.customerId ? `customerNotifications/${entry.customerId}/notifications` : null,
+    date: dateStr,
+    startTime,
+  });
 
   return {
     type: 'free_slot',
     severity: 'success',
-    title: 'התפנה תור מתאים',
-    message: details
-      ? `התפנה תור ב־OST BARBER ${details}. היכנס לאפליקציה כדי לקבוע לפני שמישהו אחר יתפוס.`
-      : 'התפנה תור שמתאים לבקשה שלך. היכנס לאפליקציה כדי לבדוק זמינות.',
+    title: 'התפנה תור',
+    message: 'התפנה תור ב־OST BARBER. היכנס עכשיו לשריין מקום.',
     targetType: 'single_customer',
     targetCustomerId: entry.customerId || null,
     targetPhone: entry.phoneNumber || null,
@@ -506,11 +526,11 @@ const buildWaitingListInAppNotification = (entry, appointment, appointmentId) =>
     appointmentId,
     waitingListId: entry.id,
     waitingListEntryId: entry.id,
-    date: appointment.date || entry.date || null,
+    date: dateStr,
     startTime: startTime || null,
     availableStartTime: startTime || null,
     serviceId: appointment.serviceId || entry.serviceId || null,
-    serviceName: serviceName || null,
+    serviceName: appointment.serviceName || appointment.service_name || entry.serviceName || null,
     barberId: appointment.barberId || entry.barberId || null,
     barberName: appointment.barberName || entry.barberName || null,
     createdAt: FieldValue.serverTimestamp(),
@@ -645,9 +665,14 @@ export const notifyWaitingListForFreedAppointment = onDocumentUpdated(
 
     const batch = getFirestore().batch();
     matching.forEach((entry) => {
+      const dateStr = after.date || entry.date || '';
+      const timeStr = after.startTime || '';
+      const jobId = `waiting_list_slot_available_${entry.id}_${dateStr}_${timeStr}`;
       batch.update(getFirestore().doc(`waitingList/${entry.id}`), {
         status: 'notified',
         notifiedAt: FieldValue.serverTimestamp(),
+        notificationJobId: jobId,
+        closedReason: 'slot_available_notified',
         updatedAt: FieldValue.serverTimestamp(),
         availableAppointmentId: appointmentId,
         availableStartTime: after.startTime,

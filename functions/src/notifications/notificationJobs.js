@@ -503,13 +503,30 @@ export const buildPushJobForWaitlistMatch = (
   const dateStr = appointment.date || waitingListEntry.date || '';
   const timeStr = appointment.startTime || '';
 
+  // Deterministic dedup key: same waiting list entry + same date + same time cannot fire twice
+  const dedupId = `waiting_list_slot_available_${waitingListId}_${dateStr}_${timeStr}`;
+
+  console.log('[NOTIFICATION_ROUTE_DEBUG]', {
+    event: 'waiting_list_slot_available',
+    waitingListId,
+    appointmentId,
+    waitingListEntryCustomerId: customerId,
+    waitingListEntryPhone: customerPhone,
+    notificationRecipientCustomerId: customerId,
+    pushJobId: dedupId,
+    inboxPath: customerId ? `customerNotifications/${customerId}/notifications` : null,
+    pushTokenPath: customerId ? `users/${customerId}/pushTokens` : null,
+    date: dateStr,
+    startTime: timeStr,
+  });
+
   return buildPushJob({
-    id: `${waitingListId}_${appointmentId}_push_available`,
+    id: dedupId,
     customerId,
     customerPhone,
     type: 'waiting_list_slot_available',
-    title: '🎉 התפנה תור!',
-    body: `התפנה תור ב-OST BARBER בתאריך ${dateStr} בשעה ${timeStr}. היכנס לאפליקציה לפני שמישהו אחר יתפוס!`,
+    title: 'התפנה תור',
+    body: 'התפנה תור ב־OST BARBER. היכנס עכשיו לשריין מקום.',
     data: { appointmentId, waitingListId, date: dateStr, startTime: timeStr },
     scheduledFor: now,
     createdAt: now,

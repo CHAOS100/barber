@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { timeToMinutes } from '../src/scheduling.js';
 import { generateSlotReleaseDates } from '../src/index.js';
 
-// ─── Slot-in-window logic ─────────────────────────────────────────────────────
-// Mirrors rejectManualModeSlot in appointments.js — update here if it changes.
+// ─── Helpers mirroring server logic ──────────────────────────────────────────
+
+// Mirrors rejectManualModeSlot in appointments.js
 const isSlotInReleaseWindow = (slotTime, releases) => {
   const slotMinutes = timeToMinutes(slotTime);
   return releases.some((r) => {
@@ -21,7 +22,198 @@ const release = (startTime, endTime, barberId = 'barber-1') => ({
   status: 'active',
 });
 
-// ─── Manual booking validation ────────────────────────────────────────────────
+// Mirrors waitingListMatchesAppointment in appointments.js
+const waitingListMatchesAppointment = (entry, appointment) => {
+  if (!['active', 'notified'].includes(entry.status)) return false;
+  if (entry.date !== appointment.date) return false;
+  if (entry.barberId && entry.barberId !== appointment.barberId) return false;
+  if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
+  if (entry.preferenceType === 'exact_time') return entry.exactTime === appointment.startTime;
+  if (entry.preferenceType === 'time_range') {
+    return (!entry.startTime || appointment.startTime >= entry.startTime)
+      && (!entry.endTime || appointment.startTime <= entry.endTime);
+  }
+  if (entry.preferenceType === 'day_part') {
+    const hour = Number(appointment.startTime.split(':')[0]);
+    const part = hour < 12 ? 'morning' : hour < 16 ? 'noon' : 'evening';
+    return entry.dayPart === part;
+  }
+  return entry.preferenceType === 'whole_day';
+};
+
+// Mirrors waitingListMatches in index.js (for freed-appointment trigger)
+const waitingListMatchesTrigger = (entry, appointment) => {
+  if (entry.barberId && entry.barberId !== appointment.barberId) return false;
+  if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
+  const startTime = appointment.startTime || appointment.time;
+  if (entry.preferenceType === 'exact_time') return entry.exactTime === startTime;
+  if (entry.preferenceType === 'time_range') {
+    return (!entry.startTime || startTime >= entry.startTime)
+      && (!entry.endTime || startTime <= entry.endTime);
+  }
+  if (entry.preferenceType === 'day_part') {
+    const hour = Number(startTime.split(':')[0]);
+    const part = hour < 12 ? 'morning' : hour < 16 ? 'noon' : 'evening';
+    return entry.dayPart === part;
+  }
+  return entry.preferenceType === 'whole_day';
+};
+
+// Mirrors buildPushJobForWaitlistMatch dedup key in notificationJobs.js
+const waitlistPushJobId = (waitingListId, date, startTime) =>
+  `waiting_list_slot_available_${waitingListId}_${date}_${startTime}`;
+
+// Mirrors buildPushJobForCancellation job id in notificationJobs.js
+const cancellationPushJobId = (appointmentId) => `${appointmentId}_push_cancelled`;
+
+// Mirrors inbox notification path in index.js
+const inboxPath = (customerId) => `customerNotifications/${customerId}/notifications`;
+
+// ─── PART 1: Appointment cancellation routing ─────────────────────────────────
+
+test('appointment_cancelled push job targets appointment.customerId only', () => {
+  const appointmentId = 'appt-ali';
+  const appointment = { customerId: 'uid-ali', customerPhone: '+972501111111', date: '2099-01-01', startTime: '10:00' };
+  const jobId = cancellationPushJobId(appointmentId);
+  // The push job uses appointment.customerId as customerId — push processor reads users/{customerId}/pushTokens
+  assert.equal(jobId, `${appointmentId}_push_cancelled`);
+  // Recipient must be the appointment owner (Ali), NOT any other customer
+  const recipientCustomerId = appointment.customerId;
+  assert.equal(recipientCustomerId, 'uid-ali');
+  assert.notEqual(recipientCustomerId, 'uid-yadin');
+});
+
+test('appointment_cancelled inbox path uses appointment.customerId', () => {
+  const appointment = { customerId: 'uid-ali' };
+  const path = inboxPath(appointment.customerId);
+  assert.equal(path, 'customerNotifications/uid-ali/notifications');
+  assert.notEqual(path, 'customerNotifications/uid-yadin/notifications');
+});
+
+test('appointment without customerId produces null recipient — push is skipped', () => {
+  const appointment = { customerId: null, customerPhone: '+972501111111' };
+  const recipientCustomerId = appointment.customerId || null;
+  assert.equal(recipientCustomerId, null);
+  // push processor: fetchEnabledTokens(firestore, null) → returns [] → job skipped
+});
+
+// ─── PART 2: Waiting list slot available routing ──────────────────────────────
+
+test('waiting list push goes to waiting list customer, not appointment owner', () => {
+  const wlEntry = { id: 'wl-yadin', customerId: 'uid-yadin', phoneNumber: '+972502222222', date: '2099-01-01', preferenceType: 'whole_day', status: 'active' };
+  const appointment = { customerId: 'uid-ali', date: '2099-01-01', barberId: 'barber-1', serviceId: 'srv-1', startTime: '10:00' };
+  const jobId = waitlistPushJobId(wlEntry.id, appointment.date, appointment.startTime);
+  // Push job customerId = wlEntry.customerId, NOT appointment.customerId
+  assert.equal(wlEntry.customerId, 'uid-yadin');
+  assert.notEqual(wlEntry.customerId, appointment.customerId);
+  // Job ID contains the waiting list entry id, not appointment id
+  assert.ok(jobId.includes(wlEntry.id));
+  assert.ok(!jobId.includes(appointment.customerId));
+});
+
+test('appointment_cancelled push id differs from waiting_list push id', () => {
+  const apptId = 'appt-1';
+  const wlId = 'wl-1';
+  const cancelId = cancellationPushJobId(apptId);
+  const wlJobId = waitlistPushJobId(wlId, '2099-01-01', '10:00');
+  assert.notEqual(cancelId, wlJobId, 'cancellation and waiting list push job IDs must not collide');
+});
+
+test('cancelled appointment owner does NOT receive waiting list message', () => {
+  const appointment = { customerId: 'uid-ali', date: '2099-01-01', barberId: 'barber-1', serviceId: 'srv-1', startTime: '10:00' };
+  // Yadin is waiting, not Ali
+  const wlEntry = { id: 'wl-yadin', customerId: 'uid-yadin', date: '2099-01-01', preferenceType: 'whole_day', status: 'active' };
+  const matches = waitingListMatchesTrigger(wlEntry, appointment);
+  // Yadin matches (whole_day, same date)
+  assert.equal(matches, true);
+  // But waiting list push is addressed to wlEntry.customerId = Yadin, not appointment.customerId = Ali
+  const wlJobCustomer = wlEntry.customerId;
+  assert.notEqual(wlJobCustomer, appointment.customerId);
+});
+
+test('waiting list customer does NOT receive appointment_cancelled message', () => {
+  const appointment = { customerId: 'uid-ali', date: '2099-01-01', startTime: '10:00' };
+  const wlEntry = { customerId: 'uid-yadin' };
+  // appointment_cancelled job id is tied to appointmentId and targets appointment.customerId
+  const cancelJobCustomer = appointment.customerId;
+  const wlJobCustomer = wlEntry.customerId;
+  assert.notEqual(cancelJobCustomer, wlJobCustomer, 'each notification type goes to a different customer');
+});
+
+// ─── PART 2: barberId matching ────────────────────────────────────────────────
+
+test('waiting list matches when barberId in entry matches appointment barberId', () => {
+  const entry = { id: 'wl-1', date: '2099-01-01', barberId: 'barber-1', preferenceType: 'whole_day', status: 'active' };
+  const appt = { date: '2099-01-01', barberId: 'barber-1', serviceId: 'srv-1', startTime: '10:00' };
+  assert.equal(waitingListMatchesTrigger(entry, appt), true);
+});
+
+test('waiting list does NOT match when barberId differs', () => {
+  const entry = { id: 'wl-1', date: '2099-01-01', barberId: 'barber-1', preferenceType: 'whole_day', status: 'active' };
+  const appt = { date: '2099-01-01', barberId: 'barber-2', serviceId: 'srv-1', startTime: '10:00' };
+  assert.equal(waitingListMatchesTrigger(entry, appt), false, 'different barber must not match');
+});
+
+test('waiting list matches when entry has no barberId (any barber)', () => {
+  const entry = { id: 'wl-1', date: '2099-01-01', barberId: null, preferenceType: 'whole_day', status: 'active' };
+  const appt = { date: '2099-01-01', barberId: 'barber-99', serviceId: 'srv-1', startTime: '10:00' };
+  assert.equal(waitingListMatchesTrigger(entry, appt), true, 'null barberId means any barber');
+});
+
+test('appointments.js waitingListMatchesAppointment also checks barberId', () => {
+  const base = { date: '2099-01-01', barberId: 'barber-1', serviceId: 'srv-1', startTime: '10:00' };
+  const entryMatch = { date: '2099-01-01', barberId: 'barber-1', preferenceType: 'whole_day', status: 'active' };
+  const entryNoMatch = { date: '2099-01-01', barberId: 'barber-2', preferenceType: 'whole_day', status: 'active' };
+  assert.equal(waitingListMatchesAppointment(entryMatch, base), true);
+  assert.equal(waitingListMatchesAppointment(entryNoMatch, base), false);
+});
+
+// ─── PART 2: Deduplication ────────────────────────────────────────────────────
+
+test('waitlist push dedup key is deterministic: same entry+date+time = same ID', () => {
+  const id1 = waitlistPushJobId('wl-abc', '2099-01-01', '10:00');
+  const id2 = waitlistPushJobId('wl-abc', '2099-01-01', '10:00');
+  assert.equal(id1, id2, 'same inputs must produce same job ID');
+});
+
+test('different appointments freeing the same slot do NOT produce duplicate push IDs', () => {
+  // Old dedup (appointmentId-based) would differ; new dedup (entryId+date+time) stays the same
+  const id1 = waitlistPushJobId('wl-abc', '2099-01-01', '10:00');
+  const id2 = waitlistPushJobId('wl-abc', '2099-01-01', '10:00');
+  // NotificationJobService.enqueue uses reference.create — second call with same ID is silently skipped
+  assert.equal(id1, id2, 'second cancellation must not generate new push job ID for same entry/slot');
+});
+
+test('different waiting list entries produce different push job IDs', () => {
+  const id1 = waitlistPushJobId('wl-yadin', '2099-01-01', '10:00');
+  const id2 = waitlistPushJobId('wl-eli', '2099-01-01', '10:00');
+  assert.notEqual(id1, id2);
+});
+
+// ─── PART 2: closedReason stored on waiting list entry ───────────────────────
+
+test('waiting list update payload includes notificationJobId and closedReason', () => {
+  const entryId = 'wl-abc';
+  const date = '2099-01-01';
+  const startTime = '10:00';
+  const jobId = waitlistPushJobId(entryId, date, startTime);
+
+  // This mirrors what notifyWaitingListForFreedAppointment writes to waitingList/{entryId}
+  const update = {
+    status: 'notified',
+    notifiedAt: 'server_timestamp',
+    notificationJobId: jobId,
+    closedReason: 'slot_available_notified',
+    updatedAt: 'server_timestamp',
+  };
+
+  assert.equal(update.status, 'notified');
+  assert.equal(update.notificationJobId, jobId);
+  assert.equal(update.closedReason, 'slot_available_notified');
+  assert.ok('notifiedAt' in update);
+});
+
+// ─── PART 3: Manual slot release controls booking ────────────────────────────
 
 test('slot exactly at release start is accepted', () => {
   assert.equal(isSlotInReleaseWindow('09:00', [release('09:00', '17:00')]), true);
@@ -77,8 +269,7 @@ test('mapBookingSettings defaults availabilityMode to automatic', () => {
 
 // ─── Date range generation ────────────────────────────────────────────────────
 
-// Use a future date well past any "today" the tests might run in
-const FUTURE = '2099-01-01'; // always future — safe anchor
+const FUTURE = '2099-01-01';
 
 test('single date: fromDate == toDate generates exactly one date', () => {
   const dates = generateSlotReleaseDates(FUTURE, FUTURE, []);
@@ -92,10 +283,7 @@ test('one-week range generates 7 dates when no day filter', () => {
 });
 
 test('day-of-week filter keeps only matching days', () => {
-  // 2099-01-01 = Thursday (UTC day 4). Week Mon–Sun:
-  // 01=Thu, 02=Fri, 03=Sat, 04=Sun, 05=Mon, 06=Tue, 07=Wed
-  // UTC days: Thu=4, Fri=5, Sat=6, Sun=0, Mon=1, Tue=2, Wed=3
-  const dates = generateSlotReleaseDates('2099-01-01', '2099-01-07', [1, 3]); // Mon(1)+Wed(3)
+  const dates = generateSlotReleaseDates('2099-01-01', '2099-01-07', [1, 3]); // Mon + Wed
   assert.ok(dates.length > 0, 'should have at least one date');
   dates.forEach((d) => {
     const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
@@ -104,7 +292,7 @@ test('day-of-week filter keeps only matching days', () => {
 });
 
 test('empty daysOfWeek array includes all days', () => {
-  const withFilter = generateSlotReleaseDates('2099-01-01', '2099-01-07', [0,1,2,3,4,5,6]);
+  const withFilter = generateSlotReleaseDates('2099-01-01', '2099-01-07', [0, 1, 2, 3, 4, 5, 6]);
   const withoutFilter = generateSlotReleaseDates('2099-01-01', '2099-01-07', []);
   assert.equal(withFilter.length, withoutFilter.length);
 });
@@ -115,7 +303,6 @@ test('invalid range (fromDate > toDate) returns empty array', () => {
 });
 
 test('past dates are excluded from results', () => {
-  // All dates in 2000 are past
   const dates = generateSlotReleaseDates('2000-01-01', '2000-01-07', []);
   assert.equal(dates.length, 0);
 });
@@ -132,53 +319,42 @@ test('returns dates in chronological order', () => {
   }
 });
 
-// ─── Notification deduplication ───────────────────────────────────────────────
+// ─── PART 5: Release batch sends one push per customer ────────────────────────
 
 test('push job id is deterministic: slots_released_{batchId}_{customerId}', () => {
   const batchId = 'batch-abc';
   const customerId = 'cust-123';
-  const expectedId = `slots_released_${batchId}_${customerId}`;
-  // Verify the pattern used in index.js callable and notificationJobs.js builder
   const jobId = `slots_released_${batchId}_${customerId}`;
-  assert.equal(jobId, expectedId);
+  assert.equal(jobId, `slots_released_${batchId}_${customerId}`);
 });
 
-test('one push job id per customer regardless of how many dates are in the batch', () => {
+test('one push job per customer regardless of how many dates are in the batch', () => {
   const batchId = 'batch-xyz';
   const customers = ['cust-1', 'cust-2', 'cust-3'];
   const dates = ['2099-01-01', '2099-01-02', '2099-01-03', '2099-01-04', '2099-01-05', '2099-01-06', '2099-01-07'];
 
-  // Simulate: one push job per customer (not per date)
   const jobs = customers.map((customerId) => ({
     id: `slots_released_${batchId}_${customerId}`,
     customerId,
   }));
 
-  assert.equal(jobs.length, customers.length, 'should have exactly one job per customer');
-  assert.equal(new Set(jobs.map(j => j.id)).size, customers.length, 'all job IDs must be unique');
-
-  // Even if we had 7 dates, we still only create 3 jobs
-  assert.ok(jobs.length < dates.length, 'job count should be less than date count for a weekly batch');
+  assert.equal(jobs.length, customers.length, 'one job per customer');
+  assert.equal(new Set(jobs.map((j) => j.id)).size, customers.length, 'all job IDs unique');
+  assert.ok(jobs.length < dates.length, 'fewer jobs than dates for a weekly batch');
 });
 
 test('inbox notification doc ID dedups by batch+customer', () => {
   const batchId = 'batch-001';
   const customers = ['alice', 'bob', 'carol'];
-  const notifIds = customers.map(c => `slots_released_${batchId}_${c}`);
-
-  assert.equal(new Set(notifIds).size, customers.length, 'all notification doc IDs must be unique per customer');
-
-  // Same batch, same customer = same ID (prevents duplicate if callable retried)
-  const idA = `slots_released_${batchId}_alice`;
-  const idB = `slots_released_${batchId}_alice`;
-  assert.equal(idA, idB);
+  const notifIds = customers.map((c) => `slots_released_${batchId}_${c}`);
+  assert.equal(new Set(notifIds).size, customers.length, 'unique per customer');
+  // Same batch + same customer = same ID (idempotent on retry)
+  assert.equal(`slots_released_${batchId}_alice`, `slots_released_${batchId}_alice`);
 });
 
 test('different batches produce different notification IDs for same customer', () => {
-  const batch1 = 'batch-aaa';
-  const batch2 = 'batch-bbb';
   const customer = 'cust-1';
-  const id1 = `slots_released_${batch1}_${customer}`;
-  const id2 = `slots_released_${batch2}_${customer}`;
-  assert.notEqual(id1, id2, 'two separate batches should create different notification docs');
+  const id1 = `slots_released_batch-aaa_${customer}`;
+  const id2 = `slots_released_batch-bbb_${customer}`;
+  assert.notEqual(id1, id2);
 });

@@ -11,6 +11,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { ensureFirebaseAdmin, getFirebaseFunctions, getFirestoreDb } from '@/lib/firebase';
@@ -674,4 +675,24 @@ export const cancelBookingSlotRelease = async (id) => {
     updatedAt: serverTimestamp(),
   });
   console.info('[Firestore SlotReleases] slot release cancelled', { id });
+};
+
+export const cancelBookingSlotReleaseBatch = async (releaseBatchId) => {
+  await ensureFirebaseAdmin();
+  const db = getFirestoreDb();
+  const today = new Date().toISOString().slice(0, 10);
+  const snap = await getDocs(query(
+    collection(db, 'bookingSlotReleases'),
+    where('releaseBatchId', '==', releaseBatchId),
+    where('status', '==', 'active'),
+  ));
+  const futureActive = snap.docs.filter((d) => (d.data().date || '') >= today);
+  if (futureActive.length === 0) return { count: 0 };
+  const batch = writeBatch(db);
+  futureActive.forEach((d) => {
+    batch.update(d.ref, { status: 'cancelled', updatedAt: serverTimestamp() });
+  });
+  await batch.commit();
+  console.info('[Firestore SlotReleases] batch cancelled', { releaseBatchId, count: futureActive.length });
+  return { count: futureActive.length };
 };

@@ -168,6 +168,8 @@ const dayPartForTime = (time) => {
 const waitingListMatchesAppointment = (entry, appointment) => {
   if (!['active', 'notified'].includes(entry.status)) return false;
   if (entry.date !== appointment.date) return false;
+  // barberId must match if the entry specifies one
+  if (entry.barberId && entry.barberId !== appointment.barberId) return false;
   if (entry.serviceId && entry.serviceId !== appointment.serviceId) return false;
   if (entry.preferenceType === 'exact_time') return entry.exactTime === appointment.startTime;
   if (entry.preferenceType === 'time_range') {

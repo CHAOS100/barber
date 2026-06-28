@@ -9,6 +9,7 @@ import {
   saveBookingSettings,
   callPublishManualSlotRelease,
   cancelBookingSlotRelease,
+  cancelBookingSlotReleaseBatch,
 } from '@/lib/businessFirestore';
 import {
   useBookingSettingsRealtime,
@@ -219,9 +220,9 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
 
   return (
     <div className="space-y-4">
-      {/* Date range */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
+      {/* Date range — single column on mobile, two columns on wider screens */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="min-w-0">
           <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 מתאריך</label>
           <input
             type="date"
@@ -231,17 +232,17 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
               setFromDate(e.target.value);
               if (e.target.value > toDate) setToDate(e.target.value);
             }}
-            className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+            className="w-full min-w-0 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
           />
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📅 עד תאריך</label>
           <input
             type="date"
             value={toDate}
             min={fromDate || todayStr()}
             onChange={e => setToDate(e.target.value)}
-            className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+            className="w-full min-w-0 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
           />
         </div>
       </div>
@@ -344,38 +345,95 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
   );
 }
 
-function SlotReleaseList({ releases, barbers, onCancel, cancellingId }) {
+// Group individual release docs by releaseBatchId for a clean summary view.
+// Docs without releaseBatchId (legacy) fall back to per-doc display.
+const groupReleasesByBatch = (releases) => {
+  const byBatch = new Map();
+  releases.forEach((r) => {
+    const key = r.releaseBatchId || r.id;
+    if (!byBatch.has(key)) {
+      byBatch.set(key, {
+        releaseBatchId: r.releaseBatchId || null,
+        legacyId: r.releaseBatchId ? null : r.id,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        barberId: r.barberId,
+        note: r.note || '',
+        minDate: r.date,
+        maxDate: r.date,
+        items: [],
+      });
+    }
+    const g = byBatch.get(key);
+    if (r.date < g.minDate) g.minDate = r.date;
+    if (r.date > g.maxDate) g.maxDate = r.date;
+    g.items.push(r);
+  });
+  return [...byBatch.values()].sort((a, b) => a.minDate.localeCompare(b.minDate));
+};
+
+function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, cancellingId }) {
   const barberName = (id) => barbers.find(b => b.id === id)?.name || id;
 
   if (releases.length === 0) {
     return <p className="text-muted-foreground/60 text-xs text-center py-3">אין שעות מפורסמות</p>;
   }
 
+  const groups = groupReleasesByBatch(releases);
+
   return (
     <div className="space-y-2">
-      {releases.map((r) => (
-        <div key={r.id} className="flex items-center gap-3 glass rounded-xl px-3 py-2.5">
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-foreground">
-              {formatDate(r.date)}
-              {barbers.length > 1 && (
-                <span className="text-muted-foreground font-normal"> · {barberName(r.barberId)}</span>
-              )}
-            </div>
-            <div className="text-xs text-primary mt-0.5">
-              {r.startTime} – {r.endTime}
-              {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+      {groups.map((g) => {
+        const isSingleDay = g.minDate === g.maxDate;
+        const dateLabel = isSingleDay
+          ? formatDate(g.minDate)
+          : `${formatDate(g.minDate)} – ${formatDate(g.maxDate)}`;
+        const countLabel = g.items.length === 1 ? 'יום אחד' : `${g.items.length} ימים`;
+        const batchKey = g.releaseBatchId || g.legacyId;
+        const isCancelling = cancellingId === batchKey;
+
+        return (
+          <div key={batchKey} className="glass rounded-xl px-3 py-2.5">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-foreground leading-snug">
+                  {dateLabel}
+                  {!isSingleDay && (
+                    <span className="text-muted-foreground font-normal text-xs"> · {countLabel}</span>
+                  )}
+                  {barbers.length > 1 && g.barberId && (
+                    <span className="text-muted-foreground font-normal"> · {barberName(g.barberId)}</span>
+                  )}
+                </div>
+                <div className="text-xs text-primary mt-0.5">
+                  {g.startTime} – {g.endTime}
+                  {g.note && <span className="text-muted-foreground"> · {g.note}</span>}
+                </div>
+                {!isSingleDay && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {g.items.slice(0, 5).map((r) => (
+                      <span key={r.id} className="text-xs bg-primary/10 text-primary rounded px-1.5 py-0.5">
+                        {formatDate(r.date)}
+                      </span>
+                    ))}
+                    {g.items.length > 5 && (
+                      <span className="text-xs text-muted-foreground px-1 py-0.5">+{g.items.length - 5} עוד</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => g.releaseBatchId ? onCancelBatch(g.releaseBatchId) : onCancelSingle(g.legacyId)}
+                disabled={isCancelling}
+                className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0 mt-0.5"
+                title="בטל חלון זה"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => onCancel(r.id)}
-            disabled={cancellingId === r.id}
-            className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -387,7 +445,7 @@ export default function AdminHours() {
   const [slotInterval, setSlotInterval] = useState(10);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(30);
   const [availabilityMode, setAvailabilityMode] = useState('automatic');
-  const [cancellingId, setCancellingId] = useState(null);
+  const [cancellingId, setCancellingId] = useState(null); // holds batchId or single doc id
 
   const { settings, error: settingsError } = useBookingSettingsRealtime();
   const { data: allBarbers } = useAllBarbersRealtime();
@@ -454,7 +512,19 @@ export default function AdminHours() {
     }),
   });
 
-  const handleCancelRelease = async (id) => {
+  const handleCancelBatch = async (releaseBatchId) => {
+    setCancellingId(releaseBatchId);
+    try {
+      const result = await cancelBookingSlotReleaseBatch(releaseBatchId);
+      toast({ title: 'השעות בוטלו', description: result.count > 0 ? `בוטלו ${result.count} ימים.` : 'אין ימים עתידיים לביטול.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'ביטול נכשל', description: getUserFacingErrorMessage(error) });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const handleCancelSingle = async (id) => {
     setCancellingId(id);
     try {
       await cancelBookingSlotRelease(id);
@@ -552,7 +622,8 @@ export default function AdminHours() {
                 <SlotReleaseList
                   releases={upcomingReleases}
                   barbers={activeBarbers}
-                  onCancel={handleCancelRelease}
+                  onCancelBatch={handleCancelBatch}
+                  onCancelSingle={handleCancelSingle}
                   cancellingId={cancellingId}
                 />
               </div>
@@ -614,7 +685,7 @@ export default function AdminHours() {
         ))}
       </div>
 
-      <div className="px-4 pb-8">
+      <div className="px-4 pb-8" style={{ paddingBottom: 'calc(var(--bottom-nav-height, 88px) + 16px)' }}>
         <GoldButton onClick={() => saveMutation.mutate()} size="lg" className="w-full" disabled={saveMutation.isPending}>
           {saveMutation.isPending ? 'שומר...' : (
             <span className="flex items-center justify-center gap-2"><Save className="w-4 h-4" /> שמור שינויים</span>
