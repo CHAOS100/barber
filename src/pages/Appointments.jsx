@@ -12,13 +12,32 @@ import { cancelOwnWaitingListEntry, subscribeToCustomerWaitingList } from '@/lib
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 import { useBusinessSettingsRealtime } from '@/hooks/useBookingData';
+import { getCancellationReasonLabel } from '@/lib/labels';
 
 const STATUS_LABELS = {
   pending: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
+  approved: { label: 'מאושר', color: 'text-green-400 bg-green-400/20' },
   confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20' },
   completed: { label: 'הושלם', color: 'text-primary bg-primary/20' },
+  completed_auto: { label: 'הושלם — התספורת בוצעה', color: 'text-primary bg-primary/20' },
   cancelled: { label: 'בוטל', color: 'text-red-400 bg-red-400/20' },
-  no_show: { label: 'לא הגיע', color: 'text-orange-400 bg-orange-400/20' },
+  cancelled_by_admin: { label: 'בוטל מצד הספר', color: 'text-red-400 bg-red-400/20' },
+  cancelled_by_customer: { label: 'בוטל מצד הלקוח', color: 'text-orange-400 bg-orange-400/20' },
+  rejected: { label: 'נדחה', color: 'text-red-400 bg-red-400/20' },
+  no_show: { label: 'אי הגעה', color: 'text-orange-400 bg-orange-400/20' },
+};
+
+const ACTIVE_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const HISTORY_TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
+const CUSTOMER_CANCEL_REASONS = new Set(['customer_cancelled', 'customer_replaced_appointment']);
+
+const getDisplayStatus = (appt, today) => {
+  if (appt.date < today && ACTIVE_STATUSES.has(appt.status)) return 'completed_auto';
+  if (appt.status === 'cancelled') {
+    const reason = appt.cancellationReason || appt.cancellation_reason || '';
+    return CUSTOMER_CANCEL_REASONS.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
+  }
+  return appt.status;
 };
 
 const WAITING_STATUS_LABELS = {
@@ -64,8 +83,8 @@ export default function Appointments() {
   });
 
   const todayStr = localDateToString();
-  const upcoming = appointments.filter(a => a.status !== 'cancelled' && a.status !== 'completed' && a.date >= todayStr);
-  const past = appointments.filter(a => a.status === 'completed' || a.status === 'cancelled' || a.date < todayStr);
+  const upcoming = appointments.filter(a => !HISTORY_TERMINAL_STATUSES.has(a.status) && a.date >= todayStr);
+  const past = appointments.filter(a => HISTORY_TERMINAL_STATUSES.has(a.status) || a.date < todayStr);
   const displayed = activeTab === 'upcoming' ? upcoming : past;
 
   if (!currentUser) {
@@ -209,7 +228,8 @@ export default function Appointments() {
           </div>
         ) : (
           displayed.map((appt, i) => {
-            const statusInfo = STATUS_LABELS[appt.status] || STATUS_LABELS.pending;
+            const displayStatus = getDisplayStatus(appt, todayStr);
+            const statusInfo = STATUS_LABELS[displayStatus] || STATUS_LABELS.pending;
             const apptDate = new Date(`${appt.date}T00:00:00`);
             const isUpcoming = appt.date >= todayStr && appt.status !== 'cancelled';
             return (
@@ -239,10 +259,12 @@ export default function Appointments() {
                 {appt.service_price && (
                   <div className="text-primary font-black">₪{appt.service_price}</div>
                 )}
-                {appt.status === 'cancelled' && appt.cancellationReason && (
+                {appt.status === 'cancelled' && appt.cancellationReason
+                  && !CUSTOMER_CANCEL_REASONS.has(appt.cancellationReason)
+                  && appt.cancellationReason !== 'admin_cancelled' && (
                   <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-200">
                     <span className="font-bold">סיבת ביטול: </span>
-                    {appt.cancellationReason}
+                    {getCancellationReasonLabel(appt.cancellationReason)}
                   </div>
                 )}
                 {isUpcoming && (
@@ -261,7 +283,7 @@ export default function Appointments() {
                     </button>
                   </div>
                 )}
-                {!isUpcoming && (appt.status === 'completed') && (
+                {!isUpcoming && (displayStatus === 'completed' || displayStatus === 'completed_auto') && (
                   <div className="mt-3">
                     <button
                       onClick={() => navigate('/booking', { state: { service: { id: appt.service_id, name: appt.service_name, price: appt.service_price, duration: appt.service_duration } } })}

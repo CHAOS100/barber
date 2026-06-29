@@ -106,12 +106,12 @@ export default function EditAppointmentModal({ appointment, onClose }) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-md overflow-y-auto"
+        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
         onClick={e => e.stopPropagation()}
         dir="rtl"
       >
         {done ? (
-          <div className="text-center py-6">
+          <div className="text-center py-6 px-5">
             <div className="w-16 h-16 gold-gradient rounded-full flex items-center justify-center mx-auto mb-4">
               <Check className="w-8 h-8 text-black" />
             </div>
@@ -123,93 +123,98 @@ export default function EditAppointmentModal({ appointment, onClose }) {
         ) : (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between mb-4">
+            <div className="px-5 pt-5 pb-3 flex-shrink-0 flex items-center justify-between">
               <h3 className="font-black text-lg">שינוי מועד תור</h3>
               <button onClick={onClose} className="glass p-2 rounded-full">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Current booking info */}
-            <div className="glass-gold rounded-2xl p-3 mb-5 flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">{appointment.date} • {appointment.time}</span>
-              <span className="font-bold">{appointment.service_name}</span>
-            </div>
-
-            {/* Date picker */}
-            <div className="mb-1">
-              <h4 className="font-bold text-sm mb-3 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-primary" /> בחר תאריך חדש
-              </h4>
-              <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-                {availableDates.map((date) => {
-                  const isSelected = selectedDate?.toDateString() === date.toDateString();
-                  const isBlocked = blockedDates.some(b => b.date === dateToStr(date) && b.is_full_day);
-                  return (
-                    <motion.button
-                      key={date.toDateString()}
-                      whileTap={{ scale: 0.92 }}
-                      onClick={() => { if (!isBlocked) { setSelectedDate(date); setSelectedTime(null); } }}
-                      className={`flex-shrink-0 flex flex-col items-center px-3 py-3 rounded-2xl min-w-[58px] transition-all ${
-                        isBlocked ? 'glass opacity-40 cursor-not-allowed' :
-                        isSelected ? 'gold-gradient text-black' : 'glass'
-                      }`}
-                    >
-                      <span className="text-xs font-medium">{DAY_NAMES[date.getDay()]}</span>
-                      <span className="text-xl font-black">{date.getDate()}</span>
-                      <span className="text-xs">{MONTH_NAMES[date.getMonth()]}</span>
-                    </motion.button>
-                  );
-                })}
+            <div className="modal-scroll-body px-5">
+              {/* Current booking info */}
+              <div className="glass-gold rounded-2xl p-3 mb-5 flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">{appointment.date} • {appointment.time}</span>
+                <span className="font-bold">{appointment.service_name}</span>
               </div>
-            </div>
 
-            {/* Time slots */}
-            {selectedDate && !isDateBlocked && (
-              <div className="mt-4">
+              {/* Date picker */}
+              <div className="mb-1">
                 <h4 className="font-bold text-sm mb-3 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" /> שעות פנויות ({availableSlots.length})
+                  <Calendar className="w-4 h-4 text-primary" /> בחר תאריך חדש
                 </h4>
-                {availableSlots.length === 0 ? (
-                  <div className="glass rounded-2xl p-4 text-center">
-                    <AlertCircle className="w-6 h-6 text-muted-foreground mx-auto mb-1" />
-                    <p className="text-muted-foreground text-sm">אין שעות פנויות ביום זה</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-2">
-                    {availableSlots.map((time) => (
+                <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+                  {availableDates.map((date) => {
+                    const isSelected = selectedDate?.toDateString() === date.toDateString();
+                    const isBlocked = blockedDates.some(b => b.date === dateToStr(date) && b.is_full_day);
+                    return (
                       <motion.button
-                        key={time}
+                        key={date.toDateString()}
                         whileTap={{ scale: 0.92 }}
-                        onClick={() => setSelectedTime(time)}
-                        className={`py-2.5 rounded-xl text-sm font-bold transition-all ${
-                          selectedTime === time ? 'gold-gradient text-black' : 'glass hover:border-primary/50'
+                        onClick={() => { if (!isBlocked) { setSelectedDate(date); setSelectedTime(null); } }}
+                        className={`flex-shrink-0 flex flex-col items-center px-3 py-3 rounded-2xl min-w-[58px] transition-all ${
+                          isBlocked ? 'glass opacity-40 cursor-not-allowed' :
+                          isSelected ? 'gold-gradient text-black' : 'glass'
                         }`}
                       >
-                        {time}
+                        <span className="text-xs font-medium">{DAY_NAMES[date.getDay()]}</span>
+                        <span className="text-xl font-black">{date.getDate()}</span>
+                        <span className="text-xs">{MONTH_NAMES[date.getMonth()]}</span>
                       </motion.button>
-                    ))}
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Time slots */}
+              {selectedDate && !isDateBlocked && (
+                <div className="mt-4 pb-2">
+                  <h4 className="font-bold text-sm mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-primary" /> שעות פנויות ({availableSlots.length})
+                  </h4>
+                  {availableSlots.length === 0 ? (
+                    <div className="glass rounded-2xl p-4 text-center">
+                      <AlertCircle className="w-6 h-6 text-muted-foreground mx-auto mb-1" />
+                      <p className="text-muted-foreground text-sm">אין שעות פנויות ביום זה</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
+                      {availableSlots.map((time) => (
+                        <motion.button
+                          key={time}
+                          whileTap={{ scale: 0.92 }}
+                          onClick={() => setSelectedTime(time)}
+                          className={`py-2.5 rounded-xl text-sm font-bold transition-all ${
+                            selectedTime === time ? 'gold-gradient text-black' : 'glass hover:border-primary/50'
+                          }`}
+                        >
+                          {time}
+                        </motion.button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {((selectedDate && selectedTime) || updateMutation.error) && (
+              <div className="modal-actions px-5">
+                {selectedDate && selectedTime && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                    <GoldButton
+                      onClick={() => updateMutation.mutate()}
+                      size="lg"
+                      className="w-full"
+                      disabled={updateMutation.isPending}
+                    >
+                      {updateMutation.isPending ? 'מעדכן...' : `אשר — ${selectedDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })} בשעה ${selectedTime}`}
+                    </GoldButton>
+                  </motion.div>
+                )}
+                {updateMutation.error && (
+                  <div className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                    {getBookingRejectionMessage(updateMutation.error)}
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* Confirm */}
-            {selectedDate && selectedTime && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-5">
-                <GoldButton
-                  onClick={() => updateMutation.mutate()}
-                  size="lg"
-                  className="w-full"
-                  disabled={updateMutation.isPending}
-                >
-                  {updateMutation.isPending ? 'מעדכן...' : `אשר — ${selectedDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })} בשעה ${selectedTime}`}
-                </GoldButton>
-              </motion.div>
-            )}
-            {updateMutation.error && (
-              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-                {getBookingRejectionMessage(updateMutation.error)}
               </div>
             )}
           </>

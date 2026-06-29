@@ -4,6 +4,7 @@ import { timeToMinutes } from '../src/scheduling.js';
 import { generateSlotReleaseDates } from '../src/index.js';
 import { buildPushJobForHaircutReminder } from '../src/notifications/notificationJobs.js';
 import { isAllowedByPreferences } from '../src/notifications/pushSender.js';
+import { ACTIVE_APPOINTMENT_STATUSES, findActiveCustomerAppointment } from '../src/bookingPolicy.js';
 
 // ─── Helpers mirroring server logic ──────────────────────────────────────────
 
@@ -465,4 +466,270 @@ test('haircut reminder job customerId matches the given customer', () => {
   const customerId = 'user-xyz';
   const job = buildPushJobForHaircutReminder('appt-1', customerId, new Date(Date.now() + 21 * 86400000));
   assert.equal(job.data.customerId, customerId);
+});
+
+// ─── PART 1: Appointment lifecycle / history ──────────────────────────────────
+
+// Mirrors getDisplayStatus from src/pages/Appointments.jsx
+const ACTIVE_STATUSES_FE = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const CUSTOMER_CANCEL_REASONS_FE = new Set(['customer_cancelled', 'customer_replaced_appointment']);
+const getDisplayStatus = (appt, today) => {
+  if (appt.date < today && ACTIVE_STATUSES_FE.has(appt.status)) return 'completed_auto';
+  if (appt.status === 'cancelled') {
+    const reason = appt.cancellationReason || '';
+    return CUSTOMER_CANCEL_REASONS_FE.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
+  }
+  return appt.status;
+};
+
+test('ACTIVE_APPOINTMENT_STATUSES contains expected keys', () => {
+  assert.ok(ACTIVE_APPOINTMENT_STATUSES.has('pending'));
+  assert.ok(ACTIVE_APPOINTMENT_STATUSES.has('confirmed'));
+  assert.ok(ACTIVE_APPOINTMENT_STATUSES.has('approved'));
+  assert.ok(!ACTIVE_APPOINTMENT_STATUSES.has('completed'));
+  assert.ok(!ACTIVE_APPOINTMENT_STATUSES.has('cancelled'));
+});
+
+test('findActiveCustomerAppointment returns null for past confirmed appointment', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const appts = [{ status: 'confirmed', date: yesterday }];
+  assert.equal(findActiveCustomerAppointment(appts), null);
+});
+
+test('findActiveCustomerAppointment returns null for past pending appointment', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const appts = [{ status: 'pending', date: yesterday }];
+  assert.equal(findActiveCustomerAppointment(appts), null);
+});
+
+test('findActiveCustomerAppointment returns future confirmed appointment', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const appt = { status: 'confirmed', date: tomorrow };
+  assert.deepEqual(findActiveCustomerAppointment([appt]), appt);
+});
+
+test('findActiveCustomerAppointment ignores past appointment and returns future one', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const future = { status: 'confirmed', date: tomorrow };
+  const appts = [{ status: 'confirmed', date: yesterday }, future];
+  assert.deepEqual(findActiveCustomerAppointment(appts), future);
+});
+
+test('findActiveCustomerAppointment returns null when all appointments are past', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const lastWeek = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const appts = [
+    { status: 'confirmed', date: yesterday },
+    { status: 'pending', date: lastWeek },
+  ];
+  assert.equal(findActiveCustomerAppointment(appts), null);
+});
+
+test('getDisplayStatus: past confirmed appointment shows completed_auto', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getDisplayStatus({ status: 'confirmed', date: yesterday }, today), 'completed_auto');
+});
+
+test('getDisplayStatus: past pending appointment shows completed_auto', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getDisplayStatus({ status: 'pending', date: yesterday }, today), 'completed_auto');
+});
+
+test('getDisplayStatus: future confirmed appointment stays confirmed', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getDisplayStatus({ status: 'confirmed', date: tomorrow }, today), 'confirmed');
+});
+
+test('getDisplayStatus: cancelled with customer_cancelled reason shows cancelled_by_customer', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const appt = { status: 'cancelled', date: today, cancellationReason: 'customer_cancelled' };
+  assert.equal(getDisplayStatus(appt, today), 'cancelled_by_customer');
+});
+
+test('getDisplayStatus: cancelled with customer_replaced_appointment reason shows cancelled_by_customer', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const appt = { status: 'cancelled', date: today, cancellationReason: 'customer_replaced_appointment' };
+  assert.equal(getDisplayStatus(appt, today), 'cancelled_by_customer');
+});
+
+test('getDisplayStatus: cancelled with admin_cancelled reason shows cancelled_by_admin', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const appt = { status: 'cancelled', date: today, cancellationReason: 'admin_cancelled' };
+  assert.equal(getDisplayStatus(appt, today), 'cancelled_by_admin');
+});
+
+test('getDisplayStatus: cancelled with barber_unavailable reason shows cancelled_by_admin', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const appt = { status: 'cancelled', date: today, cancellationReason: 'barber_unavailable' };
+  assert.equal(getDisplayStatus(appt, today), 'cancelled_by_admin');
+});
+
+test('getDisplayStatus: rejected appointment shows rejected', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getDisplayStatus({ status: 'rejected', date: tomorrow }, today), 'rejected');
+});
+
+test('getDisplayStatus: explicitly completed appointment shows completed not completed_auto', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getDisplayStatus({ status: 'completed', date: yesterday }, today), 'completed');
+});
+
+test('cancelled release window does not appear as bookable slot', () => {
+  const cancelledRelease = release('10:00', '12:00');
+  cancelledRelease.status = 'cancelled';
+  // Only active releases should be passed to isSlotInReleaseWindow per rejectManualModeSlot filter
+  const activeReleases = [cancelledRelease].filter(r => r.status === 'active');
+  assert.equal(isSlotInReleaseWindow('10:30', activeReleases), false);
+});
+
+// ─── PART 1 & 2: Admin appointment active/history classification ──────────────
+
+// Mirrors helpers from src/pages/admin/AdminAppointments.jsx
+const TERMINAL_STATUSES_ADMIN = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
+const ACTIVE_STATUSES_ADMIN = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const CUSTOMER_CANCEL_REASONS_ADMIN = new Set(['customer_cancelled', 'customer_replaced_appointment']);
+
+const isAppointmentActiveAdmin = (appt, today) =>
+  !TERMINAL_STATUSES_ADMIN.has(appt.status) && (appt.date || '') >= today;
+
+const isAppointmentHistoryAdmin = (appt, today) => !isAppointmentActiveAdmin(appt, today);
+
+const getEffectiveStatusAdmin = (appt, today) => {
+  if ((appt.date || '') < today && ACTIVE_STATUSES_ADMIN.has(appt.status)) return 'completed_auto';
+  if (appt.status === 'cancelled') {
+    const reason = appt.cancellationReason || '';
+    return CUSTOMER_CANCEL_REASONS_ADMIN.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
+  }
+  return appt.status;
+};
+
+test('admin: future pending appointment is active', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'pending', date: tomorrow }, today), true);
+});
+
+test('admin: future confirmed appointment is active', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'confirmed', date: tomorrow }, today), true);
+});
+
+test('admin: today pending appointment is active', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'pending', date: today }, today), true);
+});
+
+test('admin: past pending appointment is NOT active', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'pending', date: yesterday }, today), false);
+});
+
+test('admin: past confirmed appointment is NOT active', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'confirmed', date: yesterday }, today), false);
+});
+
+test('admin: completed appointment is NOT active regardless of date', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'completed', date: tomorrow }, today), false);
+});
+
+test('admin: cancelled appointment is NOT active', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'cancelled', date: tomorrow }, today), false);
+});
+
+test('admin: rejected appointment is NOT active', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'rejected', date: tomorrow }, today), false);
+});
+
+test('admin: no_show appointment is NOT active', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentActiveAdmin({ status: 'no_show', date: tomorrow }, today), false);
+});
+
+test('admin: past pending appointment IS history', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentHistoryAdmin({ status: 'pending', date: yesterday }, today), true);
+});
+
+test('admin: completed appointment IS history', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentHistoryAdmin({ status: 'completed', date: yesterday }, today), true);
+});
+
+test('admin: cancelled appointment IS history', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentHistoryAdmin({ status: 'cancelled', date: tomorrow }, today), true);
+});
+
+test('admin: future active appointment is NOT history', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(isAppointmentHistoryAdmin({ status: 'pending', date: tomorrow }, today), false);
+});
+
+test('admin getEffectiveStatus: past pending → completed_auto', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'pending', date: yesterday }, today), 'completed_auto');
+});
+
+test('admin getEffectiveStatus: past confirmed → completed_auto', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'confirmed', date: yesterday }, today), 'completed_auto');
+});
+
+test('admin getEffectiveStatus: cancelled with customer reason → cancelled_by_customer', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'cancelled', date: tomorrow, cancellationReason: 'customer_cancelled' }, today), 'cancelled_by_customer');
+});
+
+test('admin getEffectiveStatus: cancelled with admin reason → cancelled_by_admin', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'cancelled', date: tomorrow, cancellationReason: 'admin_cancelled' }, today), 'cancelled_by_admin');
+});
+
+test('admin getEffectiveStatus: cancelled with no reason → cancelled_by_admin', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'cancelled', date: tomorrow }, today), 'cancelled_by_admin');
+});
+
+test('admin getEffectiveStatus: rejected → rejected', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'rejected', date: tomorrow }, today), 'rejected');
+});
+
+test('admin getEffectiveStatus: explicitly completed → completed', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'completed', date: yesterday }, today), 'completed');
+});
+
+test('admin getEffectiveStatus: future confirmed stays confirmed', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.equal(getEffectiveStatusAdmin({ status: 'confirmed', date: tomorrow }, today), 'confirmed');
 });

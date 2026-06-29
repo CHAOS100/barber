@@ -8,5 +8,13 @@ export const hasActivePaymentRequest = (customer) =>
   || customer?.requires_no_show_payment === true
   || Number(customer?.noShowPaymentAmount ?? customer?.no_show_payment_amount ?? 0) > 0;
 
-export const findActiveCustomerAppointment = (appointments) =>
-  appointments.find((appointment) => ACTIVE_APPOINTMENT_STATUSES.has(appointment.status)) || null;
+export const findActiveCustomerAppointment = (appointments) => {
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    appointments.find(
+      (appointment) =>
+        ACTIVE_APPOINTMENT_STATUSES.has(appointment.status) &&
+        appointment.date >= today,
+    ) || null
+  );
+};

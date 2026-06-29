@@ -1,12 +1,10 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Archive, Check, X, UserX, Plus, Edit3, Calendar, CalendarPlus, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
+import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, CalendarPlus, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { localDateToString } from '../../lib/slotEngine';
 import {
-  archiveAppointmentByAdmin,
-  batchArchiveAppointmentsByAdmin,
   createAdminAppointment,
   deleteAppointment,
   updateAdminAppointment,
@@ -21,12 +19,34 @@ import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
 import { downloadAppointmentsIcs, isCalendarExportableAppointment } from '@/lib/calendarExport';
 
 const STATUS_CONFIG = {
-  pending:   { label: 'ממתין',  color: 'text-yellow-400 bg-yellow-400/20', dot: 'bg-yellow-400' },
-  approved:  { label: 'מאושר', color: 'text-green-400 bg-green-400/20',   dot: 'bg-green-400' },
-  confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20',   dot: 'bg-green-400' },
-  completed: { label: 'הושלם', color: 'text-primary bg-primary/20',       dot: 'bg-primary' },
-  cancelled: { label: 'בוטל',  color: 'text-red-400 bg-red-400/20',       dot: 'bg-red-400' },
-  no_show:   { label: 'לא הגיע', color: 'text-orange-400 bg-orange-400/20', dot: 'bg-orange-400' },
+  pending:               { label: 'ממתין',              color: 'text-yellow-400 bg-yellow-400/20',   dot: 'bg-yellow-400' },
+  approved:              { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
+  confirmed:             { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
+  completed:             { label: 'הושלם',              color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
+  completed_auto:        { label: 'הושלם',              color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
+  cancelled:             { label: 'בוטל',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
+  cancelled_by_admin:    { label: 'בוטל מצד הספר',      color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
+  cancelled_by_customer: { label: 'בוטל מצד הלקוח',    color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
+  rejected:              { label: 'נדחה',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
+  no_show:               { label: 'לא הגיע',            color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
+};
+
+const TERMINAL_STATUSES_ADMIN = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
+const ACTIVE_STATUSES_ADMIN = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const CUSTOMER_CANCEL_REASONS_ADMIN = new Set(['customer_cancelled', 'customer_replaced_appointment']);
+
+const isAppointmentActive = (appt, today) =>
+  !TERMINAL_STATUSES_ADMIN.has(appt.status) && (appt.date || '') >= today;
+
+const isAppointmentHistory = (appt, today) => !isAppointmentActive(appt, today);
+
+const getEffectiveStatus = (appt, today) => {
+  if ((appt.date || '') < today && ACTIVE_STATUSES_ADMIN.has(appt.status)) return 'completed_auto';
+  if (appt.status === 'cancelled') {
+    const reason = appt.cancellationReason || '';
+    return CUSTOMER_CANCEL_REASONS_ADMIN.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
+  }
+  return appt.status;
 };
 
 const RANGE_FILTERS = [
@@ -42,6 +62,7 @@ const STATUS_FILTERS = [
   { value: 'completed', label: STATUS_CONFIG.completed.label },
   { value: 'cancelled', label: STATUS_CONFIG.cancelled.label },
   { value: 'no_show', label: STATUS_CONFIG.no_show.label },
+  { value: 'rejected', label: STATUS_CONFIG.rejected.label },
 ];
 
 const STATUS_EDIT_OPTIONS = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
@@ -352,9 +373,9 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
 
 export default function AdminAppointments() {
   const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState('active');
   const [rangeFilter, setRangeFilter] = useState('all_time');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [showArchived, setShowArchived] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState(null);
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -420,27 +441,6 @@ export default function AdminAppointments() {
     },
   });
 
-  const archiveMutation = useMutation({
-    mutationFn: (id) => archiveAppointmentByAdmin(id),
-    onSuccess: () => {
-      clearAction();
-      toast({ title: 'התור הועבר לארכיון' });
-    },
-    onError: (error) => {
-      clearAction();
-      toast({ variant: 'destructive', title: 'הארכוב נכשל', description: getUserFacingErrorMessage(error) });
-    },
-  });
-
-  const batchArchiveMutation = useMutation({
-    mutationFn: batchArchiveAppointmentsByAdmin,
-    onSuccess: (result) => {
-      toast({ title: 'תורים הועברו לארכיון', description: `${result?.count ?? 0} תורים שהסתיימו הוסתרו מהתצוגה.` });
-    },
-    onError: (error) => {
-      toast({ variant: 'destructive', title: 'הארכוב נכשל', description: getUserFacingErrorMessage(error) });
-    },
-  });
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
   const handleQuickAction = useCallback((actionKey, mutationCall) => {
@@ -450,13 +450,16 @@ export default function AdminAppointments() {
   }, [loadingAction]);
 
   const today = localDateToString();
+  const activeCount = appointments.filter(a => isAppointmentActive(a, today)).length;
+  const historyCount = appointments.filter(a => isAppointmentHistory(a, today)).length;
   const filtered = [...appointments]
     .sort((left, right) =>
       `${left.date || ''} ${left.time || left.startTime || ''}`.localeCompare(
         `${right.date || ''} ${right.time || right.startTime || ''}`,
       ))
     .filter((appointment) => {
-      if (!showArchived && appointment.archivedFromActive) return false;
+      if (viewMode === 'active' && !isAppointmentActive(appointment, today)) return false;
+      if (viewMode === 'history' && !isAppointmentHistory(appointment, today)) return false;
       const appointmentDate = appointment.date || '';
       const matchesRange = rangeFilter === 'all_time'
         || (rangeFilter === 'today' && appointmentDate === today)
@@ -466,7 +469,6 @@ export default function AdminAppointments() {
         || (statusFilter === 'confirmed' && appointment.status === 'approved');
       return matchesRange && matchesStatus;
     });
-  const archivedCount = appointments.filter((appt) => appt.archivedFromActive).length;
   const exportableAppointments = filtered.filter(isCalendarExportableAppointment);
 
   const handleExportAppointment = (appointment) => {
@@ -551,19 +553,6 @@ export default function AdminAppointments() {
             <span className="hidden sm:inline">עדכן לוח שנה</span>
           </button>
           <button
-            onClick={() => {
-              if (!window.confirm('להעביר לארכיון את כל התורים שהסתיימו, בוטלו או נדחו?')) return;
-              batchArchiveMutation.mutate();
-            }}
-            disabled={batchArchiveMutation.isPending}
-            title="נקה תורים שהסתיימו"
-            className="glass p-2.5 rounded-xl text-muted-foreground disabled:opacity-50"
-          >
-            {batchArchiveMutation.isPending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Archive className="w-4 h-4" />}
-          </button>
-          <button
             onClick={() => setShowNewForm(true)}
             className="gold-gradient p-2.5 rounded-xl"
           >
@@ -572,8 +561,24 @@ export default function AdminAppointments() {
         </div>
       </div>
 
+      {/* View Mode Tabs */}
+      <div className="flex gap-2 px-4 pt-3 pb-1">
+        {[
+          { key: 'active', label: 'פעילים', count: activeCount },
+          { key: 'history', label: 'היסטוריה', count: historyCount },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setViewMode(tab.key)}
+            className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all ${viewMode === tab.key ? 'gold-gradient text-black' : 'glass text-muted-foreground'}`}
+          >
+            {tab.label} ({tab.count})
+          </button>
+        ))}
+      </div>
+
       {/* Filter Tabs */}
-      <div className="px-4 py-3 space-y-2">
+      <div className="px-4 py-2 space-y-2">
         <div className="flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
           {RANGE_FILTERS.map((option) => (
             <button
@@ -600,17 +605,6 @@ export default function AdminAppointments() {
             </button>
           ))}
         </div>
-        {archivedCount > 0 && (
-          <button
-            onClick={() => setShowArchived((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-              showArchived ? 'border border-primary/40 text-primary bg-primary/10' : 'glass text-muted-foreground'
-            }`}
-          >
-            <Archive className="w-3 h-3" />
-            {showArchived ? `הסתר ארכיון (${archivedCount})` : `הצג ארכיון (${archivedCount})`}
-          </button>
-        )}
       </div>
 
       {appointmentsError && (
@@ -633,7 +627,9 @@ export default function AdminAppointments() {
 
       <div className="px-4 space-y-2 pb-6">
         {filtered.map((appt, i) => {
-          const sc = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending;
+          const effectiveStatus = getEffectiveStatus(appt, today);
+          const sc = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending;
+          const isActive = isAppointmentActive(appt, today);
           return (
             <motion.div
               key={appt.id || i}
@@ -701,7 +697,7 @@ export default function AdminAppointments() {
 
               {/* Quick action buttons */}
               <div className="flex gap-1.5 mt-3">
-                {appt.status === 'pending' && (() => {
+                {isActive && appt.status === 'pending' && (() => {
                   const key = `${appt.id}:approve`;
                   const loading = isActionLoading(key);
                   return (
@@ -715,7 +711,7 @@ export default function AdminAppointments() {
                     </button>
                   );
                 })()}
-                {(appt.status === 'pending' || appt.status === 'confirmed') && (
+                {isActive && (appt.status === 'pending' || appt.status === 'confirmed') && (
                   <>
                     <button
                       onClick={() => { setNoShowAppt(appt); setNoShowAction('warning'); }}
@@ -733,7 +729,7 @@ export default function AdminAppointments() {
                     </button>
                   </>
                 )}
-                {appt.status === 'confirmed' && (() => {
+                {isActive && appt.status === 'confirmed' && (() => {
                   const key = `${appt.id}:complete`;
                   const loading = isActionLoading(key);
                   return (
@@ -771,20 +767,6 @@ export default function AdminAppointments() {
                     הוסף ליומן
                   </button>
                 )}
-                {!appt.archivedFromActive && ['completed', 'cancelled', 'no_show', 'rejected'].includes(appt.status) && (() => {
-                  const key = `${appt.id}:archive`;
-                  const loading = isActionLoading(key);
-                  return (
-                    <button
-                      onClick={() => handleQuickAction(key, () => archiveMutation.mutate(appt.id))}
-                      disabled={loadingAction !== null}
-                      title="העבר לארכיון"
-                      className="py-1.5 px-3 rounded-xl glass text-muted-foreground text-xs font-bold flex items-center justify-center disabled:opacity-50"
-                    >
-                      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
-                    </button>
-                  );
-                })()}
                 {(() => {
                   const key = `${appt.id}:delete`;
                   const loading = isActionLoading(key);
@@ -802,12 +784,6 @@ export default function AdminAppointments() {
                   );
                 })()}
               </div>
-              {appt.archivedFromActive && (
-                <div className="mt-2 text-xs text-muted-foreground/60 flex items-center gap-1">
-                  <Archive className="w-3 h-3" />
-                  בארכיון
-                </div>
-              )}
             </motion.div>
           );
         })}

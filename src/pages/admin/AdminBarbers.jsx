@@ -61,6 +61,11 @@ export default function AdminBarbers() {
     },
     onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
+  const toggleMutation = useMutation({
+    mutationFn: (barber) => saveBarber(barber.id, { ...barber, is_active: !barber.is_active }),
+    onSuccess: () => toast({ title: 'סטטוס הספר עודכן' }),
+    onError: (error) => toast({ variant: 'destructive', title: 'עדכון הסטטוס נכשל', description: getUserFacingErrorMessage(error) }),
+  });
 
   const openEditor = (barber = null) => {
     setForm(barber ? {
@@ -147,6 +152,14 @@ export default function AdminBarbers() {
             </div>
             <div className="flex flex-col gap-1">
               <button onClick={() => openEditor(barber)} className="glass p-2 rounded-lg"><Edit3 className="w-4 h-4 text-primary" /></button>
+              <button
+                onClick={() => !barber.archived && toggleMutation.mutate(barber)}
+                disabled={barber.archived || toggleMutation.isPending}
+                title={barber.is_active ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
+                className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-40 ${barber.is_active && !barber.archived ? 'text-primary' : 'text-muted-foreground'}`}
+              >
+                {barber.is_active && !barber.archived ? 'הסתר' : 'הפעל'}
+              </button>
               <button onClick={() => archiveMutation.mutate(barber.id)} className="glass p-2 rounded-lg"><Archive className="w-4 h-4 text-orange-400" /></button>
               <button
                 onClick={() => window.confirm('למחוק את הספר לצמיתות?') && deleteMutation.mutate(barber.id)}

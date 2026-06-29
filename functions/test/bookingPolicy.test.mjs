@@ -14,17 +14,18 @@ test('blocked customer is detected from current and legacy boolean fields', () =
 });
 
 test('active appointment limit includes all bookable active statuses', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   assert.deepEqual([...ACTIVE_APPOINTMENT_STATUSES], ['pending', 'approved', 'confirmed', 'scheduled']);
-  assert.equal(findActiveCustomerAppointment([{ id: 'a', status: 'cancelled' }]), null);
+  assert.equal(findActiveCustomerAppointment([{ id: 'a', status: 'cancelled', date: tomorrow }]), null);
   assert.equal(findActiveCustomerAppointment([
-    { id: 'a', status: 'completed' },
-    { id: 'b', status: 'scheduled' },
+    { id: 'a', status: 'completed', date: tomorrow },
+    { id: 'b', status: 'scheduled', date: tomorrow },
   ]).id, 'b');
   assert.equal(findActiveCustomerAppointment([
-    { id: 'a', status: 'completed' },
-    { id: 'b', status: 'cancelled' },
-    { id: 'c', status: 'rejected' },
-    { id: 'd', status: 'no_show' },
+    { id: 'a', status: 'completed', date: tomorrow },
+    { id: 'b', status: 'cancelled', date: tomorrow },
+    { id: 'c', status: 'rejected', date: tomorrow },
+    { id: 'd', status: 'no_show', date: tomorrow },
   ]), null);
 });
 
