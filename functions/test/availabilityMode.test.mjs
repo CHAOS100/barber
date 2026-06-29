@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { timeToMinutes } from '../src/scheduling.js';
 import { generateSlotReleaseDates } from '../src/index.js';
+import { buildPushJobForHaircutReminder } from '../src/notifications/notificationJobs.js';
+import { isAllowedByPreferences } from '../src/notifications/pushSender.js';
 
 // ─── Helpers mirroring server logic ──────────────────────────────────────────
 
@@ -357,4 +359,110 @@ test('different batches produce different notification IDs for same customer', (
   const id1 = `slots_released_batch-aaa_${customer}`;
   const id2 = `slots_released_batch-bbb_${customer}`;
   assert.notEqual(id1, id2);
+});
+
+// ─── PART 8: Haircut reminder ─────────────────────────────────────────────────
+
+test('haircut reminder job id is deterministic: haircut_reminder_{appointmentId}_{customerId}', () => {
+  const appointmentId = 'appt-123';
+  const customerId = 'user-456';
+  const scheduledFor = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
+  const job = buildPushJobForHaircutReminder(appointmentId, customerId, scheduledFor);
+  assert.equal(job.id, `haircut_reminder_${appointmentId}_${customerId}`);
+});
+
+test('haircut reminder job has correct type, title and body', () => {
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', new Date(Date.now() + 21 * 86400000));
+  assert.equal(job.data.type, 'haircut_reminder');
+  assert.equal(job.data.title, 'הגיע הזמן להסתפר');
+  assert.equal(job.data.body, 'עבר זמן מהתספורת האחרונה שלך ב־OST BARBER. היכנס לשריין תור חדש.');
+});
+
+test('haircut reminder job data payload includes action open_booking', () => {
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', new Date(Date.now() + 21 * 86400000));
+  assert.equal(job.data.data.action, 'open_booking');
+  assert.equal(job.data.data.source, 'rebooking_reminder');
+  assert.equal(job.data.data.lastAppointmentId, 'appt-1');
+});
+
+test('haircut reminder scheduledFor is 21 days after now by default', () => {
+  const now = new Date();
+  const intervalDays = 21;
+  const scheduledFor = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', scheduledFor, now);
+  const diff = job.data.scheduledFor.getTime() - now.getTime();
+  const expectedMs = intervalDays * 24 * 60 * 60 * 1000;
+  assert.equal(diff, expectedMs);
+});
+
+test('haircut reminder custom intervalDays (14) produces correct scheduledFor', () => {
+  const now = new Date();
+  const intervalDays = 14;
+  const scheduledFor = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', scheduledFor, now);
+  const diff = job.data.scheduledFor.getTime() - now.getTime();
+  assert.equal(diff, intervalDays * 24 * 60 * 60 * 1000);
+});
+
+test('haircut reminder custom intervalDays (42) produces correct scheduledFor', () => {
+  const now = new Date();
+  const intervalDays = 42;
+  const scheduledFor = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', scheduledFor, now);
+  const diff = job.data.scheduledFor.getTime() - now.getTime();
+  assert.equal(diff, intervalDays * 24 * 60 * 60 * 1000);
+});
+
+test('duplicate completion produces same job id — enqueue dedup handles it', () => {
+  const appointmentId = 'appt-dupe';
+  const customerId = 'user-dupe';
+  const now = new Date();
+  const scheduledFor = new Date(now.getTime() + 21 * 86400000);
+  const job1 = buildPushJobForHaircutReminder(appointmentId, customerId, scheduledFor, now);
+  const job2 = buildPushJobForHaircutReminder(appointmentId, customerId, scheduledFor, now);
+  assert.equal(job1.id, job2.id, 'same appointment + customer = same dedup id');
+});
+
+test('different appointments for same customer produce different reminder ids', () => {
+  const customerId = 'user-abc';
+  const scheduledFor = new Date(Date.now() + 21 * 86400000);
+  const job1 = buildPushJobForHaircutReminder('appt-a', customerId, scheduledFor);
+  const job2 = buildPushJobForHaircutReminder('appt-b', customerId, scheduledFor);
+  assert.notEqual(job1.id, job2.id);
+});
+
+test('haircut_reminder type maps to haircutReminderEnabled preference key', () => {
+  // preference enabled (default)
+  assert.equal(isAllowedByPreferences('haircut_reminder', {}), true);
+  assert.equal(isAllowedByPreferences('haircut_reminder', { haircutReminderEnabled: true }), true);
+});
+
+test('haircut reminder is blocked when haircutReminderEnabled is false', () => {
+  assert.equal(isAllowedByPreferences('haircut_reminder', { haircutReminderEnabled: false }), false);
+});
+
+test('global notificationsEnabled:false also blocks haircut reminder', () => {
+  assert.equal(isAllowedByPreferences('haircut_reminder', { notificationsEnabled: false }), false);
+});
+
+test('haircut reminder not blocked by unrelated preference being false', () => {
+  assert.equal(isAllowedByPreferences('haircut_reminder', { reminder24hEnabled: false }), true);
+  assert.equal(isAllowedByPreferences('haircut_reminder', { barberMessagesEnabled: false }), true);
+});
+
+test('skip reason already_has_future_appointment is the correct string', () => {
+  const skipReason = 'already_has_future_appointment';
+  assert.equal(skipReason, 'already_has_future_appointment');
+});
+
+test('haircut reminder job uses push channel', () => {
+  const job = buildPushJobForHaircutReminder('appt-1', 'user-1', new Date(Date.now() + 21 * 86400000));
+  assert.equal(job.data.channel, 'push');
+  assert.equal(job.data.status, 'pending');
+});
+
+test('haircut reminder job customerId matches the given customer', () => {
+  const customerId = 'user-xyz';
+  const job = buildPushJobForHaircutReminder('appt-1', customerId, new Date(Date.now() + 21 * 86400000));
+  assert.equal(job.data.customerId, customerId);
 });

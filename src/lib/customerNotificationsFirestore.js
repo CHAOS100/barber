@@ -30,6 +30,7 @@ export const CUSTOMER_NOTIFICATION_TYPES = [
   'broadcast',
   'free_slot',
   'appointment',
+  'haircut_reminder',
   'warning',
   'block',
   'payment_request',

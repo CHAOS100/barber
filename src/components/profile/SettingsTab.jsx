@@ -29,6 +29,7 @@ const NOTIFICATION_SETTINGS = [
   { key: 'waitlistAlertsEnabled', label: 'מקום פנוי ברשימת המתנה', desc: 'כשמקום נפתח שמתאים לבקשה שלך' },
   { key: 'barberMessagesEnabled', label: 'הודעות מהספר', desc: 'עדכונים, מבצעים ומסרים ישירים' },
   { key: 'paymentWarningsEnabled', label: 'התראות תשלום', desc: 'דרישות תשלום ואזהרות' },
+  { key: 'haircutReminderEnabled', label: 'תזכורת לחזור להסתפר', desc: 'תזכורת לקבוע תור חדש לאחר תספורת' },
 ];
 
 const defaultNotifications = {
@@ -40,6 +41,8 @@ const defaultNotifications = {
   waitlistAlertsEnabled: false,
   barberMessagesEnabled: true,
   paymentWarningsEnabled: true,
+  haircutReminderEnabled: true,
+  haircutReminderIntervalDays: 21,
   // Legacy keys kept for backward compatibility
   booking_confirm: true,
   reminder_24h: true,
@@ -109,6 +112,12 @@ export default function SettingsTab({ currentUser, openPersonalRequest = 0 }) {
 
   const toggleAllNotifs = useCallback((enabled) => {
     const updated = { ...notifs, notificationsEnabled: enabled };
+    setNotifs(updated);
+    savePreferences.mutate({ notificationPreferences: updated });
+  }, [notifs, savePreferences]);
+
+  const setHaircutInterval = useCallback((days) => {
+    const updated = { ...notifs, haircutReminderIntervalDays: days };
     setNotifs(updated);
     savePreferences.mutate({ notificationPreferences: updated });
   }, [notifs, savePreferences]);
@@ -263,6 +272,33 @@ export default function SettingsTab({ currentUser, openPersonalRequest = 0 }) {
               </div>
             </button>
           ))}
+
+          {/* Haircut reminder frequency selector — shown only when the reminder is enabled */}
+          {notifs.haircutReminderEnabled && (
+            <div className="glass rounded-2xl px-4 py-3">
+              <div className="text-xs text-muted-foreground mb-2.5 font-medium">תדירות התזכורת</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { days: 14, label: 'כל שבועיים' },
+                  { days: 21, label: 'כל 3 שבועות' },
+                  { days: 30, label: 'כל חודש' },
+                  { days: 42, label: 'כל 6 שבועות' },
+                ].map(({ days, label }) => (
+                  <button
+                    key={days}
+                    onClick={() => setHaircutInterval(days)}
+                    className={`rounded-xl py-2 px-3 text-xs font-bold press-scale transition-colors ${
+                      (notifs.haircutReminderIntervalDays || 21) === days
+                        ? 'gold-gradient text-black'
+                        : 'glass text-muted-foreground'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     );

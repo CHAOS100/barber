@@ -26,6 +26,7 @@ const PREF_KEY_FOR_TYPE = {
   appointment_reminder_2h: 'reminder2hEnabled',
   waiting_list_slot_available: 'waitlistAlertsEnabled',
   waiting_list_manual_notify: 'waitlistAlertsEnabled',
+  haircut_reminder: 'haircutReminderEnabled',
   payment_warning: 'paymentWarningsEnabled',
   warning: 'paymentWarningsEnabled',
   block: 'paymentWarningsEnabled',

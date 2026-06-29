@@ -489,6 +489,32 @@ export const buildPushJobForSlotsReleased = (
 });
 
 /**
+ * Build a time-scheduled push job reminding a customer to rebook.
+ * Dedup key: haircut_reminder_{appointmentId}_{customerId}
+ */
+export const buildPushJobForHaircutReminder = (
+  appointmentId,
+  customerId,
+  scheduledFor,
+  now = new Date(),
+) => buildPushJob({
+  id: `haircut_reminder_${appointmentId}_${customerId}`,
+  customerId,
+  customerPhone: null,
+  type: 'haircut_reminder',
+  title: 'הגיע הזמן להסתפר',
+  body: 'עבר זמן מהתספורת האחרונה שלך ב־OST BARBER. היכנס לשריין תור חדש.',
+  data: {
+    source: 'rebooking_reminder',
+    customerId,
+    lastAppointmentId: appointmentId,
+    action: 'open_booking',
+  },
+  scheduledFor,
+  createdAt: now,
+});
+
+/**
  * Build a push notification job for a waiting list slot becoming available.
  */
 export const buildPushJobForWaitlistMatch = (

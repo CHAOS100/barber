@@ -31,7 +31,14 @@ const getTargetUserId = (jobData = {}) => (
 );
 
 // Reminder job types that also need an in-app inbox notification when they fire
-const REMINDER_TYPES = new Set(['appointment_reminder_24h', 'appointment_reminder_2h']);
+const REMINDER_TYPES = new Set(['appointment_reminder_24h', 'appointment_reminder_2h', 'haircut_reminder']);
+
+// inbox type override for reminder jobs — haircut_reminder gets its own type, others use 'appointment'
+const REMINDER_INBOX_TYPE = {
+  appointment_reminder_24h: 'appointment',
+  appointment_reminder_2h: 'appointment',
+  haircut_reminder: 'haircut_reminder',
+};
 
 const createReminderInAppNotification = async (firestore, jobId, jobData) => {
   const customerId = getTargetUserId(jobData);
@@ -44,16 +51,19 @@ const createReminderInAppNotification = async (firestore, jobId, jobData) => {
       .doc(`${jobId}_inbox`);
     const snap = await inAppRef.get();
     if (snap.exists) return;
+    const isHaircutReminder = jobData.type === 'haircut_reminder';
     await inAppRef.set({
-      type: 'appointment',
-      severity: 'info',
+      type: REMINDER_INBOX_TYPE[jobData.type] || 'appointment',
+      severity: isHaircutReminder ? 'success' : 'info',
       title: jobData.title || 'תזכורת לתור',
       message: jobData.body || 'יש לך תור בקרוב.',
       targetType: 'single_customer',
       targetCustomerId: customerId,
       targetPhone: jobData.customerPhone || null,
       status: 'unread',
-      source: 'reminder',
+      source: isHaircutReminder ? 'rebooking_reminder' : 'reminder',
+      lastAppointmentId: jobData.data?.lastAppointmentId || null,
+      action: jobData.data?.action || null,
       appointmentId: jobData.data?.appointmentId || jobData.appointmentId || null,
       date: jobData.data?.date || null,
       startTime: jobData.data?.startTime || null,
@@ -100,6 +110,23 @@ export const IMMEDIATE_PUSH_TYPES = new Set([
 ]);
 
 // ── Firestore helpers ─────────────────────────────────────────────────────────
+
+const customerHasFutureAppointment = async (firestore, customerId) => {
+  if (!customerId) return false;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const snap = await firestore
+      .collection('appointments')
+      .where('customerId', '==', customerId)
+      .where('date', '>=', today)
+      .where('status', 'in', ['pending', 'confirmed'])
+      .limit(1)
+      .get();
+    return !snap.empty;
+  } catch {
+    return false; // fail open: if check fails, don't skip
+  }
+};
 
 const fetchEnabledTokens = async (firestore, customerId) => {
   if (!customerId) {
@@ -421,6 +448,16 @@ export const processPendingPushJobs = async () => {
       await markJobFailed(firestore, jobId, 'max attempts reached', attempts, true);
       summary.jobsFailed += 1;
       continue;
+    }
+
+    // Haircut reminder: skip if customer already has a future booking
+    if (jobData.type === 'haircut_reminder' && customerId) {
+      const hasFuture = await customerHasFutureAppointment(firestore, customerId);
+      if (hasFuture) {
+        await markJobSkipped(firestore, jobId, 'already_has_future_appointment', attempts);
+        summary.jobsSkipped += 1;
+        continue;
+      }
     }
 
     try {

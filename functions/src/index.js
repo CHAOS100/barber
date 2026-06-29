@@ -21,6 +21,7 @@ import {
   buildPushJobForWaitlistMatch,
   buildPushJobForProfileStatus,
   buildPushJobForSlotsReleased,
+  buildPushJobForHaircutReminder,
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
 import { NotificationJobService } from './notifications/notificationService.js';
@@ -212,6 +213,26 @@ export const queueAdminNotificationForNewAppointment = onDocumentCreated(
   },
 );
 
+const scheduleHaircutReminder = async (appointmentId, appointment, now = new Date()) => {
+  const customerId = appointment.customerId || null;
+  if (!customerId) return null;
+  try {
+    const userSnap = await getFirestore().collection('users').doc(customerId).get();
+    const prefs = userSnap.exists ? (userSnap.data().notificationPreferences || {}) : {};
+    if (prefs.haircutReminderEnabled === false) return null;
+    const intervalDays = Math.max(7, Math.min(180, Number(prefs.haircutReminderIntervalDays) || 21));
+    const scheduledFor = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+    return buildPushJobForHaircutReminder(appointmentId, customerId, scheduledFor, now);
+  } catch (error) {
+    logger.warn('scheduleHaircutReminder: preference lookup failed, skipping', {
+      appointmentId,
+      customerId,
+      error: error.message,
+    });
+    return null;
+  }
+};
+
 export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
   'appointments/{appointmentId}',
   async (event) => {
@@ -273,6 +294,8 @@ export const queueCustomerNotificationsForAppointmentStatus = onDocumentUpdated(
 
     if (after.status === 'completed') {
       jobsToEnqueue.push(buildPushJobForAppointmentEvent(appointmentId, after, 'completed'));
+      const reminderJob = await scheduleHaircutReminder(appointmentId, after);
+      if (reminderJob) jobsToEnqueue.push(reminderJob);
     }
 
     if (after.status === 'no_show') {
