@@ -33,6 +33,7 @@ import { useCustomerMessages } from '@/hooks/useCustomerMessages';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 import GalTechBadge from '@/components/branding/GalTechBadge';
+import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
 
 // ── Notification mini-card (home screen preview) ──────────────────────────────
 
@@ -180,17 +181,11 @@ export default function Home() {
         </div>
         {/* Barber avatar */}
         <div className="absolute bottom-4 left-4">
-          {profileImageUrl ? (
-            <img
-              src={profileImageUrl}
-              alt="OST BARBER"
-              className="w-14 h-14 rounded-full border-2 border-primary gold-shadow object-cover bg-secondary"
-            />
-          ) : (
-            <div className="w-14 h-14 rounded-full border-2 border-primary gold-shadow gold-gradient text-black font-black flex items-center justify-center">
-              OST
-            </div>
-          )}
+          <img
+            src={profileImageUrl || BUSINESS_BRAND_IMAGE_SRC}
+            alt="OST BARBER"
+            className="w-14 h-14 rounded-full border-2 border-primary gold-shadow object-cover bg-secondary"
+          />
         </div>
       </div>
 

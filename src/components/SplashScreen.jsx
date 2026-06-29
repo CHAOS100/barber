@@ -1,47 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { doc, getDoc } from 'firebase/firestore';
-import { getFirestoreDb } from '@/lib/firebase';
 import GalTechBadge from './branding/GalTechBadge';
-
-const toVersionMs = (timestamp) => (
-  timestamp?.toMillis?.()
-  || (timestamp?.seconds ? timestamp.seconds * 1000 : '')
-  || ''
-);
-
-const withImageVersion = (url, timestamp) => {
-  const cleanUrl = String(url || '').trim();
-  const version = toVersionMs(timestamp);
-  if (!cleanUrl || !version) return cleanUrl;
-  return `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}v=${version}`;
-};
+import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
 
 export default function SplashScreen({ onDone }) {
-  const [phase, setPhase] = useState('show'); // show | fadeout
-  // null = still loading, '' = loaded but no image, '<url>' = image ready
-  const [splashImageUrl, setSplashImageUrl] = useState(null);
+  const [phase, setPhase] = useState('show');
 
   useEffect(() => {
-    // Fetch business settings to get profile / hero image.
-    // Runs outside QueryClientProvider, so we call Firestore directly.
-    getDoc(doc(getFirestoreDb(), 'settings', 'business'))
-      .then((snapshot) => {
-        if (!snapshot.exists()) { setSplashImageUrl(''); return; }
-        const data = snapshot.data();
-        const profileUrl = withImageVersion(data.profileImageUrl, data.profileImageUpdatedAt);
-        const heroUrl = withImageVersion(data.homeHeroImageUrl, data.homeHeroImageUpdatedAt);
-        setSplashImageUrl(profileUrl || heroUrl || '');
-      })
-      .catch(() => setSplashImageUrl(''));
-
     const t1 = setTimeout(() => setPhase('fadeout'), 2200);
     const t2 = setTimeout(() => onDone(), 2800);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [onDone]);
-
-  const imageLoaded = splashImageUrl !== null; // false while Firestore fetch is in-flight
-  const hasImage = Boolean(splashImageUrl); // truthy URL string
 
   return (
     <AnimatePresence>
@@ -65,26 +34,12 @@ export default function SplashScreen({ onDone }) {
             {/* Border ring */}
             <div className="absolute -inset-1 rounded-3xl gold-gradient opacity-60" />
 
-            {/* While Firestore is loading → dark skeleton (no flicker) */}
-            {!imageLoaded && (
-              <div className="relative w-28 h-28 rounded-3xl bg-secondary animate-pulse" />
-            )}
-
-            {/* Business image */}
-            {imageLoaded && hasImage && (
-              <img
-                src={splashImageUrl}
-                alt="OST BARBER"
-                className="relative w-28 h-28 rounded-3xl object-cover"
-              />
-            )}
-
-            {/* Fallback OST logo — only when loaded and no image configured */}
-            {imageLoaded && !hasImage && (
-              <div className="relative w-28 h-28 rounded-3xl gold-gradient text-black font-black text-3xl flex items-center justify-center">
-                OST
-              </div>
-            )}
+            {/* Business image — bundled local asset, shows immediately without any network wait */}
+            <img
+              src={BUSINESS_BRAND_IMAGE_SRC}
+              alt="OST BARBER"
+              className="relative w-28 h-28 rounded-3xl object-cover"
+            />
           </motion.div>
 
           {/* Text lockup */}

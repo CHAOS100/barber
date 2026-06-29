@@ -5,6 +5,7 @@ import { ArrowRight, Phone, ShieldCheck, Lock, Mail, MessageCircle } from 'lucid
 import { clearStoredAdminSession, loginUser } from '../lib/userStore';
 import GoldButton from '../components/ui/GoldButton';
 import GalTechBadge from '@/components/branding/GalTechBadge';
+import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
 import {
   confirmFirebasePhoneCode,
   getErrorCode,
@@ -511,9 +512,11 @@ export default function OTPLogin() {
         >
           {/* Header */}
           <div className="text-center mb-5 sm:mb-7">
-            <div className="w-20 h-20 rounded-2xl border-2 border-primary gold-shadow gold-gradient text-black font-black text-xl mx-auto mb-3 flex items-center justify-center">
-              OST
-            </div>
+            <img
+              src={BUSINESS_BRAND_IMAGE_SRC}
+              alt="OST BARBER"
+              className="w-20 h-20 rounded-2xl border-2 border-primary gold-shadow object-cover mx-auto mb-3"
+            />
             <h1 className="text-3xl font-black tracking-tight">OST BARBER</h1>
             <p className="text-muted-foreground mt-1">
               {mode === 'admin' ? 'כניסת מנהל' : 'כניסה לחשבון'}

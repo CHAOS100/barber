@@ -17,6 +17,7 @@ import { useAdminReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
 import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from '@/lib/dashboardStats';
 import { isCriticalCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
+import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -105,9 +106,11 @@ export default function AdminDashboard() {
       <div className="relative px-4 pt-12 pb-8 overflow-hidden">
         <div className="absolute inset-0 gold-gradient opacity-5" />
         <div className="relative flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl border border-primary gold-gradient text-black font-black flex items-center justify-center flex-shrink-0">
-            OST
-          </div>
+          <img
+            src={BUSINESS_BRAND_IMAGE_SRC}
+            alt="OST BARBER"
+            className="w-14 h-14 rounded-xl border border-primary object-cover flex-shrink-0"
+          />
           <div>
             <h1 className="text-2xl font-black">לוח ניהול</h1>
             <p className="text-primary text-sm font-medium">OST BARBER</p>
