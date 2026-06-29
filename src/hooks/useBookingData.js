@@ -9,6 +9,7 @@ import {
   subscribeToBusinessSettings,
   subscribeToBookingSlotReleases,
   subscribeToUpcomingBookingSlotReleases,
+  subscribeToBookingSlotReleasesAll,
 } from '@/lib/businessFirestore';
 
 const useSubscription = (subscribe, enabled = true) => {
@@ -96,4 +97,12 @@ export const useUpcomingBookingSlotReleasesRealtime = (fromDate) => {
     [fromDate],
   );
   return useSubscription(subscribe, Boolean(fromDate));
+};
+
+export const useBookingSlotReleasesAllRealtime = (sinceDate) => {
+  const subscribe = useCallback(
+    (onData, onError) => subscribeToBookingSlotReleasesAll(sinceDate, onData, onError),
+    [sinceDate],
+  );
+  return useSubscription(subscribe, Boolean(sinceDate));
 };

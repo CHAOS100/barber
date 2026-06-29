@@ -660,6 +660,19 @@ export const subscribeToUpcomingBookingSlotReleases = (fromDate, onData, onError
   onError,
 );
 
+export const subscribeToBookingSlotReleasesAll = (sinceDate, onData, onError) => onSnapshot(
+  query(
+    collection(getFirestoreDb(), 'bookingSlotReleases'),
+    where('date', '>=', sinceDate),
+  ),
+  (snapshot) => onData(
+    snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  ),
+  onError,
+);
+
 export const callPublishManualSlotRelease = async (input) => {
   await ensureFirebaseAdmin();
   const fn = httpsCallable(getFirebaseFunctions(), 'publishManualSlotRelease');

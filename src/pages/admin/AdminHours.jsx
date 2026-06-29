@@ -13,7 +13,7 @@ import {
 } from '@/lib/businessFirestore';
 import {
   useBookingSettingsRealtime,
-  useUpcomingBookingSlotReleasesRealtime,
+  useBookingSlotReleasesAllRealtime,
   useAllBarbersRealtime,
 } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
@@ -372,7 +372,7 @@ const groupReleasesByBatch = (releases) => {
   return [...byBatch.values()].sort((a, b) => a.minDate.localeCompare(b.minDate));
 };
 
-function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, cancellingId }) {
+function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, cancellingId, showCancel = true }) {
   const barberName = (id) => barbers.find(b => b.id === id)?.name || id;
 
   if (releases.length === 0) {
@@ -391,28 +391,30 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
         const countLabel = g.items.length === 1 ? 'יום אחד' : `${g.items.length} ימים`;
         const batchKey = g.releaseBatchId || g.legacyId;
         const isCancelling = cancellingId === batchKey;
+        const isCancelled = g.items.every(r => r.status === 'cancelled');
 
         return (
-          <div key={batchKey} className="glass rounded-xl px-3 py-2.5">
+          <div key={batchKey} className={`glass rounded-xl px-3 py-2.5 ${isCancelled ? 'opacity-50' : ''}`}>
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-bold text-foreground leading-snug">
-                  {dateLabel}
-                  {!isSingleDay && (
-                    <span className="text-muted-foreground font-normal text-xs"> · {countLabel}</span>
-                  )}
-                  {barbers.length > 1 && g.barberId && (
-                    <span className="text-muted-foreground font-normal"> · {barberName(g.barberId)}</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-foreground leading-snug">
+                    {dateLabel}
+                  </span>
+                  {isCancelled && (
+                    <span className="text-[10px] bg-red-500/20 text-red-400 rounded-full px-2 py-0.5 font-bold">בוטל</span>
                   )}
                 </div>
-                <div className="text-xs text-primary mt-0.5">
-                  {g.startTime} – {g.endTime}
-                  {g.note && <span className="text-muted-foreground"> · {g.note}</span>}
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {!isSingleDay && <span>{countLabel} · </span>}
+                  {barbers.length > 1 && g.barberId && <span>{barberName(g.barberId)} · </span>}
+                  <span className={isCancelled ? '' : 'text-primary'}>{g.startTime} – {g.endTime}</span>
+                  {g.note && <span> · {g.note}</span>}
                 </div>
                 {!isSingleDay && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {g.items.slice(0, 5).map((r) => (
-                      <span key={r.id} className="text-xs bg-primary/10 text-primary rounded px-1.5 py-0.5">
+                      <span key={r.id} className={`text-xs rounded px-1.5 py-0.5 ${r.status === 'cancelled' ? 'bg-red-500/10 text-red-400/60 line-through' : 'bg-primary/10 text-primary'}`}>
                         {formatDate(r.date)}
                       </span>
                     ))}
@@ -422,14 +424,16 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => g.releaseBatchId ? onCancelBatch(g.releaseBatchId) : onCancelSingle(g.legacyId)}
-                disabled={isCancelling}
-                className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0 mt-0.5"
-                title="בטל חלון זה"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {showCancel && !isCancelled && (
+                <button
+                  onClick={() => g.releaseBatchId ? onCancelBatch(g.releaseBatchId) : onCancelSingle(g.legacyId)}
+                  disabled={isCancelling}
+                  className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0 mt-0.5"
+                  title="בטל חלון זה"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         );
@@ -446,6 +450,7 @@ export default function AdminHours() {
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(30);
   const [availabilityMode, setAvailabilityMode] = useState('automatic');
   const [cancellingId, setCancellingId] = useState(null); // holds batchId or single doc id
+  const [showReleaseHistory, setShowReleaseHistory] = useState(false);
 
   const { settings, error: settingsError } = useBookingSettingsRealtime();
   const { data: allBarbers } = useAllBarbersRealtime();
@@ -453,7 +458,21 @@ export default function AdminHours() {
     () => allBarbers.filter(b => b.is_active && !b.archived),
     [allBarbers],
   );
-  const { data: upcomingReleases } = useUpcomingBookingSlotReleasesRealtime(todayStr());
+  const today = todayStr();
+  const since60Days = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 60);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const { data: allReleases } = useBookingSlotReleasesAllRealtime(since60Days);
+  const upcomingReleases = useMemo(
+    () => allReleases.filter(r => r.status === 'active' && r.date >= today),
+    [allReleases, today],
+  );
+  const historyReleases = useMemo(
+    () => allReleases.filter(r => r.status !== 'active' || r.date < today),
+    [allReleases, today],
+  );
 
   useEffect(() => {
     if (!settings) return;
@@ -626,6 +645,29 @@ export default function AdminHours() {
                   onCancelSingle={handleCancelSingle}
                   cancellingId={cancellingId}
                 />
+                {historyReleases.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <button
+                      onClick={() => setShowReleaseHistory(prev => !prev)}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground font-bold w-full"
+                    >
+                      {showReleaseHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      {showReleaseHistory ? 'הסתר היסטוריה' : `היסטוריה (${historyReleases.length} ימים)`}
+                    </button>
+                    {showReleaseHistory && (
+                      <div className="mt-2">
+                        <SlotReleaseList
+                          releases={historyReleases}
+                          barbers={activeBarbers}
+                          onCancelBatch={handleCancelBatch}
+                          onCancelSingle={handleCancelSingle}
+                          cancellingId={cancellingId}
+                          showCancel={false}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
