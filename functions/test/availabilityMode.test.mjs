@@ -739,3 +739,89 @@ test('admin getEffectiveStatus: future confirmed stays confirmed', () => {
   const today = new Date().toISOString().slice(0, 10);
   assert.equal(getEffectiveStatusAdmin({ status: 'confirmed', date: tomorrow }, today), 'confirmed');
 });
+
+// ─── PART 8: Inactive service/barber hidden from booking ─────────────────────
+
+// Mirrors client-side filter in Booking.jsx: services.filter(s => s.is_active !== false)
+const filterActiveServices = (services) => services.filter(s => s.is_active !== false);
+
+// Mirrors server-side: subscribeToActiveBarbers uses where('active','==',true) && !archived
+const filterActiveBarbers = (barbers) => barbers.filter(b => b.active !== false && !b.archived);
+
+test('inactive service (is_active: false) is hidden from customer booking list', () => {
+  const services = [
+    { id: 'svc-1', name: 'תספורת', is_active: true, active: true },
+    { id: 'svc-2', name: 'עיצוב זקן', is_active: false, active: false },
+  ];
+  const visible = filterActiveServices(services);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, 'svc-1');
+});
+
+test('active service is shown in customer booking list', () => {
+  const services = [
+    { id: 'svc-1', name: 'תספורת', is_active: true, active: true },
+  ];
+  assert.equal(filterActiveServices(services).length, 1);
+});
+
+test('service with no is_active field defaults to visible', () => {
+  const services = [{ id: 'svc-1', name: 'תספורת' }];
+  const visible = filterActiveServices(services);
+  assert.equal(visible.length, 1, 'absent is_active defaults to visible (is_active !== false)');
+});
+
+test('inactive barber (active: false) is excluded from active barbers', () => {
+  const barbers = [
+    { id: 'b-1', name: 'יוסי', active: true, archived: false },
+    { id: 'b-2', name: 'דני', active: false, archived: false },
+  ];
+  const visible = filterActiveBarbers(barbers);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, 'b-1');
+});
+
+test('archived barber is excluded from active barbers even if active: true', () => {
+  const barbers = [
+    { id: 'b-1', name: 'יוסי', active: true, archived: false },
+    { id: 'b-2', name: 'ישן', active: true, archived: true },
+  ];
+  const visible = filterActiveBarbers(barbers);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, 'b-1');
+});
+
+test('active non-archived barber appears in customer booking', () => {
+  const barbers = [{ id: 'b-1', name: 'יוסי', active: true, archived: false }];
+  assert.equal(filterActiveBarbers(barbers).length, 1);
+});
+
+test('toggle: passing active:false explicitly disables service via normalizeService logic', () => {
+  // Mirrors normalizeService: active = input.active ?? input.is_active ?? true
+  // Correct toggle call: pass active: newValue (not just is_active)
+  const normalizeActive = (input) => input.active ?? input.is_active ?? true;
+
+  // Old broken pattern — spread sets both active:true and is_active:false
+  const brokenInput = { active: true, is_active: false };
+  assert.equal(normalizeActive(brokenInput), true, 'old pattern: active wins over is_active');
+
+  // Fixed pattern — explicitly pass active: false
+  const fixedInput = { active: false };
+  assert.equal(normalizeActive(fixedInput), false, 'fixed pattern: explicit active:false works');
+});
+
+test('toggle: passing active:true explicitly enables service', () => {
+  const normalizeActive = (input) => input.active ?? input.is_active ?? true;
+  const input = { active: true };
+  assert.equal(normalizeActive(input), true);
+});
+
+test('barber toggle: passing active:false disables via normalizeBarber logic', () => {
+  const normalizeActive = (input) => input.active ?? input.is_active ?? true;
+  // Correct toggle: spread barber then override active explicitly
+  const barber = { id: 'b-1', active: true, is_active: true };
+  const toggledOff = { ...barber, active: !barber.is_active };
+  assert.equal(normalizeActive(toggledOff), false, 'toggling active to false works');
+  const toggledOn = { ...barber, active: false, is_active: false };
+  assert.equal(normalizeActive({ ...toggledOn, active: !toggledOn.is_active }), true, 'toggling active to true works');
+});

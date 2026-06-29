@@ -307,17 +307,17 @@ export default function Appointments() {
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
               onPointerDown={e => e.stopPropagation()}
             >
-              <div className="flex items-center gap-3 mb-4">
-                <BellRing className="w-8 h-8 text-primary" />
+              <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
+                <BellRing className="w-8 h-8 text-primary flex-shrink-0" />
                 <div>
                   <div className="font-bold">הסרה מרשימת המתנה</div>
                   <div className="text-muted-foreground text-sm">האם להסיר את הבקשה?</div>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="modal-actions px-5 flex gap-3">
                 <button onClick={() => setCancelWlModal(null)} className="flex-1 glass py-3 rounded-xl font-bold">חזרה</button>
                 <button
                   disabled={cancelWlBusy}
@@ -363,31 +363,43 @@ export default function Appointments() {
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm overflow-y-auto"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
               onPointerDown={e => e.stopPropagation()}
             >
-              <div className="flex items-center gap-3 mb-4">
-                <AlertTriangle className="w-8 h-8 text-yellow-400" />
+              {/* Header — always visible */}
+              <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
+                <AlertTriangle className="w-8 h-8 text-yellow-400 flex-shrink-0" />
                 <div>
                   <div className="font-bold">ביטול תור</div>
                   <div className="text-muted-foreground text-sm">האם אתה בטוח שברצונך לבטל?</div>
                 </div>
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                ניתן לבטל עד {cancellationDeadlineMinutes} דקות לפני מועד התור לפי מדיניות העסק.
-              </p>
-              <div className="mb-4">
-                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">סיבת ביטול (אופציונלי)</label>
-                <textarea
-                  value={cancelReason}
-                  onChange={e => setCancelReason(e.target.value)}
-                  placeholder="לדוגמה: לא אוכל להגיע..."
-                  rows={2}
-                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary"
-                  dir="rtl"
-                />
+
+              {/* Scrollable body */}
+              <div className="modal-scroll-body px-5">
+                <p className="text-sm text-muted-foreground mb-4">
+                  ניתן לבטל עד {cancellationDeadlineMinutes} דקות לפני מועד התור לפי מדיניות העסק.
+                </p>
+                <div className="mb-2">
+                  <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">סיבת ביטול (אופציונלי)</label>
+                  <textarea
+                    value={cancelReason}
+                    onChange={e => setCancelReason(e.target.value)}
+                    placeholder="לדוגמה: לא אוכל להגיע..."
+                    rows={2}
+                    className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary"
+                    dir="rtl"
+                  />
+                </div>
+                {cancelMutation.error && (
+                  <div className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                    {getBookingRejectionMessage(cancelMutation.error)}
+                  </div>
+                )}
               </div>
-              <div className="flex gap-3">
+
+              {/* Actions — always visible */}
+              <div className="modal-actions px-5 flex gap-3">
                 <button onClick={() => { setCancelModal(null); setCancelReason(''); }} className="flex-1 glass py-3 rounded-xl font-bold">
                   חזרה
                 </button>
@@ -399,11 +411,6 @@ export default function Appointments() {
                   {cancelMutation.isPending ? 'מבטל...' : 'בטל תור'}
                 </button>
               </div>
-              {cancelMutation.error && (
-                <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
-                  {getBookingRejectionMessage(cancelMutation.error)}
-                </div>
-              )}
             </motion.div>
           </motion.div>
         )}

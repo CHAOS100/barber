@@ -145,10 +145,8 @@
 }
 
 /*
- * Modal card that scrolls internally.
- * DOES NOT carry its own overflow-y — the scrollable region is a child
- * .modal-scroll-body div inside. This lets action buttons sit outside
- * the scroll so they are always reachable on iPhone.
+ * Modal card — outer container clips, inner .modal-scroll-body scrolls.
+ * Header (flex-shrink-0) and .modal-actions (flex-shrink-0) stay pinned.
  *
  * Height budget:
  *   100dvh
@@ -165,22 +163,19 @@
     - max(env(safe-area-inset-bottom, 0px), 8px)
     - 32px
   );
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  -webkit-overflow-scrolling: touch;
   animation: modalRise 0.24s ease-out;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
 }
 
-/* Scrollable body region inside modal */
+/* Scrollable body region — fills available space, scrolls internally */
 .modal-scroll-body {
-  overflow-y: visible;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
 }
 

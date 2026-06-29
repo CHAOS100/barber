@@ -49,7 +49,10 @@ export default function AdminServices() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (/** @type {any} */ { id, is_active }) => saveService(id, { ...services.find(s => s.id === id), is_active }),
+    mutationFn: (/** @type {any} */ { id, is_active }) => {
+      const svc = services.find(s => s.id === id);
+      return saveService(id, { ...svc, active: is_active });
+    },
     onSuccess: () => toast({ title: 'סטטוס השירות עודכן' }),
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון השירות נכשל', description: getUserFacingErrorMessage(error) }),
   });

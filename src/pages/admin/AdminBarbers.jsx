@@ -62,7 +62,7 @@ export default function AdminBarbers() {
     onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const toggleMutation = useMutation({
-    mutationFn: (barber) => saveBarber(barber.id, { ...barber, is_active: !barber.is_active }),
+    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: !barber.is_active }),
     onSuccess: () => toast({ title: 'סטטוס הספר עודכן' }),
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון הסטטוס נכשל', description: getUserFacingErrorMessage(error) }),
   });
