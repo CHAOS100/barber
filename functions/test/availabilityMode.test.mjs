@@ -9,12 +9,13 @@ import { ACTIVE_APPOINTMENT_STATUSES, findActiveCustomerAppointment } from '../s
 // ─── Helpers mirroring server logic ──────────────────────────────────────────
 
 // Mirrors rejectManualModeSlot in appointments.js
-const isSlotInReleaseWindow = (slotTime, releases) => {
+const isSlotInReleaseWindow = (slotTime, releases, serviceDuration = 30) => {
   const slotMinutes = timeToMinutes(slotTime);
+  const slotEndMinutes = slotMinutes + Number(serviceDuration || 0);
   return releases.some((r) => {
     const from = timeToMinutes(r.startTime);
     const to = timeToMinutes(r.endTime);
-    return slotMinutes >= from && slotMinutes < to;
+    return slotMinutes >= from && slotEndMinutes <= to;
   });
 };
 
@@ -236,6 +237,11 @@ test('slot before release window is rejected', () => {
 
 test('slot after release window is rejected', () => {
   assert.equal(isSlotInReleaseWindow('18:00', [release('09:00', '17:00')]), false);
+});
+
+test('service must fully fit inside release window', () => {
+  assert.equal(isSlotInReleaseWindow('16:30', [release('09:00', '17:00')], 30), true);
+  assert.equal(isSlotInReleaseWindow('16:45', [release('09:00', '17:00')], 30), false);
 });
 
 test('no releases at all rejects every slot', () => {

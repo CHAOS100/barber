@@ -1,14 +1,19 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, CalendarPlus, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { localDateToString } from '../../lib/slotEngine';
 import {
   createAdminAppointment,
   deleteAppointment,
   updateAdminAppointment,
 } from '@/lib/appointmentsFirestore';
+import {
+  getEffectiveAppointmentStatus,
+  isAppointmentActiveForSchedule,
+  isAppointmentHistoryForSchedule,
+  localDateToString,
+} from '@/lib/appointmentStatus';
 import { useAdminAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime, useAllServicesRealtime } from '@/hooks/useBookingData';
@@ -23,30 +28,12 @@ const STATUS_CONFIG = {
   approved:              { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
   confirmed:             { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
   completed:             { label: 'הושלם',              color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
-  completed_auto:        { label: 'הושלם',              color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
+  completed_auto:        { label: 'הושלם — התספורת בוצעה', color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
   cancelled:             { label: 'בוטל',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
   cancelled_by_admin:    { label: 'בוטל מצד הספר',      color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
   cancelled_by_customer: { label: 'בוטל מצד הלקוח',    color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
   rejected:              { label: 'נדחה',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
   no_show:               { label: 'לא הגיע',            color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
-};
-
-const TERMINAL_STATUSES_ADMIN = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
-const ACTIVE_STATUSES_ADMIN = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
-const CUSTOMER_CANCEL_REASONS_ADMIN = new Set(['customer_cancelled', 'customer_replaced_appointment']);
-
-const isAppointmentActive = (appt, today) =>
-  !TERMINAL_STATUSES_ADMIN.has(appt.status) && (appt.date || '') >= today;
-
-const isAppointmentHistory = (appt, today) => !isAppointmentActive(appt, today);
-
-const getEffectiveStatus = (appt, today) => {
-  if ((appt.date || '') < today && ACTIVE_STATUSES_ADMIN.has(appt.status)) return 'completed_auto';
-  if (appt.status === 'cancelled') {
-    const reason = appt.cancellationReason || '';
-    return CUSTOMER_CANCEL_REASONS_ADMIN.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
-  }
-  return appt.status;
 };
 
 const RANGE_FILTERS = [
@@ -134,7 +121,9 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-      onClick={onClose}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -142,7 +131,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
         exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-        onClick={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
       >
         {/* Header — always visible, never scrolls */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
@@ -387,10 +376,8 @@ export default function AdminAppointments() {
   // Per-appointment-per-action loading key: "{appointmentId}:{action}"
   // e.g. "appt123:approve", "appt123:cancel", "appt123:delete", "appt123:paid"
   const [loadingAction, setLoadingAction] = useState(null);
-  const loadingRef = useRef(null);
 
-  const setAction = (key) => { loadingAction === null && setLoadingAction(key); loadingRef.current = key; };
-  const clearAction = () => { setLoadingAction(null); loadingRef.current = null; };
+  const clearAction = () => { setLoadingAction(null); };
   const isActionLoading = (key) => loadingAction === key;
 
   const { appointments, error: appointmentsError } = useAdminAppointmentsRealtime();
@@ -444,28 +431,31 @@ export default function AdminAppointments() {
   const mutationError = updateMutation.error || deleteMutation.error || createMutation.error;
 
   const handleQuickAction = useCallback((actionKey, mutationCall) => {
-    if (loadingAction !== null) return; // block if any action in flight
+    if (loadingAction === actionKey) return;
     setLoadingAction(actionKey);
     mutationCall();
   }, [loadingAction]);
 
-  const today = localDateToString();
-  const activeCount = appointments.filter(a => isAppointmentActive(a, today)).length;
-  const historyCount = appointments.filter(a => isAppointmentHistory(a, today)).length;
+  const now = new Date();
+  const today = localDateToString(now);
+  const activeCount = appointments.filter(a => isAppointmentActiveForSchedule(a, now)).length;
+  const historyCount = appointments.filter(a => isAppointmentHistoryForSchedule(a, now)).length;
   const filtered = [...appointments]
     .sort((left, right) =>
       `${left.date || ''} ${left.time || left.startTime || ''}`.localeCompare(
         `${right.date || ''} ${right.time || right.startTime || ''}`,
       ))
     .filter((appointment) => {
-      if (viewMode === 'active' && !isAppointmentActive(appointment, today)) return false;
-      if (viewMode === 'history' && !isAppointmentHistory(appointment, today)) return false;
+      const effectiveStatus = getEffectiveAppointmentStatus(appointment, now);
+      if (viewMode === 'active' && !isAppointmentActiveForSchedule(appointment, now)) return false;
+      if (viewMode === 'history' && !isAppointmentHistoryForSchedule(appointment, now)) return false;
       const appointmentDate = appointment.date || '';
       const matchesRange = rangeFilter === 'all_time'
         || (rangeFilter === 'today' && appointmentDate === today)
         || (rangeFilter === 'future' && appointmentDate > today);
       const matchesStatus = statusFilter === 'all'
         || appointment.status === statusFilter
+        || effectiveStatus === statusFilter
         || (statusFilter === 'confirmed' && appointment.status === 'approved');
       return matchesRange && matchesStatus;
     });
@@ -627,9 +617,10 @@ export default function AdminAppointments() {
 
       <div className="px-4 space-y-2 pb-6">
         {filtered.map((appt, i) => {
-          const effectiveStatus = getEffectiveStatus(appt, today);
+          const effectiveStatus = getEffectiveAppointmentStatus(appt, now);
           const sc = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending;
-          const isActive = isAppointmentActive(appt, today);
+          const isActive = isAppointmentActiveForSchedule(appt, now);
+          const appointmentBusy = Boolean(loadingAction?.startsWith(`${appt.id}:`));
           return (
             <motion.div
               key={appt.id || i}
@@ -703,7 +694,7 @@ export default function AdminAppointments() {
                   return (
                     <button
                       onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { status: 'confirmed' } }))}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="flex-1 py-1.5 rounded-xl bg-green-500/15 text-green-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
@@ -715,14 +706,14 @@ export default function AdminAppointments() {
                   <>
                     <button
                       onClick={() => { setNoShowAppt(appt); setNoShowAction('warning'); }}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="flex-1 py-1.5 rounded-xl bg-orange-500/15 text-orange-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       <UserX className="w-3 h-3" /> לא הגיע
                     </button>
                     <button
                       onClick={() => { setCancelAppt(appt); setCancelReason(''); }}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="flex-1 py-1.5 rounded-xl bg-red-500/15 text-red-400 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       <X className="w-3 h-3" /> בטל
@@ -735,7 +726,7 @@ export default function AdminAppointments() {
                   return (
                     <button
                       onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { status: 'completed' } }))}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
@@ -749,7 +740,7 @@ export default function AdminAppointments() {
                   return (
                     <button
                       onClick={() => handleQuickAction(key, () => updateMutation.mutate({ id: appt.id, data: { paid: true } }))}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="flex-1 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
                       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
@@ -776,7 +767,7 @@ export default function AdminAppointments() {
                         if (!window.confirm('למחוק תור זה?')) return;
                         handleQuickAction(key, () => deleteMutation.mutate(appt.id));
                       }}
-                      disabled={loadingAction !== null}
+                      disabled={appointmentBusy}
                       className="py-1.5 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold flex items-center justify-center disabled:opacity-50"
                     >
                       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -821,7 +812,9 @@ export default function AdminAppointments() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onClick={() => setCancelAppt(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setCancelAppt(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -829,7 +822,7 @@ export default function AdminAppointments() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-              onClick={event => event.stopPropagation()}
+              onPointerDown={event => event.stopPropagation()}
               dir="rtl"
             >
               <div className="px-5 pt-5 pb-3 flex-shrink-0">
@@ -882,7 +875,9 @@ export default function AdminAppointments() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onClick={() => setNoShowAppt(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setNoShowAppt(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -890,7 +885,7 @@ export default function AdminAppointments() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-              onClick={event => event.stopPropagation()}
+              onPointerDown={event => event.stopPropagation()}
               dir="rtl"
             >
               <div className="px-5 pt-5 pb-3 flex-shrink-0">

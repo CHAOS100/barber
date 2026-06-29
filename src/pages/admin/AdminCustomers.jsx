@@ -219,7 +219,9 @@ export default function AdminCustomers() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onClick={() => setSelectedCustomer(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedCustomer(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -227,7 +229,7 @@ export default function AdminCustomers() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
-              onClick={event => event.stopPropagation()}
+              onPointerDown={event => event.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
                 <div>

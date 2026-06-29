@@ -67,6 +67,8 @@ export default function AdminBarbers() {
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון הסטטוס נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
+  const togglingBarberId = toggleMutation.isPending ? toggleMutation.variables?.id : null;
+
   const openEditor = (barber = null) => {
     setForm(barber ? {
       ...barber,
@@ -154,11 +156,11 @@ export default function AdminBarbers() {
               <button onClick={() => openEditor(barber)} className="glass p-2 rounded-lg"><Edit3 className="w-4 h-4 text-primary" /></button>
               <button
                 onClick={() => !barber.archived && toggleMutation.mutate(barber)}
-                disabled={barber.archived || toggleMutation.isPending}
+                disabled={barber.archived || togglingBarberId === barber.id}
                 title={barber.is_active ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
                 className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-40 ${barber.is_active && !barber.archived ? 'text-primary' : 'text-muted-foreground'}`}
               >
-                {barber.is_active && !barber.archived ? 'הסתר' : 'הפעל'}
+                {togglingBarberId === barber.id ? 'מעדכן...' : barber.is_active && !barber.archived ? 'זמין' : 'לא זמין'}
               </button>
               <button onClick={() => archiveMutation.mutate(barber.id)} className="glass p-2 rounded-lg"><Archive className="w-4 h-4 text-orange-400" /></button>
               <button
@@ -182,7 +184,9 @@ export default function AdminBarbers() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onClick={() => setEditing(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setEditing(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -190,7 +194,7 @@ export default function AdminBarbers() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onClick={event => event.stopPropagation()}
+              onPointerDown={event => event.stopPropagation()}
             >
               {/* Fixed header — always visible */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">

@@ -54,6 +54,8 @@ export default function AdminServices() {
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון השירות נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
+  const togglingServiceId = toggleMutation.isPending ? toggleMutation.variables?.id : null;
+
   const openEdit = (service = null) => {
     setForm(service || emptyService);
     setValidationError('');
@@ -136,11 +138,11 @@ export default function AdminServices() {
                 </button>
                 <button
                   onClick={() => toggleMutation.mutate({ id: service.id, is_active: !service.is_active })}
-                  disabled={toggleMutation.isPending}
+                  disabled={togglingServiceId === service.id}
                   title={service.is_active ? 'הסתר מהזמנות' : 'החזר להזמנות'}
-                  className="glass px-2 py-1.5 rounded-lg text-[11px] font-bold text-muted-foreground disabled:opacity-50"
+                  className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-50 ${service.is_active ? 'text-primary' : 'text-muted-foreground'}`}
                 >
-                  {toggleMutation.isPending ? 'מעדכן...' : service.is_active ? 'הסתר' : 'הפעל'}
+                  {togglingServiceId === service.id ? 'מעדכן...' : service.is_active ? 'פעיל' : 'לא פעיל'}
                 </button>
                 <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="glass p-2 rounded-lg">
                   <Trash2 className="w-4 h-4 text-red-400" />
@@ -159,7 +161,9 @@ export default function AdminServices() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onClick={() => setEditModal(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setEditModal(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -167,7 +171,7 @@ export default function AdminServices() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onClick={e => e.stopPropagation()}
+              onPointerDown={e => e.stopPropagation()}
             >
               {/* Fixed header — always visible */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">

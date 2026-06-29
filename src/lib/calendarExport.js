@@ -1,3 +1,5 @@
+import { isAppointmentActiveForSchedule } from '@/lib/appointmentStatus';
+
 const ICS_PRODUCT_ID = '-//OST BARBER//Appointments//HE';
 
 const pad = (value) => String(value).padStart(2, '0');
@@ -60,9 +62,8 @@ const appointmentToEvent = (appointment) => {
 
 export const isCalendarExportableAppointment = (appointment) => {
   const status = appointment?.status;
-  const date = appointment?.date || '';
-  const today = new Date().toISOString().slice(0, 10);
-  return ['approved', 'confirmed', 'scheduled'].includes(status) && date >= today;
+  return ['approved', 'confirmed', 'scheduled'].includes(status)
+    && isAppointmentActiveForSchedule(appointment);
 };
 
 export const buildAppointmentsIcs = (appointments) => {

@@ -307,7 +307,9 @@ export default function Notifications() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center backdrop-blur-md"
-            onClick={() => setSelectedMessage(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedMessage(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 18, scale: 0.96 }}
@@ -315,7 +317,7 @@ export default function Notifications() {
               exit={{ opacity: 0, y: 18, scale: 0.96 }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
               {/* Fixed header — always visible */}
               <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 flex-shrink-0">

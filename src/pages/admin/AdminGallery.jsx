@@ -249,7 +249,9 @@ export default function AdminGallery() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onClick={closeEditor}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) closeEditor();
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -257,7 +259,7 @@ export default function AdminGallery() {
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
-              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
               {/* Fixed header — always visible */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">

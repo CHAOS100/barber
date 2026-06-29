@@ -210,14 +210,16 @@ export default function Reviews() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onClick={resetForm}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) resetForm();
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm overflow-y-auto"
-              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-black text-lg">{isAdmin ? 'הוסף ביקורת ידנית' : 'כתוב ביקורת'}</h3>

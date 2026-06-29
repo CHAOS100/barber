@@ -46,6 +46,19 @@ const formatDate = (dateStr) => {
   return `${day}/${month}/${year}`;
 };
 
+const formatDateTime = (value) => {
+  if (!value) return '';
+  const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('he-IL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 const DAY_NAMES_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
 // Mirrors generateSlotReleaseDates from functions/src/index.js — must stay in sync
@@ -271,13 +284,13 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
       </div>
 
       {/* Time range */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 sm:items-end">
+        <div className="min-w-0">
           <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ משעה</label>
           <TimeSelect value={startTime} onChange={setStartTime} />
         </div>
-        <div className="text-muted-foreground mt-5">—</div>
-        <div className="flex-1">
+        <div className="hidden sm:block text-muted-foreground pb-2">—</div>
+        <div className="min-w-0">
           <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">⏰ עד שעה</label>
           <TimeSelect value={endTime} onChange={setEndTime} />
         </div>
@@ -359,6 +372,7 @@ const groupReleasesByBatch = (releases) => {
         endTime: r.endTime,
         barberId: r.barberId,
         note: r.note || '',
+        createdAt: r.createdAt || null,
         minDate: r.date,
         maxDate: r.date,
         items: [],
@@ -367,6 +381,7 @@ const groupReleasesByBatch = (releases) => {
     const g = byBatch.get(key);
     if (r.date < g.minDate) g.minDate = r.date;
     if (r.date > g.maxDate) g.maxDate = r.date;
+    if (!g.createdAt && r.createdAt) g.createdAt = r.createdAt;
     g.items.push(r);
   });
   return [...byBatch.values()].sort((a, b) => a.minDate.localeCompare(b.minDate));
@@ -392,6 +407,15 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
         const batchKey = g.releaseBatchId || g.legacyId;
         const isCancelling = cancellingId === batchKey;
         const isCancelled = g.items.every(r => r.status === 'cancelled');
+        const hasActiveFuture = g.items.some(r => r.status === 'active' && r.date >= todayStr());
+        const statusLabel = isCancelled ? 'בוטל' : hasActiveFuture ? 'פעיל' : 'נסגר';
+        const statusClass = isCancelled
+          ? 'bg-red-500/20 text-red-400'
+          : hasActiveFuture
+            ? 'bg-primary/15 text-primary'
+            : 'bg-white/10 text-muted-foreground';
+        const createdAtLabel = formatDateTime(g.createdAt);
+        const shortBatchId = batchKey ? String(batchKey).slice(0, 8) : '';
 
         return (
           <div key={batchKey} className={`glass rounded-xl px-3 py-2.5 ${isCancelled ? 'opacity-50' : ''}`}>
@@ -401,15 +425,18 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
                   <span className="text-sm font-bold text-foreground leading-snug">
                     {dateLabel}
                   </span>
-                  {isCancelled && (
-                    <span className="text-[10px] bg-red-500/20 text-red-400 rounded-full px-2 py-0.5 font-bold">בוטל</span>
-                  )}
+                  <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${statusClass}`}>{statusLabel}</span>
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   {!isSingleDay && <span>{countLabel} · </span>}
                   {barbers.length > 1 && g.barberId && <span>{barberName(g.barberId)} · </span>}
                   <span className={isCancelled ? '' : 'text-primary'}>{g.startTime} – {g.endTime}</span>
                   {g.note && <span> · {g.note}</span>}
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                  {createdAtLabel && <span>נוצר: {createdAtLabel}</span>}
+                  <span>{g.items.length} חלונות</span>
+                  {shortBatchId && <span>Batch: {shortBatchId}</span>}
                 </div>
                 {!isSingleDay && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
@@ -472,6 +499,10 @@ export default function AdminHours() {
   const historyReleases = useMemo(
     () => allReleases.filter(r => r.status !== 'active' || r.date < today),
     [allReleases, today],
+  );
+  const historyBatchCount = useMemo(
+    () => groupReleasesByBatch(historyReleases).length,
+    [historyReleases],
   );
 
   useEffect(() => {
@@ -640,7 +671,7 @@ export default function AdminHours() {
                 <h3 className="text-sm font-black text-foreground mb-3">שעות מפורסמות</h3>
                 <SlotReleaseList
                   releases={upcomingReleases}
-                  barbers={activeBarbers}
+                  barbers={allBarbers}
                   onCancelBatch={handleCancelBatch}
                   onCancelSingle={handleCancelSingle}
                   cancellingId={cancellingId}
@@ -652,13 +683,13 @@ export default function AdminHours() {
                       className="flex items-center gap-1.5 text-xs text-muted-foreground font-bold w-full"
                     >
                       {showReleaseHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      {showReleaseHistory ? 'הסתר היסטוריה' : `היסטוריה (${historyReleases.length} ימים)`}
+                      {showReleaseHistory ? 'הסתר היסטוריה' : `היסטוריה (${historyBatchCount} פרסומים)`}
                     </button>
                     {showReleaseHistory && (
                       <div className="mt-2">
                         <SlotReleaseList
                           releases={historyReleases}
-                          barbers={activeBarbers}
+                          barbers={allBarbers}
                           onCancelBatch={handleCancelBatch}
                           onCancelSingle={handleCancelSingle}
                           cancellingId={cancellingId}

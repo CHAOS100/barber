@@ -18,9 +18,11 @@ import {
   useBusinessSettingsRealtime,
   useBookingSettingsRealtime,
   useBookingSlotReleasesRealtime,
+  useUpcomingBookingSlotReleasesRealtime,
 } from '@/hooks/useBookingData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS, timeToMinutes } from '../lib/slotEngine';
+import { isAppointmentActiveForSchedule } from '@/lib/appointmentStatus';
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -34,10 +36,24 @@ function dateToStr(date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
 
-function CalendarPicker({ workingHours, blockedDates, selectedDate, onSelect }) {
+function CalendarPicker({
+  workingHours,
+  blockedDates,
+  selectedDate,
+  onSelect,
+  availabilityMode = 'automatic',
+  manualReleases = [],
+  selectedBarberId = null,
+}) {
   const today = new Date(); today.setHours(0,0,0,0);
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const isManualMode = availabilityMode === 'manual';
+  const releasedDates = useMemo(() => new Set(
+    manualReleases
+      .filter(r => r.status === 'active' && (!selectedBarberId || r.barberId === selectedBarberId))
+      .map(r => r.date),
+  ), [manualReleases, selectedBarberId]);
 
   const firstDay = new Date(viewYear, viewMonth, 1);
   const lastDay  = new Date(viewYear, viewMonth + 1, 0);
@@ -57,6 +73,7 @@ function CalendarPicker({ workingHours, blockedDates, selectedDate, onSelect }) 
     const wh = workingHours.find(h => h.day_of_week === date.getDay());
     if (!wh || !wh.is_open) return 'closed';
     if (blockedDates.some(b => b.date === ds && b.is_full_day)) return 'blocked';
+    if (isManualMode && !releasedDates.has(ds)) return 'unreleased';
     return 'open';
   };
 
@@ -91,14 +108,16 @@ function CalendarPicker({ workingHours, blockedDates, selectedDate, onSelect }) 
             <motion.button
               key={i}
               whileTap={{ scale: 0.88 }}
-              disabled={status === 'past' || status === 'closed' || status === 'blocked' || status === 'empty'}
+              disabled={status === 'past' || status === 'closed' || status === 'blocked' || status === 'unreleased' || status === 'empty'}
               onClick={() => status === 'open' && onSelect(date)}
               className={`
                 aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-bold transition-all
                 ${isSelected ? 'gold-gradient text-black' : ''}
                 ${!isSelected && status === 'open' ? 'hover:bg-secondary cursor-pointer text-foreground' : ''}
+                ${!isSelected && status === 'open' && isManualMode ? 'border border-primary/30 bg-primary/10 text-primary' : ''}
                 ${status === 'past' || status === 'closed' ? 'text-muted-foreground/30 cursor-not-allowed' : ''}
                 ${status === 'blocked' ? 'text-red-400/60 cursor-not-allowed' : ''}
+                ${status === 'unreleased' ? 'text-muted-foreground/25 bg-white/[0.02] cursor-not-allowed' : ''}
                 ${isToday && !isSelected ? 'ring-1 ring-primary' : ''}
               `}
             >
@@ -110,7 +129,14 @@ function CalendarPicker({ workingHours, blockedDates, selectedDate, onSelect }) 
       </div>
 
       {/* Legend */}
-      <div className="flex gap-4 mt-4 justify-center text-xs text-muted-foreground">
+      {isManualMode && (
+        <div className="flex flex-wrap gap-3 mt-4 justify-center text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary" />פתוח לקביעה</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white/20" />עדיין לא נפתח</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />אין שעות פנויות</span>
+        </div>
+      )}
+      <div className={`${isManualMode ? 'hidden' : 'flex'} gap-4 mt-4 justify-center text-xs text-muted-foreground`}>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400/60" />ימים ללא תורים</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />חופש</span>
       </div>
@@ -196,12 +222,14 @@ export default function Booking() {
   const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
 
   const blockedDates = [];
+  const todayForReleases = useMemo(() => dateToStr(new Date()), []);
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
   const { data: appointmentBlocks } = useAppointmentBlocksRealtime(selectedDateStr);
   const { data: slotReleases } = useBookingSlotReleasesRealtime(selectedDateStr);
+  const { data: upcomingSlotReleases } = useUpcomingBookingSlotReleasesRealtime(todayForReleases);
   const activeAppointment = customerAppointments.find((appointment) =>
-    ['pending', 'approved', 'confirmed', 'scheduled'].includes(appointment.status));
+    isAppointmentActiveForSchedule(appointment));
 
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
@@ -268,10 +296,11 @@ export default function Booking() {
     const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
     return allSlots.filter((slot) => {
       const slotMinutes = timeToMinutes(slot);
+      const slotEndMinutes = slotMinutes + Number(selectedService.duration || 0);
       return barberReleases.some((r) => {
         const from = timeToMinutes(r.startTime);
         const to = timeToMinutes(r.endTime);
-        return slotMinutes >= from && slotMinutes < to;
+        return slotMinutes >= from && slotEndMinutes <= to;
       });
     });
   }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings, slotReleases]);
@@ -809,6 +838,9 @@ export default function Booking() {
                 workingHours={workingHours}
                 blockedDates={blockedDates}
                 selectedDate={selectedDate}
+                availabilityMode={bookingSettings?.availabilityMode}
+                manualReleases={upcomingSlotReleases}
+                selectedBarberId={selectedBarber?.id}
                 onSelect={(d) => { setSelectedDate(d); setSelectedTime(null); setSelectedTimeGroup(null); setWaitingListOpen(false); setWaitingListMessage(''); }}
               />
 

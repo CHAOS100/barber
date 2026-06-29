@@ -100,7 +100,9 @@ export default function Gallery() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-            onClick={() => setSelectedIndex(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedIndex(null);
+            }}
           >
             <div className="absolute top-4 right-4 flex gap-3">
               <button
@@ -130,7 +132,7 @@ export default function Gallery() {
               src={filtered[selectedIndex].imageUrl || filtered[selectedIndex].url}
               alt={filtered[selectedIndex].title || ''}
               className="max-w-full max-h-full object-contain px-16"
-              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
             />
             <button
               onClick={(e) => { e.stopPropagation(); handleNext(); }}

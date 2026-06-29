@@ -6,13 +6,18 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useMutation } from '@tanstack/react-query';
 import GoldButton from '../components/ui/GoldButton';
 import EditAppointmentModal from '../components/booking/EditAppointmentModal';
-import { localDateToString } from '../lib/slotEngine';
 import { cancelOwnAppointment } from '@/lib/appointmentsFirestore';
 import { cancelOwnWaitingListEntry, subscribeToCustomerWaitingList } from '@/lib/waitingListFirestore';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 import { useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { getCancellationReasonLabel } from '@/lib/labels';
+import {
+  CUSTOMER_CANCEL_REASONS,
+  getEffectiveAppointmentStatus,
+  isAppointmentActiveForSchedule,
+  isAppointmentHistoryForSchedule,
+} from '@/lib/appointmentStatus';
 
 const STATUS_LABELS = {
   pending: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
@@ -25,19 +30,6 @@ const STATUS_LABELS = {
   cancelled_by_customer: { label: 'בוטל מצד הלקוח', color: 'text-orange-400 bg-orange-400/20' },
   rejected: { label: 'נדחה', color: 'text-red-400 bg-red-400/20' },
   no_show: { label: 'אי הגעה', color: 'text-orange-400 bg-orange-400/20' },
-};
-
-const ACTIVE_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
-const HISTORY_TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
-const CUSTOMER_CANCEL_REASONS = new Set(['customer_cancelled', 'customer_replaced_appointment']);
-
-const getDisplayStatus = (appt, today) => {
-  if (appt.date < today && ACTIVE_STATUSES.has(appt.status)) return 'completed_auto';
-  if (appt.status === 'cancelled') {
-    const reason = appt.cancellationReason || appt.cancellation_reason || '';
-    return CUSTOMER_CANCEL_REASONS.has(reason) ? 'cancelled_by_customer' : 'cancelled_by_admin';
-  }
-  return appt.status;
 };
 
 const WAITING_STATUS_LABELS = {
@@ -82,9 +74,9 @@ export default function Appointments() {
     },
   });
 
-  const todayStr = localDateToString();
-  const upcoming = appointments.filter(a => !HISTORY_TERMINAL_STATUSES.has(a.status) && a.date >= todayStr);
-  const past = appointments.filter(a => HISTORY_TERMINAL_STATUSES.has(a.status) || a.date < todayStr);
+  const now = new Date();
+  const upcoming = appointments.filter(a => isAppointmentActiveForSchedule(a, now));
+  const past = appointments.filter(a => isAppointmentHistoryForSchedule(a, now));
   const displayed = activeTab === 'upcoming' ? upcoming : past;
 
   if (!currentUser) {
@@ -228,10 +220,10 @@ export default function Appointments() {
           </div>
         ) : (
           displayed.map((appt, i) => {
-            const displayStatus = getDisplayStatus(appt, todayStr);
+            const displayStatus = getEffectiveAppointmentStatus(appt, now);
             const statusInfo = STATUS_LABELS[displayStatus] || STATUS_LABELS.pending;
             const apptDate = new Date(`${appt.date}T00:00:00`);
-            const isUpcoming = appt.date >= todayStr && appt.status !== 'cancelled';
+            const isUpcoming = isAppointmentActiveForSchedule(appt, now);
             return (
               <motion.div
                 key={appt.id}
@@ -307,14 +299,16 @@ export default function Appointments() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onClick={() => setCancelWlModal(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setCancelWlModal(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm"
-              onClick={e => e.stopPropagation()}
+              onPointerDown={e => e.stopPropagation()}
             >
               <div className="flex items-center gap-3 mb-4">
                 <BellRing className="w-8 h-8 text-primary" />
@@ -361,14 +355,16 @@ export default function Appointments() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onClick={() => setCancelModal(null)}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setCancelModal(null);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm overflow-y-auto"
-              onClick={e => e.stopPropagation()}
+              onPointerDown={e => e.stopPropagation()}
             >
               <div className="flex items-center gap-3 mb-4">
                 <AlertTriangle className="w-8 h-8 text-yellow-400" />

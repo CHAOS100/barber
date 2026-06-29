@@ -99,7 +99,9 @@ export default function EditAppointmentModal({ appointment, onClose }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-      onClick={onClose}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -107,7 +109,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
         exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
-        onClick={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
         dir="rtl"
       >
         {done ? (

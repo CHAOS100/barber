@@ -10,9 +10,9 @@ import {
   timeToMinutes,
 } from './scheduling.js';
 import {
-  ACTIVE_APPOINTMENT_STATUSES,
   findActiveCustomerAppointment,
   hasActivePaymentRequest,
+  isActiveCustomerAppointment,
   isCustomerBlocked,
 } from './bookingPolicy.js';
 import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
@@ -385,10 +385,11 @@ const rejectManualModeSlot = async (transaction, appointment) => {
     .map((item) => item.data())
     .filter((r) => r.barberId === appointment.barberId && r.status === 'active');
   const slotMinutes = timeToMinutes(appointment.startTime);
+  const endMinutes = timeToMinutes(appointment.endTime);
   const isReleased = activeReleases.some((r) => {
     const from = timeToMinutes(r.startTime);
     const to = timeToMinutes(r.endTime);
-    return slotMinutes >= from && slotMinutes < to;
+    return slotMinutes >= from && endMinutes <= to;
   });
   if (!isReleased) {
     throw new HttpsError('failed-precondition', 'This time slot has not been released for booking.', {
@@ -486,7 +487,7 @@ export const replaceCustomerAppointment = onCall(async (request) => {
       });
     }
     const existing = { id: existingSnapshot.id, ...existingSnapshot.data() };
-    if (!ACTIVE_APPOINTMENT_STATUSES.has(existing.status)) {
+    if (!isActiveCustomerAppointment(existing)) {
       throw new HttpsError('failed-precondition', 'Only an active appointment can be replaced.', {
         code: 'appointment/not-replaceable',
       });
@@ -509,7 +510,7 @@ export const replaceCustomerAppointment = onCall(async (request) => {
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const otherActive = customerAppointments.find((appointment) => (
       appointment.id !== activeAppointmentId
-      && ACTIVE_APPOINTMENT_STATUSES.has(appointment.status)
+      && isActiveCustomerAppointment(appointment)
     ));
 
     if (otherActive) {
