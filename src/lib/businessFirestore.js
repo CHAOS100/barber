@@ -20,6 +20,9 @@ import {
   DEFAULT_WORKING_HOURS,
   timeToMinutes,
 } from '@/lib/slotEngine';
+import { isBarberBookable } from '@/lib/barberStatus';
+
+export { isBarberBookable };
 
 const DEFAULT_SLOT_INTERVAL = 10;
 export const DEFAULT_BOOKING_POLICY_TEXT = `חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!
@@ -44,10 +47,13 @@ const mapService = (snapshot) => {
 
 const mapBarber = (snapshot) => {
   const data = snapshot.data();
+  const active = data.active ?? data.is_active ?? true;
   return {
     id: snapshot.id,
     ...data,
-    is_active: data.active !== false,
+    active,
+    archived: data.archived === true,
+    is_active: active !== false,
     photo_url: data.photoUrl || '',
     photo_storage_path: data.photoStoragePath || data.storagePath || '',
     instagram_url: data.instagramUrl || '',
@@ -218,12 +224,13 @@ export const deleteService = async (id) => {
 };
 
 export const subscribeToActiveBarbers = (onData, onError) => onSnapshot(
-  query(
-    collection(getFirestoreDb(), 'barbers'),
-    where('active', '==', true),
-    where('archived', '==', false),
+  collection(getFirestoreDb(), 'barbers'),
+  (snapshot) => onData(
+    snapshot.docs
+      .map(mapBarber)
+      .filter(isBarberBookable)
+      .sort((a, b) => a.sort_order - b.sort_order),
   ),
-  (snapshot) => onData(snapshot.docs.map(mapBarber).sort((a, b) => a.sort_order - b.sort_order)),
   onError,
 );
 

@@ -9,6 +9,7 @@ import {
   updateAdminAppointment,
 } from '@/lib/appointmentsFirestore';
 import {
+  appointmentStatusMatchesFilter,
   getEffectiveAppointmentStatus,
   isAppointmentActiveForSchedule,
   isAppointmentHistoryForSchedule,
@@ -446,17 +447,13 @@ export default function AdminAppointments() {
         `${right.date || ''} ${right.time || right.startTime || ''}`,
       ))
     .filter((appointment) => {
-      const effectiveStatus = getEffectiveAppointmentStatus(appointment, now);
       if (viewMode === 'active' && !isAppointmentActiveForSchedule(appointment, now)) return false;
       if (viewMode === 'history' && !isAppointmentHistoryForSchedule(appointment, now)) return false;
       const appointmentDate = appointment.date || '';
       const matchesRange = rangeFilter === 'all_time'
         || (rangeFilter === 'today' && appointmentDate === today)
         || (rangeFilter === 'future' && appointmentDate > today);
-      const matchesStatus = statusFilter === 'all'
-        || appointment.status === statusFilter
-        || effectiveStatus === statusFilter
-        || (statusFilter === 'confirmed' && appointment.status === 'approved');
+      const matchesStatus = appointmentStatusMatchesFilter(appointment, statusFilter, now);
       return matchesRange && matchesStatus;
     });
   const exportableAppointments = filtered.filter(isCalendarExportableAppointment);

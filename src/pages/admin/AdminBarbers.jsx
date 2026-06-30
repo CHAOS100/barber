@@ -8,6 +8,7 @@ import {
   deleteBarber,
   saveBarber,
   uploadBarberPhoto,
+  isBarberBookable,
 } from '@/lib/businessFirestore';
 import GoldButton from '@/components/ui/GoldButton';
 import { toast } from '@/components/ui/use-toast';
@@ -62,7 +63,7 @@ export default function AdminBarbers() {
     onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const toggleMutation = useMutation({
-    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: !barber.is_active }),
+    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: !isBarberBookable(barber) }),
     onSuccess: () => toast({ title: 'סטטוס הספר עודכן' }),
     onError: (error) => toast({ variant: 'destructive', title: 'עדכון הסטטוס נכשל', description: getUserFacingErrorMessage(error) }),
   });
@@ -125,7 +126,7 @@ export default function AdminBarbers() {
         <button onClick={() => navigate('/admin')} className="press-scale"><ArrowRight className="w-6 h-6" /></button>
         <div>
           <h1 className="font-black text-lg">ספרים / צוות</h1>
-          <p className="text-muted-foreground text-xs">{barbers.filter(b => b.is_active && !b.archived).length} פעילים</p>
+          <p className="text-muted-foreground text-xs">{barbers.filter(isBarberBookable).length} פעילים</p>
         </div>
         <button onClick={() => openEditor()} className="mr-auto gold-gradient p-2.5 rounded-xl">
           <Plus className="w-4 h-4 text-black" />
@@ -148,8 +149,8 @@ export default function AdminBarbers() {
             <div className="flex-1 min-w-0">
               <div className="font-bold">{barber.name}</div>
               <div className="text-xs text-muted-foreground truncate">{barber.specialties?.join(' • ') || 'ללא התמחות מוגדרת'}</div>
-              <div className={`text-xs mt-1 ${barber.is_active && !barber.archived ? 'text-green-400' : 'text-muted-foreground'}`}>
-                {barber.is_active && !barber.archived ? 'פעיל ומופיע בהזמנה' : 'לא פעיל'}
+              <div className={`text-xs mt-1 ${isBarberBookable(barber) ? 'text-green-400' : 'text-muted-foreground'}`}>
+                {isBarberBookable(barber) ? 'פעיל ומופיע בהזמנה' : 'לא פעיל'}
               </div>
             </div>
             <div className="flex flex-col gap-1">
@@ -157,10 +158,10 @@ export default function AdminBarbers() {
               <button
                 onClick={() => !barber.archived && toggleMutation.mutate(barber)}
                 disabled={barber.archived || togglingBarberId === barber.id}
-                title={barber.is_active ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
-                className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-40 ${barber.is_active && !barber.archived ? 'text-primary' : 'text-muted-foreground'}`}
+                title={isBarberBookable(barber) ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
+                className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-40 ${isBarberBookable(barber) ? 'text-primary' : 'text-muted-foreground'}`}
               >
-                {togglingBarberId === barber.id ? 'מעדכן...' : barber.is_active && !barber.archived ? 'זמין' : 'לא זמין'}
+                {togglingBarberId === barber.id ? 'מעדכן...' : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
               </button>
               <button onClick={() => archiveMutation.mutate(barber.id)} className="glass p-2 rounded-lg"><Archive className="w-4 h-4 text-orange-400" /></button>
               <button

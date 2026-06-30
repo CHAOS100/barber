@@ -10,6 +10,7 @@ import {
   callPublishManualSlotRelease,
   cancelBookingSlotRelease,
   cancelBookingSlotReleaseBatch,
+  isBarberBookable,
 } from '@/lib/businessFirestore';
 import {
   useBookingSettingsRealtime,
@@ -482,7 +483,7 @@ export default function AdminHours() {
   const { settings, error: settingsError } = useBookingSettingsRealtime();
   const { data: allBarbers } = useAllBarbersRealtime();
   const activeBarbers = useMemo(
-    () => allBarbers.filter(b => b.is_active && !b.archived),
+    () => allBarbers.filter(isBarberBookable),
     [allBarbers],
   );
   const today = todayStr();

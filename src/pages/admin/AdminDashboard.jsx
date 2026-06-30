@@ -8,7 +8,6 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import MonthlyComparisonCard from '../../components/admin/MonthlyComparisonCard';
 import BarberBreakdownCard from '../../components/admin/BarberBreakdownCard';
 import DailyCalendarView from '../../components/admin/DailyCalendarView';
-import { localDateToString } from '../../lib/slotEngine';
 import { updateAdminAppointment } from '@/lib/appointmentsFirestore';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
@@ -18,6 +17,11 @@ import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime
 import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from '@/lib/dashboardStats';
 import { isCriticalCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
 import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
+import {
+  getEffectiveAppointmentStatus,
+  isAppointmentActiveForSchedule,
+  localDateToString,
+} from '@/lib/appointmentStatus';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -83,8 +87,13 @@ export default function AdminDashboard() {
     );
   }
 
-  const todayAppts = appointments.filter(a => a.date === localDateToString());
-  const pendingAppts = appointments.filter(a => a.status === 'pending');
+  const now = new Date();
+  const today = localDateToString(now);
+  const activeAppointments = appointments.filter((appointment) =>
+    isAppointmentActiveForSchedule(appointment, now));
+  const todayAppts = activeAppointments.filter((appointment) => appointment.date === today);
+  const pendingAppts = activeAppointments.filter((appointment) =>
+    getEffectiveAppointmentStatus(appointment, now) === 'pending');
 
   const adminSections = [
     { icon: Calendar, label: 'ניהול תורים', path: '/admin/appointments', desc: `${todayAppts.length} תורים היום` },
@@ -236,7 +245,7 @@ export default function AdminDashboard() {
               ניהול תורים <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
-          <DailyCalendarView appointments={appointments} onMove={moveAppointment} />
+          <DailyCalendarView appointments={activeAppointments} onMove={moveAppointment} />
         </div>
 
         {/* Pending Appointments */}

@@ -74,3 +74,16 @@ export const getEffectiveAppointmentStatus = (appointment, now = new Date()) => 
   }
   return appointment?.status;
 };
+
+export const appointmentStatusMatchesFilter = (appointment, filter, now = new Date()) => {
+  if (filter === 'all') return true;
+  const effectiveStatus = getEffectiveAppointmentStatus(appointment, now);
+  if (filter === 'confirmed') return effectiveStatus === 'confirmed' || effectiveStatus === 'approved';
+  if (filter === 'cancelled') {
+    return effectiveStatus === 'cancelled'
+      || effectiveStatus === 'cancelled_by_admin'
+      || effectiveStatus === 'cancelled_by_customer';
+  }
+  if (filter === 'completed') return effectiveStatus === 'completed' || effectiveStatus === 'completed_auto';
+  return effectiveStatus === filter;
+};
