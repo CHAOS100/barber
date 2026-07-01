@@ -5,6 +5,7 @@ import { generateSlotReleaseDates } from '../src/index.js';
 import { buildPushJobForHaircutReminder } from '../src/notifications/notificationJobs.js';
 import { isAllowedByPreferences } from '../src/notifications/pushSender.js';
 import { ACTIVE_APPOINTMENT_STATUSES, findActiveCustomerAppointment } from '../src/bookingPolicy.js';
+import { evaluateReminderAppointmentState } from '../src/notifications/pushProcessor.js';
 
 // ─── Helpers mirroring server logic ──────────────────────────────────────────
 
@@ -824,4 +825,68 @@ test('barber toggle: passing active:false disables via normalizeBarber logic', (
   assert.equal(normalizeActive(toggledOff), false, 'toggling active to false works');
   const toggledOn = { ...barber, active: false, is_active: false };
   assert.equal(normalizeActive({ ...toggledOn, active: !toggledOn.is_active }), true, 'toggling active to true works');
+});
+
+// ── PART 9: send-time appointment reminder validation (Bug 2) ──────────────────
+
+const futureAppointment = (overrides = {}) => ({
+  status: 'confirmed',
+  date: '2099-01-01',
+  startTime: '10:00',
+  serviceDuration: 30,
+  customerId: 'cust-1',
+  ...overrides,
+});
+
+test('reminder sends when appointment is active and in the future', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment(), 'cust-1');
+  assert.equal(result.valid, true);
+});
+
+test('reminder is skipped with appointment_not_found when appointment doc is missing', () => {
+  const result = evaluateReminderAppointmentState(null, 'cust-1');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_not_found');
+});
+
+test('reminder is skipped with appointment_not_active for a cancelled appointment', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ status: 'cancelled' }), 'cust-1');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_not_active');
+});
+
+test('reminder is skipped with appointment_not_active for a completed appointment', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ status: 'completed' }), 'cust-1');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_not_active');
+});
+
+test('reminder is skipped with appointment_not_active for a rejected appointment', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ status: 'rejected' }), 'cust-1');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_not_active');
+});
+
+test('reminder is skipped with appointment_not_active for a no_show appointment', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ status: 'no_show' }), 'cust-1');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_not_active');
+});
+
+test('reminder is skipped with appointment_already_past once the end time has passed', () => {
+  const past = futureAppointment({ status: 'confirmed', date: '2000-01-01', startTime: '10:00' });
+  const result = evaluateReminderAppointmentState(past, 'cust-1', new Date('2020-01-01T00:00:00Z'));
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_already_past');
+});
+
+test('reminder is skipped with appointment_customer_mismatch when job customerId differs from appointment owner', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ customerId: 'cust-1' }), 'cust-2');
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'appointment_customer_mismatch');
+});
+
+test('reminder is not blocked by customer mismatch check when job has no customerId', () => {
+  const result = evaluateReminderAppointmentState(futureAppointment({ customerId: 'cust-1' }), null);
+  assert.equal(result.valid, true);
 });

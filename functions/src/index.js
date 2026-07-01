@@ -173,7 +173,7 @@ const archiveExistingAppointmentInboxNotifications = async (appointmentId, custo
   await batch.commit();
 };
 
-const skipFutureAppointmentReminders = async (appointmentId, reason = 'appointment_terminal') => {
+const skipFutureAppointmentReminders = async (appointmentId, reason = 'appointment_not_active') => {
   const ids = [`${appointmentId}_push_reminder_24h`, `${appointmentId}_push_reminder_2h`];
   const refs = ids.map((id) => getFirestore().collection('notificationJobs').doc(id));
   const snapshots = await getFirestore().getAll(...refs);

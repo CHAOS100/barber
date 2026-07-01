@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
 import {
   createCustomerAppointment,
@@ -23,6 +24,8 @@ import {
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS, timeToMinutes } from '../lib/slotEngine';
 import { isAppointmentActiveForSchedule } from '@/lib/appointmentStatus';
+import { isBarberBookable } from '@/lib/businessFirestore';
+import { getFirestoreDb } from '@/lib/firebase';
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
@@ -230,6 +233,27 @@ export default function Booking() {
   const { data: upcomingSlotReleases } = useUpcomingBookingSlotReleasesRealtime(todayForReleases);
   const activeAppointment = customerAppointments.find((appointment) =>
     isAppointmentActiveForSchedule(appointment));
+
+  // Temporary debug logging for "no active barbers" investigation — safe to remove once confirmed fixed.
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(getFirestoreDb(), 'barbers'), (snapshot) => {
+      const rawBarbers = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      const bookableCount = rawBarbers.filter(isBarberBookable).length;
+      console.info('[BOOKING_BARBERS_DEBUG]', {
+        rawCount: rawBarbers.length,
+        bookableCount,
+        barbers: rawBarbers.map((b) => ({
+          id: b.id,
+          name: b.name,
+          active: b.active,
+          is_active: b.is_active,
+          archived: b.archived,
+          isBookable: isBarberBookable(b),
+        })),
+      });
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {

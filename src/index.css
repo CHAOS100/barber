@@ -230,12 +230,15 @@ body:has([role="dialog"]) {
 }
 
 .auth-viewport {
-  min-height: 100dvh;
-  height: 100dvh;
-  max-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: 100svh;
+  height: 100svh;
+  max-height: 100svh;
   overflow: hidden;
   overscroll-behavior: none;
-  position: relative;
 }
 
 .auth-login-shell {
@@ -274,8 +277,11 @@ body:has([role="dialog"]) {
   }
 }
 
-/* When Android keyboard is open, switch to top-aligned scroll so the form
-   doesn't jump or create a black gap below the keyboard. */
+/* When the on-screen keyboard is open (Android or iOS), switch to top-aligned
+   scroll so the form doesn't jump or create a black gap below the keyboard.
+   .auth-viewport is position:fixed (see above) so it stays pinned to the real
+   visual viewport instead of being pushed offscreen by iOS's native
+   scroll-to-focused-input behavior, which used to expose blank space below it. */
 .keyboard-open .auth-login-shell {
   align-items: flex-start;
   justify-content: flex-start;

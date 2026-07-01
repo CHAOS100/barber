@@ -13,6 +13,7 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { sendPushJob } from './pushSender.js';
+import { ACTIVE_APPOINTMENT_STATUSES, isAppointmentPastByEndTime } from '../bookingPolicy.js';
 
 const BATCH_LIMIT = 25;
 const MAX_ATTEMPTS = 5;
@@ -32,6 +33,10 @@ const getTargetUserId = (jobData = {}) => (
 
 // Reminder job types that also need an in-app inbox notification when they fire
 const REMINDER_TYPES = new Set(['appointment_reminder_24h', 'appointment_reminder_2h', 'haircut_reminder']);
+
+// Reminder types tied to a specific upcoming appointment — must be re-validated against
+// the appointment's live status at send time, not just at job-creation time.
+const APPOINTMENT_REMINDER_TYPES = new Set(['appointment_reminder_24h', 'appointment_reminder_2h']);
 
 // inbox type override for reminder jobs — haircut_reminder gets its own type, others use 'appointment'
 const REMINDER_INBOX_TYPE = {
@@ -177,6 +182,41 @@ const fetchCustomerPreferences = async (firestore, customerId) => {
   }
 };
 
+/**
+ * Pure decision logic for whether an appointment-bound reminder is still safe to
+ * send, given the appointment's live state. Job-creation-time state can go
+ * stale: the appointment may since have been cancelled, completed, rejected,
+ * marked no-show, or its end time may already have passed.
+ *
+ * @param {object|null} appointment - the live appointment doc data, or null if not found
+ * @param {string|null} jobCustomerId - the customerId the job is addressed to
+ * @returns {{ valid: true } | { valid: false, reason: string }}
+ */
+export const evaluateReminderAppointmentState = (appointment, jobCustomerId, now = new Date()) => {
+  if (!appointment) {
+    return { valid: false, reason: 'appointment_not_found' };
+  }
+  if (!ACTIVE_APPOINTMENT_STATUSES.has(appointment.status)) {
+    return { valid: false, reason: 'appointment_not_active' };
+  }
+  if (isAppointmentPastByEndTime(appointment, now)) {
+    return { valid: false, reason: 'appointment_already_past' };
+  }
+  if (jobCustomerId && appointment.customerId && jobCustomerId !== appointment.customerId) {
+    return { valid: false, reason: 'appointment_customer_mismatch' };
+  }
+  return { valid: true };
+};
+
+const validateAppointmentReminderJob = async (firestore, jobData) => {
+  const appointmentId = jobData.data?.appointmentId || jobData.appointmentId || null;
+  if (!appointmentId) return { valid: true };
+
+  const snap = await firestore.collection('appointments').doc(appointmentId).get();
+  const appointment = snap.exists ? snap.data() : null;
+  return evaluateReminderAppointmentState(appointment, getTargetUserId(jobData));
+};
+
 const disableToken = async (firestore, customerId, tokenId) => {
   if (!customerId || !tokenId) return;
   try {
@@ -304,6 +344,18 @@ export const processImmediatePushJobs = async (jobIds) => {
     }
 
     const attempts = Number(jobData.attempts || 0);
+
+    if (APPOINTMENT_REMINDER_TYPES.has(jobData.type)) {
+      const validation = await validateAppointmentReminderJob(firestore, jobData);
+      if (!validation.valid) {
+        pushDebug('immediate reminder job failed appointment validation', {
+          jobId, type: jobData.type, reason: validation.reason,
+        });
+        await markJobSkipped(firestore, jobId, validation.reason, attempts);
+        summary.jobsSkipped += 1;
+        continue;
+      }
+    }
 
     try {
       const [tokens, preferences] = await Promise.all([
@@ -455,6 +507,21 @@ export const processPendingPushJobs = async () => {
       const hasFuture = await customerHasFutureAppointment(firestore, customerId);
       if (hasFuture) {
         await markJobSkipped(firestore, jobId, 'already_has_future_appointment', attempts);
+        summary.jobsSkipped += 1;
+        continue;
+      }
+    }
+
+    // Appointment-bound reminders (24h/2h): re-validate against the appointment's
+    // live status at send time — it may have been cancelled/completed/rejected/
+    // marked no-show, or already passed, since the job was created.
+    if (APPOINTMENT_REMINDER_TYPES.has(jobData.type)) {
+      const validation = await validateAppointmentReminderJob(firestore, jobData);
+      if (!validation.valid) {
+        pushDebug('pending reminder job failed appointment validation', {
+          jobId, type: jobData.type, reason: validation.reason,
+        });
+        await markJobSkipped(firestore, jobId, validation.reason, attempts);
         summary.jobsSkipped += 1;
         continue;
       }
