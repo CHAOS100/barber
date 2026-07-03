@@ -49,7 +49,7 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
               </linearGradient>
             </defs>
             <Tooltip
-              contentStyle={{ background: '#1a1a1a', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 8, color: '#fff', fontSize: 11 }}
+              contentStyle={{ background: '#161616', border: '1px solid rgba(147,227,189,0.3)', borderRadius: 8, color: '#fff', fontSize: 11 }}
               formatter={(v) => [`₪${v}`, 'הכנסה']}
             />
             <Area type="monotone" dataKey="rev" stroke="#93E3BD" strokeWidth={2} fill="url(#goldGrad)" dot={false} />

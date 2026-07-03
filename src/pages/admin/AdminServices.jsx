@@ -91,25 +91,27 @@ export default function AdminServices() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
         <h1 className="font-black text-lg">ניהול שירותים</h1>
-        <button onClick={() => openEdit()} className="mr-auto glass-gold p-2.5 rounded-xl">
+        <button onClick={() => openEdit()} className="mr-auto icon-btn glass-gold press-scale" aria-label="הוסף שירות">
           <Plus className="w-5 h-5 text-primary" />
         </button>
       </div>
 
       <div className="px-4 py-4 space-y-3">
         {servicesError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+          <div className="banner-error">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {!servicesError && services.length === 0 && (
-          <div className="glass rounded-2xl p-6 text-center text-muted-foreground">
-            אין שירותים עדיין. לחץ על הפלוס כדי ליצור שירות ראשון.
+          <div className="glass premium-empty-state rounded-2xl p-8 text-center">
+            <Scissors className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+            <p className="font-black text-sm mb-1">אין שירותים עדיין</p>
+            <p className="text-muted-foreground text-xs">לחץ על הפלוס כדי ליצור שירות ראשון.</p>
           </div>
         )}
         {services.map((service, i) => (
@@ -127,7 +129,7 @@ export default function AdminServices() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-bold">{service.name}</span>
-                  {!service.is_active && <span className="text-xs text-muted-foreground glass px-2 py-0.5 rounded-full">לא פעיל</span>}
+                  {!service.is_active && <span className="status-pill status-pill--neutral">לא פעיל</span>}
                 </div>
                 <div className="text-muted-foreground text-xs mt-0.5">{service.description}</div>
                 <div className="flex items-center gap-3 mt-1">
@@ -135,19 +137,19 @@ export default function AdminServices() {
                   <span className="text-muted-foreground text-xs">{service.duration} דק'</span>
                 </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <button onClick={() => openEdit(service)} className="glass p-2 rounded-lg">
+              <div className="flex flex-col gap-1.5">
+                <button onClick={() => openEdit(service)} className="icon-btn glass press-scale" aria-label="עריכת שירות">
                   <Edit3 className="w-4 h-4 text-primary" />
                 </button>
                 <button
                   onClick={() => toggleMutation.mutate({ id: service.id, is_active: !service.is_active })}
                   disabled={togglingServiceId === service.id}
                   title={service.is_active ? 'הסתר מהזמנות' : 'החזר להזמנות'}
-                  className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-50 ${service.is_active ? 'text-primary' : 'text-muted-foreground'}`}
+                  className={`icon-btn glass press-scale px-2 text-[11px] font-bold disabled:opacity-50 ${service.is_active ? 'text-primary' : 'text-muted-foreground'}`}
                 >
                   {togglingServiceId === service.id ? 'מעדכן...' : service.is_active ? 'פעיל' : 'לא פעיל'}
                 </button>
-                <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="glass p-2 rounded-lg">
+                <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="icon-btn glass press-scale" aria-label="מחק שירות">
                   <Trash2 className="w-4 h-4 text-red-400" />
                 </button>
               </div>
@@ -216,7 +218,7 @@ export default function AdminServices() {
                     </button>
                   </div>
                   {(validationError || saveMutation.error) && (
-                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                    <div className="banner-error">
                       {validationError || getUserFacingErrorMessage(saveMutation.error)}
                     </div>
                   )}

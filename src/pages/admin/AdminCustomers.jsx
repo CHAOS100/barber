@@ -113,8 +113,8 @@ export default function AdminCustomers() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
         <h1 className="font-black text-lg">לקוחות</h1>
@@ -148,15 +148,17 @@ export default function AdminCustomers() {
       </div>
 
       {loadError && (
-        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+        <div className="mx-4 mb-3 banner-error">
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
 
       <div className="px-4 space-y-2 pb-6">
         {!loadError && filtered.length === 0 && (
-          <div className="glass rounded-2xl p-6 text-center text-muted-foreground">
-            לא נמצאו לקוחות שתואמים לסינון.
+          <div className="glass premium-empty-state rounded-2xl p-8 text-center">
+            <Search className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+            <p className="font-black text-sm mb-1">לא נמצאו לקוחות</p>
+            <p className="text-muted-foreground text-xs">נסה לשנות את החיפוש או הסינון.</p>
           </div>
         )}
         {filtered.map((customer, index) => (
@@ -190,17 +192,17 @@ export default function AdminCustomers() {
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {hasPaymentRequest(customer) && (
-                    <span className="rounded-full bg-yellow-400/10 border border-yellow-400/25 px-2 py-0.5 text-[10px] font-bold text-yellow-200">
+                    <span className="status-pill status-pill--warning">
                       דרישת תשלום פעילה
                     </span>
                   )}
                   {isBlocked(customer) && (
-                    <span className="rounded-full bg-red-500/10 border border-red-500/25 px-2 py-0.5 text-[10px] font-bold text-red-300">
+                    <span className="status-pill status-pill--danger">
                       לקוח חסום
                     </span>
                   )}
                   {hasWarning(customer) && (
-                    <span className="rounded-full bg-orange-400/10 border border-orange-400/25 px-2 py-0.5 text-[10px] font-bold text-orange-200">
+                    <span className="status-pill status-pill--warning">
                       אזהרה פעילה
                     </span>
                   )}

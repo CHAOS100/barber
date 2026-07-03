@@ -169,7 +169,7 @@ export default function AdminGallery() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
         <div>
@@ -184,13 +184,15 @@ export default function AdminGallery() {
 
       <div className="px-4 py-4">
         {error && (
-          <div className="mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+          <div className="mb-3 banner-error">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {photos.length === 0 && (
-          <div className="glass rounded-2xl p-8 text-center text-muted-foreground text-sm">
-            אין תמונות בגלריה. ניתן להעלות את התמונה הראשונה.
+          <div className="glass premium-empty-state rounded-2xl p-8 text-center">
+            <Plus className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+            <p className="font-black text-sm mb-1">אין תמונות בגלריה</p>
+            <p className="text-muted-foreground text-xs">ניתן להעלות את התמונה הראשונה.</p>
           </div>
         )}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

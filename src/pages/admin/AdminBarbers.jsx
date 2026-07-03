@@ -122,20 +122,20 @@ export default function AdminBarbers() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale"><ArrowRight className="w-6 h-6" /></button>
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול"><ArrowRight className="w-6 h-6" /></button>
         <div>
           <h1 className="font-black text-lg">ספרים / צוות</h1>
           <p className="text-muted-foreground text-xs">{barbers.filter(isBarberBookable).length} פעילים</p>
         </div>
-        <button onClick={() => openEditor()} className="mr-auto gold-gradient p-2.5 rounded-xl">
-          <Plus className="w-4 h-4 text-black" />
+        <button onClick={() => openEditor()} className="mr-auto icon-btn gold-gradient press-scale" aria-label="הוסף ספר">
+          <Plus className="w-5 h-5 text-black" />
         </button>
       </div>
 
       <div className="px-4 py-4 space-y-3">
         {barbersError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+          <div className="banner-error">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
@@ -149,31 +149,36 @@ export default function AdminBarbers() {
             <div className="flex-1 min-w-0">
               <div className="font-bold">{barber.name}</div>
               <div className="text-xs text-muted-foreground truncate">{barber.specialties?.join(' • ') || 'ללא התמחות מוגדרת'}</div>
-              <div className={`text-xs mt-1 ${isBarberBookable(barber) ? 'text-green-400' : 'text-muted-foreground'}`}>
-                {isBarberBookable(barber) ? 'פעיל ומופיע בהזמנה' : 'לא פעיל'}
+              <div className="mt-1.5">
+                <span className={`status-pill ${barber.archived ? 'status-pill--neutral' : isBarberBookable(barber) ? 'status-pill--success' : 'status-pill--warning'}`}>
+                  {barber.archived ? 'בארכיון' : isBarberBookable(barber) ? 'פעיל ומופיע בהזמנה' : 'לא פעיל'}
+                </span>
               </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <button onClick={() => openEditor(barber)} className="glass p-2 rounded-lg"><Edit3 className="w-4 h-4 text-primary" /></button>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={() => openEditor(barber)} className="icon-btn glass press-scale" aria-label="עריכת ספר"><Edit3 className="w-4 h-4 text-primary" /></button>
               <button
                 onClick={() => !barber.archived && toggleMutation.mutate(barber)}
                 disabled={barber.archived || togglingBarberId === barber.id}
                 title={isBarberBookable(barber) ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
-                className={`glass px-2 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-40 ${isBarberBookable(barber) ? 'text-primary' : 'text-muted-foreground'}`}
+                className={`icon-btn glass press-scale px-2 text-[11px] font-bold disabled:opacity-40 ${isBarberBookable(barber) ? 'text-primary' : 'text-muted-foreground'}`}
               >
                 {togglingBarberId === barber.id ? 'מעדכן...' : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
               </button>
-              <button onClick={() => archiveMutation.mutate(barber.id)} className="glass p-2 rounded-lg"><Archive className="w-4 h-4 text-orange-400" /></button>
+              <button onClick={() => archiveMutation.mutate(barber.id)} className="icon-btn glass press-scale" aria-label="העבר לארכיון"><Archive className="w-4 h-4 text-orange-400" /></button>
               <button
                 onClick={() => window.confirm('למחוק את הספר לצמיתות?') && deleteMutation.mutate(barber.id)}
-                className="glass p-2 rounded-lg"
+                className="icon-btn glass press-scale"
+                aria-label="מחק ספר"
               ><Trash2 className="w-4 h-4 text-red-400" /></button>
             </div>
           </div>
         ))}
         {barbers.length === 0 && (
-          <div className="glass rounded-2xl p-6 text-center text-muted-foreground">
-            יש להוסיף ספר פעיל לפני שלקוחות יוכלו לקבוע תור.
+          <div className="glass premium-empty-state rounded-2xl p-8 text-center">
+            <User className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+            <p className="font-black text-sm mb-1">אין עדיין ספרים</p>
+            <p className="text-muted-foreground text-xs">יש להוסיף ספר פעיל לפני שלקוחות יוכלו לקבוע תור.</p>
           </div>
         )}
       </div>

@@ -139,12 +139,12 @@ export default function AdminDashboard() {
 
       <div className="px-4 space-y-4">
         {appointmentsError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          <div className="banner-error">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}
         {moveError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          <div className="banner-error">
             {moveError}
           </div>
         )}
@@ -155,7 +155,7 @@ export default function AdminDashboard() {
             { icon: Calendar, label: 'תורים היום', value: stats.todayAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Wallet, label: 'הכנסות היום', value: `₪${stats.todayRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Users, label: 'ממתינים לאישור', value: stats.pendingAppointments, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
-            { icon: TrendingUp, label: 'הכנסות החודש', value: `₪${stats.monthRevenue.toLocaleString()}`, color: 'text-purple-400', bg: 'bg-purple-400/20' },
+            { icon: TrendingUp, label: 'הכנסות החודש', value: `₪${stats.monthRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'מאושרים', value: stats.approvedAppointments, color: 'text-green-400', bg: 'bg-green-400/20' },
             { icon: Calendar, label: 'הושלמו', value: stats.completedAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'בוטלו', value: stats.cancelledAppointments, color: 'text-red-400', bg: 'bg-red-400/20' },
@@ -197,8 +197,8 @@ export default function AdminDashboard() {
               <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 12 }} />
               <YAxis hide />
               <Tooltip
-                contentStyle={{ background: '#1a1a1a', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 12, color: '#fff' }}
-                cursor={{ fill: 'rgba(212,175,55,0.1)' }}
+                contentStyle={{ background: '#161616', border: '1px solid rgba(147,227,189,0.3)', borderRadius: 12, color: '#fff' }}
+                cursor={{ fill: 'rgba(147,227,189,0.08)' }}
               />
               <Bar dataKey="appointments" fill="#93E3BD" radius={[8, 8, 0, 0]} />
             </BarChart>
@@ -279,7 +279,7 @@ export default function AdminDashboard() {
                       {appt.service_name} • {appt.date} • {appt.time}
                     </div>
                   </div>
-                  <span className="text-xs font-bold px-2 py-1 rounded-full text-yellow-400 bg-yellow-400/20">
+                  <span className="status-pill status-pill--warning">
                     ממתין
                   </span>
                 </motion.div>
@@ -316,11 +316,11 @@ export default function AdminDashboard() {
                   <div className="font-bold text-sm">{appt.customer_name}</div>
                   <div className="text-muted-foreground text-xs">{appt.service_name} • {appt.time}</div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex flex-col items-end gap-1">
                   <div className="text-primary font-black text-sm">₪{appt.service_price}</div>
-                  <div className={`text-xs ${appt.status === 'confirmed' ? 'text-green-400' : 'text-yellow-400'}`}>
+                  <span className={`status-pill ${appt.status === 'confirmed' ? 'status-pill--success' : 'status-pill--warning'}`}>
                     {appt.status === 'confirmed' ? 'מאושר' : 'ממתין'}
-                  </div>
+                  </span>
                 </div>
               </motion.div>
             ))}

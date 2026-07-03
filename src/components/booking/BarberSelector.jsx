@@ -46,7 +46,7 @@ export default function BarberSelector({
                   </div>
                 )}
               </div>
-              <span className="text-xs font-bold text-center leading-tight">{barber.name}</span>
+              <span className={`text-xs font-bold text-center leading-tight ${isSelected ? 'text-primary' : ''}`}>{barber.name}</span>
               {!isAllBarbers && barber.specialties?.[0] && (
                 <span className="text-xs text-muted-foreground text-center leading-tight">{barber.specialties[0]}</span>
               )}

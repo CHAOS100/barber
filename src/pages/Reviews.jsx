@@ -133,7 +133,7 @@ export default function Reviews() {
       </div>
 
       {listenerError && (
-        <div className="mx-4 mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+        <div className="mx-4 mb-4 banner-error">
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
@@ -169,7 +169,7 @@ export default function Reviews() {
                       id: review.id,
                       status: review.status === 'hidden' ? 'published' : 'hidden',
                     })}
-                    className="glass p-2 rounded-lg"
+                    className="icon-btn glass press-scale"
                     aria-label={review.status === 'hidden' ? 'פרסם ביקורת' : 'הסתר ביקורת'}
                   >
                     {review.status === 'hidden'
@@ -178,7 +178,7 @@ export default function Reviews() {
                   </button>
                   <button
                     onClick={() => deleteMutation.mutate(review.id)}
-                    className="glass p-2 rounded-lg"
+                    className="icon-btn glass press-scale"
                     aria-label="מחק ביקורת"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />

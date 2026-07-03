@@ -421,10 +421,10 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
         const hasActiveFuture = g.items.some(r => r.status === 'active' && r.date >= todayStr());
         const statusLabel = isCancelled ? 'בוטל' : hasActiveFuture ? 'פעיל' : 'נסגר';
         const statusClass = isCancelled
-          ? 'bg-red-500/20 text-red-400'
+          ? 'status-pill--danger'
           : hasActiveFuture
-            ? 'bg-primary/15 text-primary'
-            : 'bg-white/10 text-muted-foreground';
+            ? 'status-pill--success'
+            : 'status-pill--neutral';
         const createdAtLabel = formatDateTime(g.createdAt);
         const shortBatchId = batchKey ? String(batchKey).slice(0, 8) : '';
 
@@ -436,11 +436,13 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
                   <span className="text-sm font-bold text-foreground leading-snug">
                     {dateLabel}
                   </span>
-                  <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${statusClass}`}>{statusLabel}</span>
+                  <span className={`status-pill ${statusClass}`}>{statusLabel}</span>
+                  {g.barberId && (
+                    <span className="status-pill status-pill--accent">✂️ {barberName(g.barberId)}</span>
+                  )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
+                <div className="text-xs text-muted-foreground mt-1">
                   {!isSingleDay && <span>{countLabel} · </span>}
-                  {barbers.length > 1 && g.barberId && <span>{barberName(g.barberId)} · </span>}
                   <span className={isCancelled ? '' : 'text-primary'}>{g.startTime} – {g.endTime}</span>
                   {g.note && <span> · {g.note}</span>}
                 </div>
@@ -466,10 +468,11 @@ function SlotReleaseList({ releases, barbers, onCancelBatch, onCancelSingle, can
                 <button
                   onClick={() => g.releaseBatchId ? onCancelBatch(g.releaseBatchId) : onCancelSingle(g.legacyId)}
                   disabled={isCancelling}
-                  className="text-red-400/70 hover:text-red-400 p-1.5 glass rounded-lg transition-colors flex-shrink-0 mt-0.5"
+                  className="icon-btn glass press-scale text-red-400/70 hover:text-red-400 transition-colors mt-0.5 disabled:opacity-50"
                   title="בטל חלון זה"
+                  aria-label="בטל חלון זה"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
             </div>
@@ -606,8 +609,8 @@ export default function AdminHours() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
         <div>
@@ -618,7 +621,7 @@ export default function AdminHours() {
 
       <div className="px-4 py-4 space-y-3">
         {settingsError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+          <div className="banner-error">
             {DATA_LOAD_ERROR_MESSAGE}
           </div>
         )}

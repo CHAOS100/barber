@@ -213,7 +213,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
                   </motion.div>
                 )}
                 {updateMutation.error && (
-                  <div className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                  <div className="mt-2 banner-error">
                     {getBookingRejectionMessage(updateMutation.error)}
                   </div>
                 )}

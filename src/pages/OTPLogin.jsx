@@ -589,7 +589,7 @@ export default function OTPLogin() {
                       </div>
                     </div>
 
-                    {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                    {error && <div className="banner-error text-center" role="alert">{error}</div>}
 
                     <GoldButton onClick={handleAdminLogin} size="lg" className="w-full" disabled={loading}>
                       {loading ? 'מתחבר...' : 'כניסה למערכת ניהול'}
@@ -648,7 +648,7 @@ export default function OTPLogin() {
                       </div>
                     )}
 
-                    {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                    {error && <div className="banner-error text-center" role="alert">{error}</div>}
 
                     {adminPhoneStep === 'phone' ? (
                       <>
@@ -728,7 +728,7 @@ export default function OTPLogin() {
                     הזן מספר טלפון ישראלי לקבלת קוד אימות
                   </p>
                 </div>
-                {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                {error && <div className="banner-error text-center" role="alert">{error}</div>}
                 <GoldButton
                   onClick={(/** @type {React.MouseEvent<HTMLButtonElement>} */ event) => handleSendOTP(false, event.currentTarget)}
                   size="lg"
@@ -787,7 +787,7 @@ export default function OTPLogin() {
                   className="w-full bg-secondary border border-border rounded-2xl px-4 py-4 text-foreground text-center text-2xl font-bold tracking-widest placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                   maxLength={6}
                 />
-                {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                {error && <div className="banner-error text-center" role="alert">{error}</div>}
                 <GoldButton onClick={handleVerifyOTP} size="lg" className="w-full" disabled={verificationLoading || smsLoading}>
                   {verificationLoading ? 'מאמת...' : 'אמת קוד'}
                 </GoldButton>
@@ -873,7 +873,7 @@ export default function OTPLogin() {
                     dir="rtl"
                   />
                 </div>
-                {error && <p className="text-destructive text-sm text-center">{error}</p>}
+                {error && <div className="banner-error text-center" role="alert">{error}</div>}
                 <GoldButton onClick={handleCompleteRegistration} size="lg" className="w-full" disabled={loading}>
                   {loading ? 'יוצר חשבון...' : 'השלם הרשמה'}
                 </GoldButton>

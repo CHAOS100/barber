@@ -25,16 +25,16 @@ import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
 import { downloadAppointmentsIcs, isCalendarExportableAppointment } from '@/lib/calendarExport';
 
 const STATUS_CONFIG = {
-  pending:               { label: 'ממתין',              color: 'text-yellow-400 bg-yellow-400/20',   dot: 'bg-yellow-400' },
-  approved:              { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
-  confirmed:             { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     dot: 'bg-green-400' },
-  completed:             { label: 'הושלם',              color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
-  completed_auto:        { label: 'הושלם — התספורת בוצעה', color: 'text-primary bg-primary/20',         dot: 'bg-primary' },
-  cancelled:             { label: 'בוטל',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
-  cancelled_by_admin:    { label: 'בוטל מצד הספר',      color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
-  cancelled_by_customer: { label: 'בוטל מצד הלקוח',    color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
-  rejected:              { label: 'נדחה',               color: 'text-red-400 bg-red-400/20',         dot: 'bg-red-400' },
-  no_show:               { label: 'לא הגיע',            color: 'text-orange-400 bg-orange-400/20',   dot: 'bg-orange-400' },
+  pending:               { label: 'ממתין',              color: 'text-yellow-400 bg-yellow-400/20',   pill: 'status-pill--warning' },
+  approved:              { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     pill: 'status-pill--success' },
+  confirmed:             { label: 'מאושר',              color: 'text-green-400 bg-green-400/20',     pill: 'status-pill--success' },
+  completed:             { label: 'הושלם',              color: 'text-primary bg-primary/20',         pill: 'status-pill--accent' },
+  completed_auto:        { label: 'הושלם — התספורת בוצעה', color: 'text-primary bg-primary/20',         pill: 'status-pill--accent' },
+  cancelled:             { label: 'בוטל',               color: 'text-red-400 bg-red-400/20',         pill: 'status-pill--danger' },
+  cancelled_by_admin:    { label: 'בוטל מצד הספר',      color: 'text-red-400 bg-red-400/20',         pill: 'status-pill--danger' },
+  cancelled_by_customer: { label: 'בוטל מצד הלקוח',    color: 'text-orange-400 bg-orange-400/20',   pill: 'status-pill--warning' },
+  rejected:              { label: 'נדחה',               color: 'text-red-400 bg-red-400/20',         pill: 'status-pill--danger' },
+  no_show:               { label: 'לא הגיע',            color: 'text-orange-400 bg-orange-400/20',   pill: 'status-pill--warning' },
 };
 
 const RANGE_FILTERS = [
@@ -338,7 +338,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
         {/* Error banner + action buttons — always visible, never scrolls */}
         <div className="modal-actions px-5">
           {error && (
-            <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+            <div className="banner-error mb-3">
               {error.code === 'functions/already-exists' ? 'התור חופף לתור קיים של אותו ספר.' : 'שמירת התור נכשלה.'}
             </div>
           )}
@@ -522,7 +522,7 @@ export default function AdminAppointments() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/admin')} className="press-scale">
+        <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
         <div>
@@ -595,17 +595,17 @@ export default function AdminAppointments() {
       </div>
 
       {appointmentsError && (
-        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+        <div className="banner-error mx-4 mb-3">
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
       {(servicesError || barbersError || customersError) && (
-        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+        <div className="banner-error mx-4 mb-3">
           {DATA_LOAD_ERROR_MESSAGE}
         </div>
       )}
       {mutationError && (
-        <div className="mx-4 mb-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+        <div className="banner-error mx-4 mb-3">
           {/** @type {any} */ (mutationError).code === 'functions/already-exists'
             ? 'הפעולה נחסמה כי התור חופף לתור קיים של אותו ספר.'
             : 'הפעולה נכשלה. יש לוודא שנבחרו ספר ושירות תקינים ולנסות שוב.'}
@@ -644,7 +644,7 @@ export default function AdminAppointments() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${sc.color}`}>{sc.label}</span>
+                  <span className={`status-pill ${sc.pill}`}>{sc.label}</span>
                   <button
                     onClick={() => setEditAppt(appt)}
                     className="glass p-2 rounded-xl"

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft } from 'lucide-react';
+import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft, Lock, Scissors } from 'lucide-react';
 import {
   createCustomerAppointment,
   replaceCustomerAppointment,
@@ -116,43 +116,44 @@ function CalendarPicker({
           const isSelected = selectedDate && dateToStr(date) === dateToStr(selectedDate);
           const isToday = dateToStr(date) === dateToStr(today);
           const isSelectable = status === 'open' || status === 'unreleased';
+          const stateClass = isSelected
+            ? (status === 'unreleased' ? 'cal-day--selected-unreleased' : 'cal-day--selected')
+            : status === 'open'
+              ? (isManualMode ? 'cal-day--released' : 'cal-day--open')
+              : status === 'unreleased'
+                ? 'cal-day--unreleased'
+                : status === 'blocked'
+                  ? 'cal-day--blocked'
+                  : 'cal-day--disabled';
           return (
             <motion.button
               key={i}
-              whileTap={{ scale: 0.88 }}
+              whileTap={isSelectable ? { scale: 0.88 } : undefined}
               disabled={!isSelectable}
               onClick={() => isSelectable && onSelect(date, status)}
-              className={`
-                aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-bold transition-all
-                ${isSelected && status === 'open' ? 'gold-gradient text-black' : ''}
-                ${isSelected && status === 'unreleased' ? 'ring-1 ring-white/30 bg-white/[0.06] text-muted-foreground' : ''}
-                ${!isSelected && status === 'open' ? 'hover:bg-secondary cursor-pointer text-foreground' : ''}
-                ${!isSelected && status === 'open' && isManualMode ? 'border border-primary/30 bg-primary/10 text-primary' : ''}
-                ${status === 'past' || status === 'closed' ? 'text-muted-foreground/30 cursor-not-allowed' : ''}
-                ${status === 'blocked' ? 'text-red-400/60 cursor-not-allowed' : ''}
-                ${!isSelected && status === 'unreleased' ? 'text-muted-foreground/45 bg-white/[0.02] cursor-pointer' : ''}
-                ${isToday && !isSelected ? 'ring-1 ring-primary' : ''}
-              `}
+              aria-pressed={Boolean(isSelected)}
+              className={`cal-day ${stateClass} ${isToday ? 'cal-day--today' : ''}`}
             >
               {date.getDate()}
-              {status === 'blocked' && <span className="w-1 h-1 rounded-full bg-orange-400 mt-0.5" />}
             </motion.button>
           );
         })}
       </div>
 
-      {/* Legend */}
-      {isManualMode && (
-        <div className="flex flex-wrap gap-3 mt-4 justify-center text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary" />פתוח לקביעה</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white/20" />עדיין לא נפתח</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />אין שעות פנויות</span>
+      {/* Legend — mirrors the actual day states above */}
+      {isManualMode ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 justify-center text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[5px] border border-primary/40 bg-primary/15" />פתוח לקביעה</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[5px] border border-white/10 bg-white/[0.04]" />עדיין לא נפתח</span>
+          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-primary" />היום</span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 justify-center text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[5px] bg-white/10" />סגור</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[5px] bg-red-400/40" />יום חסום</span>
+          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-primary" />היום</span>
         </div>
       )}
-      <div className={`${isManualMode ? 'hidden' : 'flex'} gap-4 mt-4 justify-center text-xs text-muted-foreground`}>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400/60" />ימים ללא תורים</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />חופש</span>
-      </div>
     </div>
   );
 }
@@ -593,8 +594,9 @@ export default function Booking() {
       <button
         type="button"
         onClick={() => setWaitingListOpen((open) => !open)}
-        className="w-full rounded-xl bg-primary/15 text-primary px-4 py-3 text-sm font-bold"
+        className="w-full rounded-xl border border-primary/30 bg-primary/15 text-primary px-4 py-3 text-sm font-bold press-scale flex items-center justify-center gap-2"
       >
+        <BellRing className="w-4 h-4" />
         {waitingListOpen
           ? 'סגור רשימת המתנה'
           : (selectedDateIsUnreleased ? 'הצטרפות לרשימת המתנה לתאריך הזה' : 'הצטרף לרשימת המתנה')}
@@ -703,7 +705,7 @@ export default function Booking() {
             <CheckCircle2 className="w-12 h-12 text-black" />
           </motion.div>
           <h2 className="text-3xl font-black mb-2">התור נקבע! 🎉</h2>
-          <p className="text-muted-foreground mb-6">נשלח אישור ותזכורת ב-WhatsApp</p>
+          <p className="text-muted-foreground mb-6">נשלח לך אישור ותזכורת לפני התור</p>
           <div className="glass rounded-2xl p-5 text-right mb-6 space-y-3">
             {[
               { label: 'שירות', value: selectedService.name },
@@ -840,8 +842,12 @@ export default function Booking() {
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Header */}
       <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)} className="press-scale">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)}
+            className="icon-btn press-scale -mr-2"
+            aria-label="חזרה"
+          >
             <ArrowRight className="w-6 h-6" />
           </button>
           <div className="flex-1">
@@ -868,7 +874,7 @@ export default function Booking() {
           {step === 1 && (
             <motion.div key="step1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}>
               <h2 className="text-xl font-black mb-1">בחירת שירות</h2>
-              <p className="text-muted-foreground text-sm mb-5">שלב 1 מתוך 3</p>
+              <p className="text-muted-foreground text-sm mb-5">בחר ספר ושירות כדי להמשיך</p>
 
               {/* Barber */}
               {barbers.length > 1 && (
@@ -889,8 +895,10 @@ export default function Booking() {
                 </div>
               )}
               {barbers.length === 0 && (
-                <div className="glass rounded-2xl p-4 mb-5 text-center text-sm text-muted-foreground">
-                  אין כרגע ספר פעיל לקביעת תור.
+                <div className="glass premium-empty-state rounded-2xl p-6 mb-5 text-center">
+                  <Scissors className="w-8 h-8 text-muted-foreground/70 mx-auto mb-2.5" />
+                  <p className="font-black text-sm mb-1">אין כרגע ספר פעיל לקביעת תור</p>
+                  <p className="text-muted-foreground text-xs leading-5">נסה שוב מאוחר יותר או פנה לעסק.</p>
                 </div>
               )}
 
@@ -973,13 +981,20 @@ export default function Booking() {
                   <h3 className="font-black mb-1 flex items-center gap-2">
                     <Clock className="w-4 h-4 text-primary" /> מתי תרצה להגיע?
                   </h3>
-                  <p className="text-xs text-muted-foreground mb-4">ניתן לבחור יותר מאפשרות אחת!</p>
+                  <p className="text-xs text-muted-foreground mb-4">בחר את הזמן שהכי מתאים לך</p>
 
                   {availableSlots.length === 0 ? (
                     <>
-                      <div className="glass rounded-2xl p-6 text-center">
-                        <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-muted-foreground text-sm">{emptyAvailabilityMessage}</p>
+                      <div className="glass premium-empty-state rounded-2xl p-6 text-center">
+                        {selectedDateIsUnreleased ? (
+                          <Lock className="w-8 h-8 text-muted-foreground/70 mx-auto mb-2.5" />
+                        ) : (
+                          <Clock className="w-8 h-8 text-muted-foreground/70 mx-auto mb-2.5" />
+                        )}
+                        <p className="font-black text-sm mb-1">
+                          {selectedDateIsUnreleased ? 'התאריך הזה עדיין לא נפתח' : 'אין שעות פנויות'}
+                        </p>
+                        <p className="text-muted-foreground text-sm leading-6">{emptyAvailabilityMessage}</p>
                       </div>
                       {waitingListPanel}
                     </>
@@ -1020,7 +1035,7 @@ export default function Booking() {
                               {TIME_GROUPS.find(g => g.key === selectedTimeGroup)?.emoji} {TIME_GROUPS.find(g => g.key === selectedTimeGroup)?.label}
                             </span>
                           </div>
-                          <div className="grid grid-cols-4 gap-2">
+                          <div className={`grid gap-2 ${isAllBarbersMode ? 'grid-cols-3' : 'grid-cols-4'}`}>
                             {(slotGroups[selectedTimeGroup] || []).map(slot => (
                               <motion.button
                                 key={slot.id}
@@ -1029,13 +1044,12 @@ export default function Booking() {
                                   setSelectedTime(slot.time);
                                   setSelectedSlot(slot);
                                 }}
-                                className={`py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                  selectedSlot?.id === slot.id ? 'gold-gradient text-black' : 'glass hover:border-primary/50'
-                                }`}
+                                aria-pressed={selectedSlot?.id === slot.id}
+                                className={`slot-chip ${selectedSlot?.id === slot.id ? 'slot-chip--selected' : ''}`}
                               >
                                 <span className="block">{slot.time}</span>
                                 {isAllBarbersMode && (
-                                  <span className="block w-full truncate px-1 text-[10px] font-medium opacity-80 leading-4">{slot.barberName}</span>
+                                  <span className="slot-barber">{slot.barberName}</span>
                                 )}
                               </motion.button>
                             ))}
@@ -1056,7 +1070,16 @@ export default function Booking() {
               )}
 
               {selectedDate && selectedTime && selectedSlot && (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-6">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-6 space-y-3">
+                  <div className="glass-gold rounded-2xl p-3 flex items-center justify-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
+                    <span className="font-bold">
+                      {selectedDate.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })} · {selectedTime}
+                    </span>
+                    {selectedSlot.barberName && (
+                      <span className="text-primary font-bold">· {selectedSlot.barberName}</span>
+                    )}
+                  </div>
                   <GoldButton onClick={() => setStep(3)} size="lg" className="w-full">המשך לאישור</GoldButton>
                 </motion.div>
               )}
@@ -1086,7 +1109,7 @@ export default function Booking() {
               </div>
               <div className="glass-gold rounded-2xl p-3 mb-4 flex items-center gap-2">
                 <BellRing className="w-4 h-4 text-primary flex-shrink-0" />
-                <p className="text-xs text-muted-foreground">תקבל תזכורת WhatsApp 24 שעות ו-2 שעות לפני התור</p>
+                <p className="text-xs text-muted-foreground">תקבל תזכורת 24 שעות ושעתיים לפני התור</p>
               </div>
               {(currentUser?.requiresNoShowPayment || currentUser?.noShowPaymentAmount > 0) && (
                 <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 mb-4 text-sm">
@@ -1137,7 +1160,7 @@ export default function Booking() {
                 </div>
               )}
               {bookingError && (
-                <div className="rounded-2xl bg-red-500/10 border border-red-500/30 p-3 mb-4 text-center text-red-400 text-sm font-bold">
+                <div className="banner-error mb-4 text-center">
                   {bookingError}
                 </div>
               )}

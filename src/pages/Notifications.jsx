@@ -224,8 +224,8 @@ export default function Notifications() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate(-1)} className="press-scale">
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => navigate(-1)} className="icon-btn press-scale -mr-2" aria-label="חזרה">
             <ArrowRight className="w-6 h-6" />
           </button>
           <h1 className="font-black text-lg flex-1">הודעות ועדכונים</h1>
@@ -265,13 +265,21 @@ export default function Notifications() {
 
       <div className="px-4 py-4 space-y-2.5">
         {error && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+          <div className="banner-error">
             {error}
           </div>
         )}
         {loading && (
-          <div className="glass rounded-3xl p-8 text-center text-sm text-muted-foreground">
-            טוען הודעות...
+          <div className="space-y-2.5" aria-label="טוען הודעות">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="dark-card rounded-2xl p-4 flex items-start gap-3">
+                <div className="skeleton w-10 h-10 rounded-xl flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="skeleton h-3.5 w-1/2 rounded-lg" />
+                  <div className="skeleton h-3 w-3/4 rounded-lg" />
+                </div>
+              </div>
+            ))}
           </div>
         )}
         <AnimatePresence mode="popLayout">

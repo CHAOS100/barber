@@ -232,7 +232,7 @@ export default function AdminMessages() {
       {/* Page header */}
       <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate('/admin')} className="press-scale">
+          <button type="button" onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
             <ArrowRight className="w-6 h-6" />
           </button>
           <div className="flex-1">
@@ -245,7 +245,7 @@ export default function AdminMessages() {
       <div className="px-4 py-6 space-y-6">
         {/* Data-load error */}
         {dataError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          <div className="banner-error">
             {dataError}
           </div>
         )}
@@ -368,7 +368,7 @@ export default function AdminMessages() {
 
           {/* Error feedback */}
           {sendError && (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 text-right">
+            <div className="banner-error text-right">
               {sendError}
             </div>
           )}
@@ -513,7 +513,7 @@ export default function AdminMessages() {
                   </div>
 
                   {job.error && (
-                    <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                    <div className="mt-3 banner-error">
                       {String(job.error)}
                     </div>
                   )}

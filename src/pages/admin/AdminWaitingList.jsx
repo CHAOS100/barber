@@ -101,7 +101,7 @@ export default function AdminWaitingList() {
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/admin')} className="press-scale">
+          <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
             <ArrowRight className="w-6 h-6" />
           </button>
           <div>
@@ -152,13 +152,13 @@ export default function AdminWaitingList() {
         </div>
 
         {error && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">
+          <div className="banner-error">
             {error}
           </div>
         )}
 
         {entries.length === 0 ? (
-          <div className="glass rounded-3xl p-8 text-center">
+          <div className="glass premium-empty-state rounded-3xl p-8 text-center">
             <BellRing className="w-12 h-12 text-primary mx-auto mb-3" />
             <h2 className="font-black text-lg mb-1">אין רשומות המתנה</h2>
             <p className="text-muted-foreground text-sm">כשלקוחות יצטרפו לרשימה, הם יופיעו כאן.</p>
@@ -172,7 +172,7 @@ export default function AdminWaitingList() {
                     <h3 className="font-black">{entry.customerName || 'לקוח'}</h3>
                     <p className="text-muted-foreground text-sm" dir="ltr">{entry.phoneNumber || '-'}</p>
                   </div>
-                  <span className="rounded-full bg-primary/15 text-primary px-3 py-1 text-xs font-bold">
+                  <span className="status-pill status-pill--accent">
                     {STATUS_LABELS[entry.status] || entry.status}
                   </span>
                 </div>

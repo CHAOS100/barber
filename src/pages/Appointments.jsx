@@ -20,21 +20,21 @@ import {
 } from '@/lib/appointmentStatus';
 
 const STATUS_LABELS = {
-  pending: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
-  approved: { label: 'מאושר', color: 'text-green-400 bg-green-400/20' },
-  confirmed: { label: 'מאושר', color: 'text-green-400 bg-green-400/20' },
-  completed: { label: 'הושלם', color: 'text-primary bg-primary/20' },
-  completed_auto: { label: 'הושלם — התספורת בוצעה', color: 'text-primary bg-primary/20' },
-  cancelled: { label: 'בוטל', color: 'text-red-400 bg-red-400/20' },
-  cancelled_by_admin: { label: 'בוטל מצד הספר', color: 'text-red-400 bg-red-400/20' },
-  cancelled_by_customer: { label: 'בוטל מצד הלקוח', color: 'text-orange-400 bg-orange-400/20' },
-  rejected: { label: 'נדחה', color: 'text-red-400 bg-red-400/20' },
-  no_show: { label: 'אי הגעה', color: 'text-orange-400 bg-orange-400/20' },
+  pending: { label: 'ממתין', pill: 'status-pill--warning' },
+  approved: { label: 'מאושר', pill: 'status-pill--success' },
+  confirmed: { label: 'מאושר', pill: 'status-pill--success' },
+  completed: { label: 'הושלם', pill: 'status-pill--accent' },
+  completed_auto: { label: 'הושלם — התספורת בוצעה', pill: 'status-pill--accent' },
+  cancelled: { label: 'בוטל', pill: 'status-pill--danger' },
+  cancelled_by_admin: { label: 'בוטל מצד הספר', pill: 'status-pill--danger' },
+  cancelled_by_customer: { label: 'בוטל מצד הלקוח', pill: 'status-pill--warning' },
+  rejected: { label: 'נדחה', pill: 'status-pill--danger' },
+  no_show: { label: 'אי הגעה', pill: 'status-pill--warning' },
 };
 
 const WAITING_STATUS_LABELS = {
-  active: { label: 'ממתין', color: 'text-yellow-400 bg-yellow-400/20' },
-  notified: { label: 'נמצא תור!', color: 'text-primary bg-primary/20' },
+  active: { label: 'ממתין', pill: 'status-pill--warning' },
+  notified: { label: 'נמצא תור!', pill: 'status-pill--accent' },
 };
 
 const PREFERENCE_LABELS = {
@@ -155,7 +155,7 @@ export default function Appointments() {
                         <div className="text-muted-foreground text-sm">{entry.date || '-'}</div>
                       </div>
                     </div>
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${wlStatus.color}`}>
+                    <span className={`status-pill ${wlStatus.pill}`}>
                       {wlStatus.label}
                     </span>
                   </div>
@@ -198,7 +198,7 @@ export default function Appointments() {
 
       {activeTab !== 'waiting' && <div className="px-4 space-y-3">
         {appointmentsError ? (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm text-center">
+          <div className="banner-error text-center">
             לא הצלחנו לטעון את הנתונים. נסה לרענן.
           </div>
         ) : isLoading ? (
@@ -242,9 +242,15 @@ export default function Appointments() {
                       <div className="text-muted-foreground text-sm">
                         {apptDate.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' })} • {appt.time}
                       </div>
+                      {(appt.barber_name || appt.barberName) && (
+                        <div className="text-muted-foreground text-xs mt-0.5 flex items-center gap-1">
+                          <Scissors className="w-3 h-3 text-primary/70" />
+                          {appt.barber_name || appt.barberName}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${statusInfo.color}`}>
+                  <span className={`status-pill ${statusInfo.pill}`}>
                     {statusInfo.label}
                   </span>
                 </div>
@@ -392,7 +398,7 @@ export default function Appointments() {
                   />
                 </div>
                 {cancelMutation.error && (
-                  <div className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-400 text-sm">
+                  <div className="mt-2 banner-error">
                     {getBookingRejectionMessage(cancelMutation.error)}
                   </div>
                 )}
