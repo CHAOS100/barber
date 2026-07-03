@@ -690,6 +690,14 @@ export const callPublishManualSlotRelease = async (input) => {
   return result.data;
 };
 
+export const callDeactivateBarber = async ({ barberId, reason }) => {
+  await ensureFirebaseAdmin();
+  const fn = httpsCallable(getFirebaseFunctions(), 'deactivateBarber');
+  const result = await fn({ barberId, reason });
+  console.info('[Firestore Barbers] barber deactivated via callable', result.data);
+  return result.data;
+};
+
 export const cancelBookingSlotRelease = async (id) => {
   await ensureFirebaseAdmin();
   await updateDoc(doc(getFirestoreDb(), 'bookingSlotReleases', id), {

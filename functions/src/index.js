@@ -19,6 +19,7 @@ import {
   buildPushJobForAppointmentEvent,
   buildPushJobForCancellation,
   buildPushJobForWaitlistMatch,
+  buildPushJobForWaitlistRelease,
   buildPushJobForProfileStatus,
   buildPushJobForSlotsReleased,
   buildSlotsReleasedMessage,
@@ -732,6 +733,58 @@ export const scheduledPushNotificationSender = onSchedule(
 );
 
 /**
+ * Scheduled daily cleanup: mark waitingList entries as expired when their date has passed.
+ * Runs once per day at 01:00 Israel time so the cleanup happens early morning.
+ * Only affects entries whose date < today and status is still 'active' or 'notified'.
+ * Does not delete entries — marks them with status:'expired' so history is preserved.
+ */
+export const scheduledWaitlistExpiry = onSchedule(
+  { schedule: '0 1 * * *', timeZone: 'Asia/Jerusalem' },
+  async () => {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    const expirableStatuses = ['active', 'notified'];
+    let totalExpired = 0;
+    let errors = 0;
+
+    for (const status of expirableStatuses) {
+      const snap = await getFirestore()
+        .collection('waitingList')
+        .where('status', '==', status)
+        .get();
+
+      const toExpire = snap.docs.filter((docSnap) => {
+        const d = docSnap.data()?.date;
+        return typeof d === 'string' && d < todayStr;
+      });
+
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < toExpire.length; i += BATCH_SIZE) {
+        const writeBatch = getFirestore().batch();
+        toExpire.slice(i, i + BATCH_SIZE).forEach((docSnap) => {
+          writeBatch.update(docSnap.ref, {
+            status: 'expired',
+            expiredAt: FieldValue.serverTimestamp(),
+            closedReason: 'date_passed',
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        });
+        try {
+          await writeBatch.commit();
+          totalExpired += toExpire.slice(i, i + BATCH_SIZE).length;
+        } catch (batchError) {
+          logger.error('scheduledWaitlistExpiry batch failed', { error: batchError.message });
+          errors += 1;
+        }
+      }
+    }
+
+    logger.info('scheduledWaitlistExpiry: done', { todayStr, totalExpired, errors });
+  },
+);
+
+/**
  * Admin-only callable function for manually triggering push job processing.
  * Use this to test without waiting for the scheduler.
  *
@@ -1026,6 +1079,222 @@ const createReleasesForBarber = async (
   return { created, skipped };
 };
 
+const ACTIVE_APPOINTMENT_STATUSES_FOR_CANCEL = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const TERMINAL_STATUSES_FOR_CANCEL = new Set(['completed', 'completed_auto', 'cancelled', 'cancelled_by_admin', 'cancelled_by_customer', 'rejected', 'no_show']);
+
+/**
+ * Deactivate a barber (set active:false), cancel all their active future appointments,
+ * notify each affected customer with a push + in-app notification, and deactivate their
+ * future booking slot releases. Server-enforced so it is atomic and safe.
+ *
+ * Request data: { barberId: string, reason: string }
+ * Returns: { barberId, deactivated: true, appointmentsCancelled, releasesDeactivated, notificationsCreated }
+ */
+export const deactivateBarber = onCall(
+  { enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be signed in.');
+    }
+    const firestore = getFirestore();
+    const adminSnap = await firestore.collection('admins').doc(request.auth.uid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
+      throw new HttpsError('permission-denied', 'Admin access required.');
+    }
+
+    const data = request.data || {};
+    const barberId = String(data.barberId || '').trim();
+    const reason = String(data.reason || '').trim();
+    if (!barberId) throw new HttpsError('invalid-argument', 'barberId is required.');
+    if (!reason) throw new HttpsError('invalid-argument', 'חובה להזין סיבה לביטול זמינות הספר');
+
+    const barberSnap = await firestore.collection('barbers').doc(barberId).get();
+    if (!barberSnap.exists) throw new HttpsError('not-found', 'Barber not found.');
+    const barber = { id: barberSnap.id, ...barberSnap.data() };
+    const barberName = String(barber.name || '').trim();
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // 1. Deactivate the barber
+    await firestore.collection('barbers').doc(barberId).update({
+      active: false,
+      is_active: false,
+      deactivatedAt: FieldValue.serverTimestamp(),
+      deactivatedBy: request.auth.uid,
+      deactivatedReason: reason || null,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // 2. Find and cancel active future appointments for this barber only
+    const apptSnap = await firestore
+      .collection('appointments')
+      .where('barberId', '==', barberId)
+      .get();
+
+    const toCancel = apptSnap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .filter((appt) => {
+        if (TERMINAL_STATUSES_FOR_CANCEL.has(appt.status)) return false;
+        if (!ACTIVE_APPOINTMENT_STATUSES_FOR_CANCEL.has(appt.status)) return false;
+        if (!appt.date) return false;
+        // Cancel only future or today's appointments (by date)
+        if (appt.date < todayStr) return false;
+        // Also skip if date is today and endTime has already passed
+        if (appt.date === todayStr && appt.endTime) {
+          const [h, m] = appt.endTime.split(':').map(Number);
+          const endMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
+          if (endMs <= now.getTime()) return false;
+        }
+        return true;
+      });
+
+    let appointmentsCancelled = 0;
+    let notificationsCreated = 0;
+    const cancelPushJobs = [];
+
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < toCancel.length; i += BATCH_SIZE) {
+      const writeBatch = firestore.batch();
+      const chunk = toCancel.slice(i, i + BATCH_SIZE);
+      chunk.forEach((appt) => {
+        // Cancel the appointment
+        writeBatch.update(firestore.collection('appointments').doc(appt.id), {
+          status: 'cancelled',
+          cancellationReason: 'barber_unavailable',
+          cancellationNote: reason,
+          cancelledBy: 'admin',
+          cancelledByUid: request.auth.uid,
+          cancelledAt: FieldValue.serverTimestamp(),
+          previousStatus: appt.status,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // reason is always non-empty — validated above.
+        const notifBody = `התור שלך אצל ${barberName} בוטל כי הספר לא זמין. סיבה: ${reason}`;
+
+        // In-app notification per customer
+        if (appt.customerId) {
+          const inAppRef = firestore
+            .collection('customerNotifications')
+            .doc(appt.customerId)
+            .collection('notifications')
+            .doc(`barber_deactivated_${appt.id}`);
+          writeBatch.set(inAppRef, {
+            type: 'appointment_cancelled',
+            severity: 'warning',
+            title: 'התור שלך בוטל',
+            message: notifBody,
+            targetType: 'single_customer',
+            targetCustomerId: appt.customerId,
+            targetPhone: appt.customerPhone || null,
+            status: 'unread',
+            source: 'barber_deactivated',
+            appointmentId: appt.id,
+            barberId,
+            barberName,
+            cancellationReason: reason,
+            date: appt.date || null,
+            startTime: appt.startTime || null,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            expiresAt: null,
+          });
+          notificationsCreated += 1;
+        }
+
+        // Build push job for this customer
+        cancelPushJobs.push({
+          id: `barber_deactivated_${appt.id}_push`,
+          data: {
+            channel: 'push',
+            customerId: appt.customerId || null,
+            customerPhone: appt.customerPhone || null,
+            type: 'appointment_cancelled',
+            title: 'התור שלך בוטל',
+            body: notifBody,
+            data: {
+              appointmentId: appt.id,
+              barberId,
+              barberName,
+              cancellationReason: reason,
+              source: 'barber_deactivated',
+            },
+            scheduledFor: now,
+            status: 'pending',
+            attempts: 0,
+            lastError: null,
+            createdAt: now,
+            sentAt: null,
+            error: null,
+          },
+        });
+
+        appointmentsCancelled += 1;
+      });
+      await writeBatch.commit();
+    }
+
+    // 3. Deactivate future booking slot releases for this barber
+    const releasesSnap = await firestore
+      .collection('bookingSlotReleases')
+      .where('barberId', '==', barberId)
+      .where('status', '==', 'active')
+      .get();
+
+    const futurReleases = releasesSnap.docs.filter((docSnap) => {
+      const d = docSnap.data()?.date;
+      return typeof d === 'string' && d >= todayStr;
+    });
+
+    let releasesDeactivated = 0;
+    for (let i = 0; i < futurReleases.length; i += BATCH_SIZE) {
+      const writeBatch = firestore.batch();
+      futurReleases.slice(i, i + BATCH_SIZE).forEach((docSnap) => {
+        writeBatch.update(docSnap.ref, {
+          status: 'cancelled',
+          cancelledAt: FieldValue.serverTimestamp(),
+          cancelledReason: 'barber_deactivated',
+          cancelledBy: request.auth.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        releasesDeactivated += 1;
+      });
+      await writeBatch.commit();
+    }
+
+    // 4. Enqueue push jobs for affected customers
+    if (cancelPushJobs.length > 0) {
+      await notificationJobs.enqueue(cancelPushJobs);
+      const immediateIds = cancelPushJobs
+        .filter((j) => IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+        .map((j) => j.id);
+      if (immediateIds.length > 0) {
+        await processImmediatePushJobs(immediateIds).catch((error) =>
+          logger.warn('barber deactivation push delivery failed (scheduler will retry)', { error: error.message }),
+        );
+      }
+    }
+
+    logger.info('[BARBER_DEACTIVATE_CANCEL_APPOINTMENTS]', {
+      barberId,
+      barberName,
+      reason,
+      affectedAppointments: appointmentsCancelled,
+      notificationJobsCreated: cancelPushJobs.length,
+      releasesDeactivated,
+    });
+
+    return {
+      barberId,
+      deactivated: true,
+      appointmentsCancelled,
+      releasesDeactivated,
+      notificationsCreated,
+    };
+  },
+);
+
 export const publishManualSlotRelease = onCall(
   { enforceAppCheck: false },
   async (request) => {
@@ -1183,11 +1452,161 @@ export const publishManualSlotRelease = onCall(
       }
     }
 
+    // ── Targeted waitlist notifications ──────────────────────────────────────
+    // Find active waitingList entries whose requested date matches a released date.
+    // Barber matching: entry.barberMode='all' or entry.barberId=null matches any release;
+    //                  entry.barberMode='single' only matches when entry.barberId is in targetBarberIds.
+    // Dedup per entry per batch: waitlist_release_notify_{waitingListId}_{releaseBatchId}
+    let waitlistJobsCreated = 0;
+    let waitlistSkipped = 0;
+    const waitlistSkipReasons = {};
+    try {
+      const releasedDateSet = new Set(dates);
+      const targetBarberIdSet = new Set(targetBarberIds);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+      const waitlistSnap = await firestore
+        .collection('waitingList')
+        .where('status', '==', 'active')
+        .get();
+
+      const matchingEntries = waitlistSnap.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+        .filter((entry) => {
+          if (!entry.date || entry.date < todayStr) {
+            waitlistSkipReasons['past_date'] = (waitlistSkipReasons['past_date'] || 0) + 1;
+            waitlistSkipped += 1;
+            return false;
+          }
+          if (!releasedDateSet.has(entry.date)) {
+            waitlistSkipReasons['date_not_released'] = (waitlistSkipReasons['date_not_released'] || 0) + 1;
+            waitlistSkipped += 1;
+            return false;
+          }
+          // Barber match: all-barbers entries match any release;
+          // single-barber entries only match if their barberId is in the release.
+          const entryBarberMode = entry.barberMode || (entry.barberId ? 'single' : 'all');
+          if (entryBarberMode === 'single' && entry.barberId && !targetBarberIdSet.has(entry.barberId)) {
+            waitlistSkipReasons['barber_mismatch'] = (waitlistSkipReasons['barber_mismatch'] || 0) + 1;
+            waitlistSkipped += 1;
+            return false;
+          }
+          return true;
+        });
+
+      if (matchingEntries.length > 0) {
+        const waitlistPushJobs = [];
+        const waitlistBatch = firestore.batch();
+
+        matchingEntries.forEach((entry) => {
+          // Build barber context for the notification copy:
+          // - If the release is for all barbers, use generic copy (no specific barber name).
+          // - If single-barber release, use that barber's name.
+          // - If the entry is for a specific barber within an all-release, use that barber's name.
+          const entryBarberMode = entry.barberMode || (entry.barberId ? 'single' : 'all');
+          let notifBarberId = null;
+          let notifBarberName = null;
+          if (!releaseAllBarbers) {
+            notifBarberId = targetBarberIds[0] || null;
+            notifBarberName = targetBarberNames[0] || null;
+          } else if (entryBarberMode === 'single' && entry.barberId) {
+            notifBarberId = entry.barberId;
+            const matchedBarber = targetBarbers.find((b) => b.id === entry.barberId);
+            notifBarberName = matchedBarber ? String(matchedBarber.name || '').trim() : (entry.barberName || null);
+          }
+          const entryNotifContext = {
+            barberMode: notifBarberId ? 'single' : 'all',
+            barberId: notifBarberId,
+            barberName: notifBarberName,
+          };
+
+          const pushJob = buildPushJobForWaitlistRelease(
+            entry.id, entry, releaseBatchId, entryNotifContext, now,
+          );
+          waitlistPushJobs.push(pushJob);
+
+          // In-app notification for the customer
+          if (entry.customerId) {
+            const barberNameForInApp = notifBarberName || null;
+            const inAppTitle = 'נפתחו תורים שחיכית להם';
+            const inAppBody = barberNameForInApp
+              ? `נפתחו תורים אצל ${barberNameForInApp} בתאריך ${entry.date}. היכנס לאפליקציה לשריין מקום.`
+              : `נפתחו תורים בתאריך ${entry.date} שחיכית לו. היכנס לאפליקציה לשריין מקום.`;
+            const inAppRef = firestore
+              .collection('customerNotifications')
+              .doc(entry.customerId)
+              .collection('notifications')
+              .doc(`waitlist_release_${releaseBatchId}_${entry.customerId}`);
+            waitlistBatch.set(inAppRef, {
+              type: 'waitlist_release_notify',
+              severity: 'success',
+              title: inAppTitle,
+              message: inAppBody,
+              targetType: 'single_customer',
+              targetCustomerId: entry.customerId,
+              targetPhone: entry.phoneNumber || null,
+              status: 'unread',
+              source: 'waitlist',
+              waitingListId: entry.id,
+              waitingListEntryId: entry.id,
+              releaseBatchId,
+              date: entry.date,
+              barberId: notifBarberId,
+              barberName: notifBarberName,
+              createdAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+              expiresAt: null,
+            });
+          }
+
+          // Update waitlist entry to track notification
+          waitlistBatch.update(firestore.doc(`waitingList/${entry.id}`), {
+            lastReleaseNotifiedAt: FieldValue.serverTimestamp(),
+            lastReleaseNotifiedBatchId: releaseBatchId,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          waitlistJobsCreated += 1;
+        });
+
+        await waitlistBatch.commit();
+
+        if (waitlistPushJobs.length > 0) {
+          await notificationJobs.enqueue(waitlistPushJobs);
+          const immediateWaitlistIds = waitlistPushJobs
+            .filter((j) => IMMEDIATE_PUSH_TYPES.has(j.data?.type))
+            .map((j) => j.id);
+          if (immediateWaitlistIds.length > 0) {
+            await processImmediatePushJobs(immediateWaitlistIds).catch((error) =>
+              logger.warn('waitlist release push delivery failed (scheduler will retry)', { error: error.message }),
+            );
+          }
+        }
+      }
+    } catch (waitlistError) {
+      logger.warn('publishManualSlotRelease: waitlist notification step failed (non-fatal)', {
+        releaseBatchId,
+        error: waitlistError.message,
+      });
+    }
+
+    logger.info('[WAITLIST_RELEASE_NOTIFY]', {
+      releaseBatchId,
+      releaseDates: dates,
+      barberIds: targetBarberIds,
+      matchedEntriesCount: waitlistJobsCreated,
+      jobsCreated: waitlistJobsCreated,
+      skippedCount: waitlistSkipped,
+      skipReasons: waitlistSkipReasons,
+    });
+
     return {
       releaseBatchId,
       datesCreated,
       datesSkipped,
       notified: customers.length,
+      waitlistNotified: waitlistJobsCreated,
     };
   },
 );

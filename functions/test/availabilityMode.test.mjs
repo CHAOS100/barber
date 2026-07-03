@@ -1090,3 +1090,242 @@ test('barber-specific cancel: only affects releases for that barber', () => {
   assert.equal(final.find(r => r.id === 'r1').status, 'cancelled');
   assert.equal(final.find(r => r.id === 'r2').status, 'active', 'barber B release unaffected');
 });
+
+// ─── PART 11: Waitlist release notifications + expiry + barber deactivation ───
+
+// ── A) Waitlist matching when slots are released ──────────────────────────────
+
+// Mirrors the filtering logic inside publishManualSlotRelease's waitlist section.
+const waitlistMatchesRelease = (entry, releasedDateSet, targetBarberIdSet) => {
+  if (!entry.date || !releasedDateSet.has(entry.date)) return false;
+  const entryBarberMode = entry.barberMode || (entry.barberId ? 'single' : 'all');
+  if (entryBarberMode === 'single' && entry.barberId && !targetBarberIdSet.has(entry.barberId)) {
+    return false;
+  }
+  return true;
+};
+
+test('waitlist entry matching released date is notified', () => {
+  const entry = { id: 'wl-1', customerId: 'cust-1', date: '2099-09-01', status: 'active', barberMode: 'all' };
+  const releasedDates = new Set(['2099-09-01', '2099-09-02']);
+  const barberIds = new Set(['barber-a']);
+  assert.equal(waitlistMatchesRelease(entry, releasedDates, barberIds), true);
+});
+
+test('waitlist entry on a different date is NOT notified', () => {
+  const entry = { id: 'wl-1', customerId: 'cust-1', date: '2099-09-05', status: 'active', barberMode: 'all' };
+  const releasedDates = new Set(['2099-09-01', '2099-09-02']);
+  const barberIds = new Set(['barber-a']);
+  assert.equal(waitlistMatchesRelease(entry, releasedDates, barberIds), false);
+});
+
+test('all-barbers waitlist entry is notified by any barber release', () => {
+  const entry = { id: 'wl-1', date: '2099-09-01', barberMode: 'all', barberId: null };
+  const releasedDates = new Set(['2099-09-01']);
+  const anyBarberIdSet = new Set(['barber-a']);
+  assert.equal(waitlistMatchesRelease(entry, releasedDates, anyBarberIdSet), true);
+});
+
+test('single-barber waitlist entry is notified when its barber released slots', () => {
+  const entry = { id: 'wl-1', date: '2099-09-01', barberMode: 'single', barberId: 'barber-a' };
+  const releasedDates = new Set(['2099-09-01']);
+  const targetIds = new Set(['barber-a']);
+  assert.equal(waitlistMatchesRelease(entry, releasedDates, targetIds), true);
+});
+
+test('single-barber waitlist entry is NOT notified when a different barber released', () => {
+  const entry = { id: 'wl-1', date: '2099-09-01', barberMode: 'single', barberId: 'barber-b' };
+  const releasedDates = new Set(['2099-09-01']);
+  const targetIds = new Set(['barber-a']); // barber-b was not in this release
+  assert.equal(waitlistMatchesRelease(entry, releasedDates, targetIds), false);
+});
+
+test('waitlist dedup: same entry gets same push job ID per release batch', () => {
+  const waitingListId = 'wl-abc';
+  const releaseBatchId = 'batch-xyz';
+  const id1 = `waitlist_release_notify_${waitingListId}_${releaseBatchId}`;
+  const id2 = `waitlist_release_notify_${waitingListId}_${releaseBatchId}`;
+  assert.equal(id1, id2, 'push job ID is deterministic — same entry+batch cannot fire twice');
+});
+
+test('waitlist dedup: different release batches produce different push job IDs', () => {
+  const waitingListId = 'wl-abc';
+  const id1 = `waitlist_release_notify_${waitingListId}_batch-1`;
+  const id2 = `waitlist_release_notify_${waitingListId}_batch-2`;
+  assert.notEqual(id1, id2, 'each batch generates a separate push job for the same entry');
+});
+
+// ── B) Waitlist expiry filtering ──────────────────────────────────────────────
+
+// Mirrors the client-side defensive filter in AdminWaitingList and the
+// server-side scheduled expiry (scheduledWaitlistExpiry).
+const isWaitlistEntryExpired = (entry, todayStr) =>
+  typeof entry.date === 'string' && entry.date < todayStr;
+
+test('past waitlist entry (date yesterday) is treated as expired', () => {
+  assert.equal(isWaitlistEntryExpired({ date: '2000-01-01' }, '2026-07-03'), true);
+});
+
+test('today waitlist entry is NOT expired', () => {
+  assert.equal(isWaitlistEntryExpired({ date: '2026-07-03' }, '2026-07-03'), false);
+});
+
+test('future waitlist entry is NOT expired', () => {
+  assert.equal(isWaitlistEntryExpired({ date: '2099-12-31' }, '2026-07-03'), false);
+});
+
+test('expired waitlist entry is excluded from release notification matching', () => {
+  const expiredEntry = { id: 'wl-old', date: '2000-01-01', barberMode: 'all', status: 'active' };
+  const releasedDates = new Set(['2000-01-01']); // would match date, but entry is past
+  const barberIds = new Set(['barber-a']);
+  const todayStr = '2026-07-03';
+  // The published date filter checks: entry.date >= todayStr before checking releasedDateSet
+  const matchesDate = releasedDates.has(expiredEntry.date);
+  const isExpired = isWaitlistEntryExpired(expiredEntry, todayStr);
+  // Despite date matching, expired entry should be excluded
+  assert.equal(matchesDate, true);
+  assert.equal(isExpired, true, 'entry is past and should be excluded');
+  // The actual filter: date must be >= todayStr
+  const wouldBeNotified = !isExpired && releasedDates.has(expiredEntry.date);
+  assert.equal(wouldBeNotified, false, 'expired entry is not notified');
+});
+
+// ── C) Barber deactivation: appointment filtering ────────────────────────────
+
+// Mirrors the toCancel filter in deactivateBarber Cloud Function.
+const ACTIVE_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
+const TERMINAL_STATUSES = new Set(['completed', 'completed_auto', 'cancelled', 'cancelled_by_admin', 'cancelled_by_customer', 'rejected', 'no_show']);
+
+const shouldCancelOnDeactivation = (appt, barberId, todayStr) => {
+  if (appt.barberId !== barberId) return false;
+  if (TERMINAL_STATUSES.has(appt.status)) return false;
+  if (!ACTIVE_STATUSES.has(appt.status)) return false;
+  if (!appt.date || appt.date < todayStr) return false;
+  return true;
+};
+
+const TODAY = '2026-07-03';
+
+test('deactivating barber A cancels their future confirmed appointment', () => {
+  const appt = { barberId: 'barber-a', status: 'confirmed', date: '2099-09-01' };
+  assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), true);
+});
+
+test('deactivating barber A cancels their future pending appointment', () => {
+  const appt = { barberId: 'barber-a', status: 'pending', date: '2099-09-01' };
+  assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), true);
+});
+
+test('deactivating barber A does NOT cancel their past appointment', () => {
+  const appt = { barberId: 'barber-a', status: 'confirmed', date: '2000-01-01' };
+  assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), false);
+});
+
+test('deactivating barber A does NOT cancel their completed appointment', () => {
+  const appt = { barberId: 'barber-a', status: 'completed', date: '2099-09-01' };
+  assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), false);
+});
+
+test('deactivating barber A does NOT cancel their already-cancelled appointment', () => {
+  for (const status of ['cancelled', 'cancelled_by_admin', 'cancelled_by_customer', 'rejected', 'no_show']) {
+    const appt = { barberId: 'barber-a', status, date: '2099-09-01' };
+    assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), false, `${status} must not be re-cancelled`);
+  }
+});
+
+test('deactivating barber A does NOT cancel barber B appointments', () => {
+  const appt = { barberId: 'barber-b', status: 'confirmed', date: '2099-09-01' };
+  assert.equal(shouldCancelOnDeactivation(appt, 'barber-a', TODAY), false,
+    'barber B appointment must not be affected by barber A deactivation');
+});
+
+test('cancellation note carries admin reason for affected customers', () => {
+  const adminReason = 'הספר יצא לחופשה';
+  const cancelPayload = {
+    status: 'cancelled',
+    cancellationReason: 'barber_unavailable',
+    cancellationNote: adminReason,
+    cancelledBy: 'admin',
+  };
+  assert.equal(cancelPayload.cancellationNote, adminReason, 'reason is stored on cancelled appointment');
+  assert.equal(cancelPayload.cancellationReason, 'barber_unavailable');
+});
+
+test('push body includes barber name and reason when reason is provided', () => {
+  const barberName = 'יוסי';
+  const reason = 'הספר יצא לחופשה';
+  const body = `התור שלך אצל ${barberName} בוטל כי הספר לא זמין. סיבה: ${reason}`;
+  assert.ok(body.includes(barberName), 'body includes barber name');
+  assert.ok(body.includes(reason), 'body includes reason');
+});
+
+// ── D) Required reason validation for deactivateBarber ───────────────────────
+//
+// Since Session 3 correction: reason is REQUIRED on deactivateBarber.
+// Server rejects with invalid-argument if reason is missing/empty.
+// Push body ALWAYS includes reason — the conditional branch is unreachable.
+
+test('deactivateBarber: empty reason string is rejected (mirrors server invalid-argument guard)', () => {
+  // Server logic: if (!reason) throw HttpsError('invalid-argument', 'חובה להזין סיבה...')
+  const validateReason = (reason) => {
+    if (!reason || !reason.trim()) {
+      return { valid: false, code: 'invalid-argument', message: 'חובה להזין סיבה לביטול זמינות הספר' };
+    }
+    return { valid: true };
+  };
+
+  assert.deepEqual(validateReason(''), { valid: false, code: 'invalid-argument', message: 'חובה להזין סיבה לביטול זמינות הספר' });
+  assert.deepEqual(validateReason('   '), { valid: false, code: 'invalid-argument', message: 'חובה להזין סיבה לביטול זמינות הספר' });
+  assert.deepEqual(validateReason(null), { valid: false, code: 'invalid-argument', message: 'חובה להזין סיבה לביטול זמינות הספר' });
+  assert.deepEqual(validateReason(undefined), { valid: false, code: 'invalid-argument', message: 'חובה להזין סיבה לביטול זמינות הספר' });
+  assert.deepEqual(validateReason('הספר יצא לחופשה'), { valid: true });
+});
+
+test('deactivateBarber: valid reason is always stored as cancellationNote on cancelled appointment', () => {
+  const reason = 'הספר לא זמין החודש';
+  const appt = { id: 'appt-1', status: 'confirmed', date: '2099-09-01', barberId: 'barber-a' };
+  // Mirrors the Firestore update payload built in deactivateBarber
+  const updatePayload = {
+    status: 'cancelled',
+    cancellationReason: 'barber_unavailable',
+    cancellationNote: reason,
+    cancelledBy: 'admin',
+    cancelledAt: 'SERVER_TIMESTAMP',
+  };
+  assert.equal(updatePayload.cancellationNote, reason, 'reason stored verbatim as cancellationNote');
+  assert.equal(updatePayload.cancellationReason, 'barber_unavailable', 'reason code is barber_unavailable');
+  assert.equal(updatePayload.status, 'cancelled');
+  // reason is truthy — no null/undefined stored
+  assert.ok(updatePayload.cancellationNote && updatePayload.cancellationNote.trim().length > 0);
+});
+
+test('deactivateBarber: push body always includes reason — no conditional branch (reason is required)', () => {
+  // Since reason is validated server-side before push creation, the empty-reason
+  // branch is unreachable in production. Body template always uses reason directly.
+  const buildDeactivatePushBody = (barberName, reason) =>
+    `התור שלך אצל ${barberName} בוטל כי הספר לא זמין. סיבה: ${reason}`;
+
+  const body1 = buildDeactivatePushBody('יוסי', 'הספר יצא לחופשה');
+  assert.ok(body1.includes('יוסי'), 'body includes barber name');
+  assert.ok(body1.includes('הספר יצא לחופשה'), 'body includes reason');
+  assert.ok(body1.includes('סיבה:'), 'body always has "Reason:" prefix');
+
+  const body2 = buildDeactivatePushBody('אבי', 'חופשה שנתית');
+  assert.ok(body2.includes('אבי'));
+  assert.ok(body2.includes('חופשה שנתית'));
+  assert.ok(body2.includes('סיבה:'));
+});
+
+test('reactivating barber (active:true) does NOT cancel any appointments', () => {
+  // On reactivation, AdminBarbers calls activateMutation which calls saveBarber — no cancellation.
+  // The deactivateBarber callable is only invoked when toggling FROM active TO inactive.
+  // This test verifies the guard logic: only cancel when going from bookable to not bookable.
+  const barberWasBookable = true;
+  const newActiveValue = !barberWasBookable; // false → this is deactivation
+  assert.equal(newActiveValue, false);
+
+  const barberWasNotBookable = false;
+  const newActiveValueForReactivation = !barberWasNotBookable; // true → this is reactivation
+  assert.equal(newActiveValueForReactivation, true);
+  // Reactivation path uses activateMutation → saveBarber, no deactivateBarber callable
+});

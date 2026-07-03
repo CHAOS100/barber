@@ -58,6 +58,14 @@ export default function AdminWaitingList() {
   const [error, setError] = React.useState('');
   const [busyId, setBusyId] = React.useState('');
 
+  const todayStr = localDateToString();
+  // Defensive: hide past-dated entries from the 'active'/'notified' views while the
+  // scheduled expiry function (scheduledWaitlistExpiry) may not have run yet.
+  const displayEntries = React.useMemo(() => {
+    if (status !== 'active' && status !== 'notified' && status !== 'all') return entries;
+    return entries.filter((entry) => !entry.date || entry.date >= todayStr);
+  }, [entries, status, todayStr]);
+
   React.useEffect(() => {
     setError('');
     return subscribeToAdminWaitingList(
@@ -115,21 +123,21 @@ export default function AdminWaitingList() {
         <div className="glass rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="text-sm font-bold">
             תאריך
-            <div className="flex gap-2 mt-2">
-              <div className="relative flex-1">
+            <div className="flex gap-2 mt-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
                 <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input
                   type="date"
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                   disabled={!date}
-                  className="w-full bg-secondary border border-border rounded-xl px-3 py-3 pr-10 text-right focus:outline-none focus:border-primary disabled:opacity-50"
+                  className="w-full min-w-0 bg-secondary border border-border rounded-xl px-3 py-3 pr-10 text-right focus:outline-none focus:border-primary disabled:opacity-50"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setDate(date ? '' : localDateToString())}
-                className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                className={`flex-shrink-0 whitespace-nowrap px-3 py-2 rounded-xl text-xs font-bold transition-all ${
                   !date ? 'gold-gradient text-black' : 'glass text-muted-foreground'
                 }`}
               >
@@ -157,7 +165,7 @@ export default function AdminWaitingList() {
           </div>
         )}
 
-        {entries.length === 0 ? (
+        {displayEntries.length === 0 ? (
           <div className="glass premium-empty-state rounded-3xl p-8 text-center">
             <BellRing className="w-12 h-12 text-primary mx-auto mb-3" />
             <h2 className="font-black text-lg mb-1">אין רשומות המתנה</h2>
@@ -165,7 +173,7 @@ export default function AdminWaitingList() {
           </div>
         ) : (
           <div className="space-y-3">
-            {entries.map((entry) => (
+            {displayEntries.map((entry) => (
               <div key={entry.id} className="dark-card rounded-2xl p-4">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>

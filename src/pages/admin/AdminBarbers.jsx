@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   archiveBarber,
+  callDeactivateBarber,
   deleteBarber,
   saveBarber,
   uploadBarberPhoto,
@@ -38,6 +39,10 @@ export default function AdminBarbers() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoProgress, setPhotoProgress] = useState(0);
+  const [deactivatingBarber, setDeactivatingBarber] = useState(null);
+  const [deactivateReason, setDeactivateReason] = useState('');
+  const [deactivateReasonError, setDeactivateReasonError] = useState('');
+  const [deactivateLoading, setDeactivateLoading] = useState(false);
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
   const saveMutation = useMutation({
@@ -62,13 +67,39 @@ export default function AdminBarbers() {
     },
     onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
-  const toggleMutation = useMutation({
-    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: !isBarberBookable(barber) }),
-    onSuccess: () => toast({ title: 'סטטוס הספר עודכן' }),
-    onError: (error) => toast({ variant: 'destructive', title: 'עדכון הסטטוס נכשל', description: getUserFacingErrorMessage(error) }),
+  const activateMutation = useMutation({
+    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: true, is_active: true }),
+    onSuccess: () => toast({ title: 'הספר הופעל מחדש' }),
+    onError: (error) => toast({ variant: 'destructive', title: 'הפעלת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
-  const togglingBarberId = toggleMutation.isPending ? toggleMutation.variables?.id : null;
+  const handleDeactivateConfirm = async () => {
+    if (!deactivatingBarber) return;
+    if (!deactivateReason.trim()) {
+      setDeactivateReasonError('חובה להזין סיבה לביטול זמינות הספר');
+      return;
+    }
+    setDeactivateReasonError('');
+    setDeactivateLoading(true);
+    try {
+      const result = await callDeactivateBarber({ barberId: deactivatingBarber.id, reason: deactivateReason.trim() });
+      const cancelled = result?.appointmentsCancelled ?? 0;
+      toast({
+        title: 'הספר הוסר מהזמנות',
+        description: cancelled > 0
+          ? `${cancelled} תורים עתידיים בוטלו והלקוחות קיבלו הודעה.`
+          : 'לא היו תורים עתידיים לביטול.',
+      });
+      setDeactivatingBarber(null);
+      setDeactivateReason('');
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'הסרת הספר נכשלה', description: getUserFacingErrorMessage(error) });
+    } finally {
+      setDeactivateLoading(false);
+    }
+  };
+
+  const togglingBarberId = activateMutation.isPending ? activateMutation.variables?.id : null;
 
   const openEditor = (barber = null) => {
     setForm(barber ? {
@@ -158,9 +189,18 @@ export default function AdminBarbers() {
             <div className="grid grid-cols-2 gap-1.5">
               <button onClick={() => openEditor(barber)} className="icon-btn glass press-scale" aria-label="עריכת ספר"><Edit3 className="w-4 h-4 text-primary" /></button>
               <button
-                onClick={() => !barber.archived && toggleMutation.mutate(barber)}
-                disabled={barber.archived || togglingBarberId === barber.id}
-                title={isBarberBookable(barber) ? 'הסתר מהזמנות' : 'הפעל להזמנות'}
+                onClick={() => {
+                  if (barber.archived) return;
+                  if (isBarberBookable(barber)) {
+                    setDeactivatingBarber(barber);
+                    setDeactivateReason('');
+                    setDeactivateReasonError('');
+                  } else {
+                    activateMutation.mutate(barber);
+                  }
+                }}
+                disabled={barber.archived || togglingBarberId === barber.id || deactivateLoading}
+                title={isBarberBookable(barber) ? 'הסר מהזמנות' : 'הפעל להזמנות'}
                 className={`icon-btn glass press-scale px-2 text-[11px] font-bold disabled:opacity-40 ${isBarberBookable(barber) ? 'text-primary' : 'text-muted-foreground'}`}
               >
                 {togglingBarberId === barber.id ? 'מעדכן...' : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
@@ -274,6 +314,69 @@ export default function AdminBarbers() {
                   {photoUploading ? `מעלה תמונה... ${photoProgress}%` : 'שמור'}
                 </GoldButton>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Deactivation reason modal */}
+      <AnimatePresence>
+        {deactivatingBarber && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center px-4"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget && !deactivateLoading) {
+                setDeactivatingBarber(null);
+              }
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="dark-card rounded-3xl w-full max-w-sm p-5 space-y-4"
+              onPointerDown={event => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-lg">הסרה מהזמנות</h3>
+                {!deactivateLoading && (
+                  <button onClick={() => setDeactivatingBarber(null)} className="glass p-2 rounded-xl press-scale">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <p className="text-muted-foreground text-sm leading-5">
+                פעולה זו תבטל את כל התורים העתידיים הפעילים של הספר ותשלח הודעה ללקוחות.
+              </p>
+              <p className="text-xs text-primary font-bold">ספר: {deactivatingBarber.name}</p>
+              <label className="block text-xs text-muted-foreground font-semibold">
+                סיבת הסרה — חובה (תישלח ללקוחות)
+                <textarea
+                  value={deactivateReason}
+                  onChange={e => {
+                    setDeactivateReason(e.target.value);
+                    if (e.target.value.trim()) setDeactivateReasonError('');
+                  }}
+                  placeholder="למשל: הספר יצא לחופשה"
+                  rows={2}
+                  dir="rtl"
+                  className={`mt-1 w-full bg-secondary border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary resize-none ${deactivateReasonError ? 'border-red-400' : 'border-border'}`}
+                />
+                {deactivateReasonError && (
+                  <span className="text-red-400 text-xs mt-1 block">{deactivateReasonError}</span>
+                )}
+              </label>
+              <GoldButton
+                onClick={handleDeactivateConfirm}
+                disabled={deactivateLoading || !deactivateReason.trim()}
+                className="w-full"
+              >
+                {deactivateLoading ? 'מעבד...' : 'הפוך ללא זמין ובטל תורים'}
+              </GoldButton>
             </motion.div>
           </motion.div>
         )}

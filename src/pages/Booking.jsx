@@ -218,6 +218,7 @@ export default function Booking() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [bookingConfirmation, setBookingConfirmation] = useState(null);
   const [bookingError, setBookingError] = useState('');
   const [replacementMode, setReplacementMode] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
@@ -428,13 +429,14 @@ export default function Booking() {
   }, [preselect, selectedDate, selectedService, availableSlots]);
 
   useEffect(() => {
-    if (!selectedSlot) return;
+    // Do not invalidate slot after booking completes — the slot disappearing is expected.
+    if (confirmed || !selectedSlot) return;
     const stillAvailable = availableSlots.some((slot) => slot.id === selectedSlot.id);
     if (!stillAvailable) {
       setSelectedTime(null);
       setSelectedSlot(null);
     }
-  }, [availableSlots, selectedSlot]);
+  }, [availableSlots, selectedSlot, confirmed]);
 
   const waitingPreferenceHasAvailableSlot = () => {
     if (selectedDateIsUnreleased) return false;
@@ -510,6 +512,13 @@ export default function Booking() {
       } else {
         await createCustomerAppointment(appointmentInput);
       }
+      setBookingConfirmation({
+        serviceName: selectedService.name,
+        servicePrice: selectedService.price,
+        barberName: appointmentBarberName,
+        date: selectedDate?.toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        time: selectedTime,
+      });
       setConfirmed(true);
     } catch (error) {
       setBookingError(getBookingRejectionMessage(error));
@@ -708,11 +717,11 @@ export default function Booking() {
           <p className="text-muted-foreground mb-6">נשלח לך אישור ותזכורת לפני התור</p>
           <div className="glass rounded-2xl p-5 text-right mb-6 space-y-3">
             {[
-              { label: 'שירות', value: selectedService.name },
-              { label: 'ספר', value: selectedAppointmentBarberName },
-              { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL') },
-              { label: 'שעה', value: selectedTime },
-              { label: 'מחיר', value: `₪${selectedService.price}`, highlight: true },
+              { label: 'שירות', value: bookingConfirmation?.serviceName },
+              { label: 'ספר', value: bookingConfirmation?.barberName },
+              { label: 'תאריך', value: bookingConfirmation?.date },
+              { label: 'שעה', value: bookingConfirmation?.time },
+              { label: 'מחיר', value: `₪${bookingConfirmation?.servicePrice}`, highlight: true },
             ].map(({ label, value, highlight }) => (
               <div key={label} className="flex justify-between">
                 <span className="text-muted-foreground">{label}</span>

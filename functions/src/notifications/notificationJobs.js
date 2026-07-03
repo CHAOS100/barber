@@ -533,6 +533,47 @@ export const buildPushJobForSlotsReleased = (
 };
 
 /**
+ * Build a push notification job for a waiting list customer when new slots are released.
+ * Dedup key: waitlist_release_notify_{waitingListId}_{releaseBatchId}
+ * This is different from buildPushJobForWaitlistMatch (freed appointment) —
+ * it fires when new windows are opened by admin, not when an appointment slot becomes free.
+ */
+export const buildPushJobForWaitlistRelease = (
+  waitingListId,
+  waitingListEntry,
+  releaseBatchId,
+  context = {},
+  now = new Date(),
+) => {
+  const customerId = waitingListEntry.customerId || null;
+  const customerPhone = waitingListEntry.phoneNumber || null;
+  const barberName = cleanText(context.barberName);
+  const title = 'נפתחו תורים שחיכית להם';
+  const body = barberName
+    ? `נפתחו תורים אצל ${barberName} בתאריך שחיכית לו. היכנס לשריין מקום.`
+    : 'נפתחו תורים בתאריך שחיכית לו. היכנס לשריין מקום.';
+
+  return buildPushJob({
+    id: `waitlist_release_notify_${waitingListId}_${releaseBatchId}`,
+    customerId,
+    customerPhone,
+    type: 'waitlist_release_notify',
+    title,
+    body,
+    data: {
+      waitingListId,
+      releaseBatchId,
+      barberMode: context.barberMode || 'all',
+      barberId: context.barberId || null,
+      barberName: barberName || null,
+      source: 'waitlist',
+    },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
+
+/**
  * Build a time-scheduled push job reminding a customer to rebook.
  * Dedup key: haircut_reminder_{appointmentId}_{customerId}
  */
