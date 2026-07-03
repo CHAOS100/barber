@@ -223,7 +223,7 @@ export default function Notifications() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => navigate(-1)} className="icon-btn press-scale -mr-2" aria-label="חזרה">
             <ArrowRight className="w-6 h-6" />

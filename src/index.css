@@ -218,8 +218,10 @@ body:has([role="dialog"]) {
 
 .app-content {
   min-height: auto;
-  /* bottom-nav + safe area + generous clearance so action buttons never hide behind taskbar */
-  padding-bottom: calc(var(--bottom-nav-height) + 48px);
+  /* bottom-nav + safe area + generous clearance so action buttons never hide behind the nav bar.
+     64px extra (up from 48) gives breathing room on Android devices where
+     env(safe-area-inset-bottom) may not fully account for the gesture bar. */
+  padding-bottom: calc(var(--bottom-nav-height) + 64px);
   box-sizing: border-box;
   overflow-x: clip;
   overflow-y: visible;
@@ -824,6 +826,48 @@ select[dir="rtl"] {
 .slot-chip--selected .slot-barber {
   opacity: 0.85;
   font-weight: 700;
+}
+
+/* ── Date input overflow prevention ──────────────────────────────────────────
+   input[type="date"] has an intrinsic minimum width on many browsers; without
+   this rule it can cause its parent flex/grid cell to overflow the viewport.
+   Applying min-width:0 here lets the browser let the layout algorithm shrink
+   the input to fit whatever space the container allocates. */
+input[type="date"] {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Date-filter row utilities ────────────────────────────────────────────────
+   Shared pattern for pages that show a date input + an action button on one row.
+   The field fills available space; the button stays fixed-width and never wraps.
+   The outer row clips horizontal overflow so 320px viewport can never scroll. */
+.date-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.date-filter-field {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.date-filter-field input[type="date"],
+.date-filter-field input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.date-filter-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

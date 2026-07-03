@@ -326,7 +326,7 @@ export default function AdminBarbers() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center px-4"
+            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
             onPointerDown={(event) => {
               if (event.target === event.currentTarget && !deactivateLoading) {
                 setDeactivatingBarber(null);
@@ -338,10 +338,11 @@ export default function AdminBarbers() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="dark-card rounded-3xl w-full max-w-sm p-5 space-y-4"
+              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
               onPointerDown={event => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between">
+              {/* Header — fixed, never scrolls */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg">הסרה מהזמנות</h3>
                 {!deactivateLoading && (
                   <button onClick={() => setDeactivatingBarber(null)} className="glass p-2 rounded-xl press-scale">
@@ -349,34 +350,42 @@ export default function AdminBarbers() {
                   </button>
                 )}
               </div>
-              <p className="text-muted-foreground text-sm leading-5">
-                פעולה זו תבטל את כל התורים העתידיים הפעילים של הספר ותשלח הודעה ללקוחות.
-              </p>
-              <p className="text-xs text-primary font-bold">ספר: {deactivatingBarber.name}</p>
-              <label className="block text-xs text-muted-foreground font-semibold">
-                סיבת הסרה — חובה (תישלח ללקוחות)
-                <textarea
-                  value={deactivateReason}
-                  onChange={e => {
-                    setDeactivateReason(e.target.value);
-                    if (e.target.value.trim()) setDeactivateReasonError('');
-                  }}
-                  placeholder="למשל: הספר יצא לחופשה"
-                  rows={2}
-                  dir="rtl"
-                  className={`mt-1 w-full bg-secondary border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary resize-none ${deactivateReasonError ? 'border-red-400' : 'border-border'}`}
-                />
-                {deactivateReasonError && (
-                  <span className="text-red-400 text-xs mt-1 block">{deactivateReasonError}</span>
-                )}
-              </label>
-              <GoldButton
-                onClick={handleDeactivateConfirm}
-                disabled={deactivateLoading || !deactivateReason.trim()}
-                className="w-full"
-              >
-                {deactivateLoading ? 'מעבד...' : 'הפוך ללא זמין ובטל תורים'}
-              </GoldButton>
+              {/* Scrollable body — grows to fill available space and scrolls if keyboard pushes it */}
+              <div className="modal-scroll-body px-5">
+                <div className="space-y-4 pb-1">
+                  <p className="text-muted-foreground text-sm leading-5">
+                    פעולה זו תבטל את כל התורים העתידיים הפעילים של הספר ותשלח הודעה ללקוחות.
+                  </p>
+                  <p className="text-xs text-primary font-bold">ספר: {deactivatingBarber.name}</p>
+                  <label className="block text-xs text-muted-foreground font-semibold">
+                    סיבת הסרה — חובה (תישלח ללקוחות)
+                    <textarea
+                      value={deactivateReason}
+                      onChange={e => {
+                        setDeactivateReason(e.target.value);
+                        if (e.target.value.trim()) setDeactivateReasonError('');
+                      }}
+                      placeholder="למשל: הספר יצא לחופשה"
+                      rows={2}
+                      dir="rtl"
+                      className={`mt-1 w-full bg-secondary border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:border-primary resize-none ${deactivateReasonError ? 'border-red-400' : 'border-border'}`}
+                    />
+                    {deactivateReasonError && (
+                      <span className="text-red-400 text-xs mt-1 block">{deactivateReasonError}</span>
+                    )}
+                  </label>
+                </div>
+              </div>
+              {/* Actions — always pinned above keyboard */}
+              <div className="modal-actions px-5">
+                <GoldButton
+                  onClick={handleDeactivateConfirm}
+                  disabled={deactivateLoading || !deactivateReason.trim()}
+                  className="w-full"
+                >
+                  {deactivateLoading ? 'מעבד...' : 'הפוך ללא זמין ובטל תורים'}
+                </GoldButton>
+              </div>
             </motion.div>
           </motion.div>
         )}

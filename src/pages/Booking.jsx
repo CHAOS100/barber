@@ -850,7 +850,7 @@ export default function Booking() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Header */}
-      <div className="sticky top-0 z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-1">
           <button
             onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)}
