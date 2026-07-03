@@ -27,6 +27,9 @@ export const getBookingRejectionMessage = (error) => {
   if (code === 'appointment/conflict' || code === 'functions/already-exists') {
     return 'השעה שבחרת כבר נתפסה. בחר שעה אחרת.';
   }
+  if (code === 'manual_release_window_not_found') {
+    return 'לא נפתחו תורים לספר הזה בשעה שבחרת';
+  }
   if (code === 'business/closed-day') return 'העסק סגור ביום הזה.';
   if (code === 'appointment/outside-working-hours') return 'השעה שבחרת מחוץ לשעות הפעילות.';
   if (code === 'appointment/duration-does-not-fit') {

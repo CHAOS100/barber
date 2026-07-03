@@ -29,6 +29,7 @@ const pushDebug = (message, details = {}) => {
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 const activeWaitingListStatuses = new Set(['active', 'notified']);
 const preferenceTypes = new Set(['exact_time', 'time_range', 'day_part', 'whole_day']);
+const barberModes = new Set(['single', 'all']);
 
 const isValidIsraeliPhone = (phone) => {
   const value = text(phone).replace(/[^\d+]/g, '');
@@ -163,6 +164,10 @@ const normalizeCreateWaitingListInput = (input) => {
     serviceName: optionalText(input?.serviceName),
     barberId: optionalText(input?.barberId),
     barberName: optionalText(input?.barberName),
+    barberMode: barberModes.has(text(input?.barberMode))
+      ? text(input?.barberMode)
+      : (optionalText(input?.barberId) ? 'single' : 'all'),
+    source: optionalText(input?.source) || 'booking_waitlist',
     expiresAt: input?.expiresAt || null,
   };
 };
@@ -295,6 +300,8 @@ export const createCustomerWaitingListEntry = onCall(async (request) => {
       serviceName: input.serviceName,
       barberId: input.barberId,
       barberName: input.barberName,
+      barberMode: input.barberMode,
+      source: input.source,
       status: 'active',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),

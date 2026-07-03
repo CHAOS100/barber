@@ -21,4 +21,7 @@ test('booking policy errors have clear Hebrew messages', () => {
   assert.equal(getBookingRejectionMessage({
     details: { code: 'customer/payment-required' },
   }), 'לא ניתן להזמין תור עד להסדרת דרישת התשלום מול הספר.');
+  assert.equal(getBookingRejectionMessage({
+    details: { code: 'manual_release_window_not_found' },
+  }), 'לא נפתחו תורים לספר הזה בשעה שבחרת');
 });

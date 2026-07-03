@@ -22,9 +22,16 @@ import {
   useUpcomingBookingSlotReleasesRealtime,
 } from '@/hooks/useBookingData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS, timeToMinutes } from '../lib/slotEngine';
+import { getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
 import { isAppointmentActiveForSchedule } from '@/lib/appointmentStatus';
 import { isBarberBookable } from '@/lib/businessFirestore';
+import {
+  ALL_BARBERS_OPTION,
+  buildAvailabilitySlots,
+  getManualReleaseStateForDate,
+  getReleasedDateSet,
+  isAllBarbersSelection,
+} from '@/lib/bookingAvailability';
 import { getFirestoreDb } from '@/lib/firebase';
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
@@ -47,16 +54,17 @@ function CalendarPicker({
   availabilityMode = 'automatic',
   manualReleases = [],
   selectedBarberId = null,
+  activeBarberIds = [],
 }) {
   const today = new Date(); today.setHours(0,0,0,0);
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const isManualMode = availabilityMode === 'manual';
-  const releasedDates = useMemo(() => new Set(
-    manualReleases
-      .filter(r => r.status === 'active' && (!selectedBarberId || r.barberId === selectedBarberId))
-      .map(r => r.date),
-  ), [manualReleases, selectedBarberId]);
+  const releasedDates = useMemo(() => getReleasedDateSet(
+    manualReleases,
+    selectedBarberId,
+    activeBarberIds,
+  ), [manualReleases, selectedBarberId, activeBarberIds]);
 
   const firstDay = new Date(viewYear, viewMonth, 1);
   const lastDay  = new Date(viewYear, viewMonth + 1, 0);
@@ -73,10 +81,10 @@ function CalendarPicker({
     if (!date) return 'empty';
     if (date < today) return 'past';
     const ds = dateToStr(date);
+    if (blockedDates.some(b => b.date === ds && b.is_full_day)) return 'blocked';
+    if (isManualMode) return releasedDates.has(ds) ? 'open' : 'unreleased';
     const wh = workingHours.find(h => h.day_of_week === date.getDay());
     if (!wh || !wh.is_open) return 'closed';
-    if (blockedDates.some(b => b.date === ds && b.is_full_day)) return 'blocked';
-    if (isManualMode && !releasedDates.has(ds)) return 'unreleased';
     return 'open';
   };
 
@@ -107,20 +115,22 @@ function CalendarPicker({
           const status = getStatus(date);
           const isSelected = selectedDate && dateToStr(date) === dateToStr(selectedDate);
           const isToday = dateToStr(date) === dateToStr(today);
+          const isSelectable = status === 'open' || status === 'unreleased';
           return (
             <motion.button
               key={i}
               whileTap={{ scale: 0.88 }}
-              disabled={status === 'past' || status === 'closed' || status === 'blocked' || status === 'unreleased' || status === 'empty'}
-              onClick={() => status === 'open' && onSelect(date)}
+              disabled={!isSelectable}
+              onClick={() => isSelectable && onSelect(date, status)}
               className={`
                 aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-bold transition-all
-                ${isSelected ? 'gold-gradient text-black' : ''}
+                ${isSelected && status === 'open' ? 'gold-gradient text-black' : ''}
+                ${isSelected && status === 'unreleased' ? 'ring-1 ring-white/30 bg-white/[0.06] text-muted-foreground' : ''}
                 ${!isSelected && status === 'open' ? 'hover:bg-secondary cursor-pointer text-foreground' : ''}
                 ${!isSelected && status === 'open' && isManualMode ? 'border border-primary/30 bg-primary/10 text-primary' : ''}
                 ${status === 'past' || status === 'closed' ? 'text-muted-foreground/30 cursor-not-allowed' : ''}
                 ${status === 'blocked' ? 'text-red-400/60 cursor-not-allowed' : ''}
-                ${status === 'unreleased' ? 'text-muted-foreground/25 bg-white/[0.02] cursor-not-allowed' : ''}
+                ${!isSelected && status === 'unreleased' ? 'text-muted-foreground/45 bg-white/[0.02] cursor-pointer' : ''}
                 ${isToday && !isSelected ? 'ring-1 ring-primary' : ''}
               `}
             >
@@ -157,9 +167,10 @@ const TIME_GROUPS = [
 function groupSlots(slots) {
   const groups = {};
   TIME_GROUPS.forEach(g => { groups[g.key] = []; });
-  slots.forEach(time => {
+  slots.forEach(slot => {
+    const time = slot.time || slot;
     const group = TIME_GROUPS.find(g => time >= g.from && time < g.to);
-    if (group) groups[group.key].push(time);
+    if (group) groups[group.key].push(slot);
   });
   return groups;
 }
@@ -201,6 +212,7 @@ export default function Booking() {
   const [preselectApplied, setPreselectApplied] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedTimeGroup, setSelectedTimeGroup] = useState(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -233,6 +245,11 @@ export default function Booking() {
   const { data: upcomingSlotReleases } = useUpcomingBookingSlotReleasesRealtime(todayForReleases);
   const activeAppointment = customerAppointments.find((appointment) =>
     isAppointmentActiveForSchedule(appointment));
+  const isManualMode = bookingSettings?.availabilityMode === 'manual';
+  const activeBarberIds = useMemo(() => barbers.map((barber) => barber.id), [barbers]);
+  const isAllBarbersMode = isAllBarbersSelection(selectedBarber);
+  const selectedSpecificBarberId = isAllBarbersMode ? null : selectedBarber?.id || null;
+  const selectedAppointmentBarberName = selectedSlot?.barberName || selectedBarber?.name || '';
 
   // Temporary debug logging for "no active barbers" investigation — remove once confirmed fixed.
   useEffect(() => {
@@ -273,8 +290,14 @@ export default function Booking() {
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
       setSelectedBarber(barbers[0]);
-    } else if (selectedBarber && !barbers.some((barber) => barber.id === selectedBarber.id)) {
-      setSelectedBarber(null);
+    } else if (barbers.length > 1 && !selectedBarber) {
+      setSelectedBarber(ALL_BARBERS_OPTION);
+    } else if (
+      selectedBarber
+      && !isAllBarbersSelection(selectedBarber)
+      && !barbers.some((barber) => barber.id === selectedBarber.id)
+    ) {
+      setSelectedBarber(barbers.length > 1 ? ALL_BARBERS_OPTION : null);
     }
   }, [barbers, selectedBarber]);
 
@@ -287,6 +310,7 @@ export default function Booking() {
     }
     setSelectedService(null);
     setSelectedTime(null);
+    setSelectedSlot(null);
     setStep(1);
   }, [services, selectedService]);
 
@@ -315,45 +339,56 @@ export default function Booking() {
   }, [selectedDate, blockedDates]);
 
   const availableSlots = useMemo(() => {
-    if (!selectedDate || !selectedService || isDateBlocked) return [];
+    if (!selectedDate) return [];
     const ds = dateToStr(selectedDate);
-    const wh = getWorkingHoursForDate(ds, workingHours);
-    if (!wh || !wh.is_open) return [];
-    const allSlots = getAvailableSlots({
+    return buildAvailabilitySlots({
       date: ds,
-      serviceDuration: selectedService.duration,
-      service: selectedService,
-      appointments: appointmentBlocks.filter(block => block.barberId === selectedBarber?.id),
-      workingHours: wh,
-      blockedTimes: [],
-      slotInterval: bookingSettings?.slotInterval || 10,
-      visibleSlotIntervalMinutes: bookingSettings?.visibleSlotIntervalMinutes || 30,
-      bufferMinutes: bookingSettings?.appointmentBufferMinutes || 0,
-      settings: bookingSettings || {},
+      selectedService,
+      selectedBarber,
+      barbers,
+      appointmentBlocks,
+      workingHours,
+      bookingSettings: bookingSettings || {},
+      slotReleases,
+      isDateBlocked,
     });
-    if (bookingSettings?.availabilityMode !== 'manual') return allSlots;
-    const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
-    return allSlots.filter((slot) => {
-      const slotMinutes = timeToMinutes(slot);
-      const slotEndMinutes = slotMinutes + Number(selectedService.duration || 0);
-      return barberReleases.some((r) => {
-        const from = timeToMinutes(r.startTime);
-        const to = timeToMinutes(r.endTime);
-        return slotMinutes >= from && slotEndMinutes <= to;
-      });
-    });
-  }, [selectedDate, selectedService, selectedBarber, appointmentBlocks, workingHours, isDateBlocked, bookingSettings, slotReleases]);
+  }, [selectedDate, selectedService, selectedBarber, barbers, appointmentBlocks, workingHours, isDateBlocked, bookingSettings, slotReleases]);
 
   const slotGroups = useMemo(() => groupSlots(availableSlots), [availableSlots]);
+  const selectedManualReleaseState = useMemo(() => getManualReleaseStateForDate({
+    date: selectedDateStr,
+    releases: selectedDateStr ? slotReleases : upcomingSlotReleases,
+    selectedBarberId: selectedSpecificBarberId,
+    activeBarberIds,
+  }), [selectedDateStr, slotReleases, upcomingSlotReleases, selectedSpecificBarberId, activeBarberIds]);
+  const overallManualReleaseState = useMemo(() => getManualReleaseStateForDate({
+    date: selectedDateStr || todayForReleases,
+    releases: upcomingSlotReleases,
+    selectedBarberId: selectedSpecificBarberId,
+    activeBarberIds,
+  }), [selectedDateStr, todayForReleases, upcomingSlotReleases, selectedSpecificBarberId, activeBarberIds]);
+  const selectedDateIsUnreleased = Boolean(
+    isManualMode
+    && selectedDate
+    && !selectedManualReleaseState.hasReleaseOnDate,
+  );
   const emptyAvailabilityMessage = useMemo(() => {
     if (!selectedDate || !selectedService) return 'אין שעות פנויות ביום זה';
+    if (isManualMode) {
+      if (!overallManualReleaseState.hasAnyReleaseForSelection) {
+        return isAllBarbersMode
+          ? 'עדיין לא נפתחו תורים לאף ספר. אפשר להצטרף לרשימת המתנה ונעדכן כשייפתחו תורים.'
+          : 'עדיין לא נפתחו תורים לספר הזה. אפשר להצטרף לרשימת המתנה ונעדכן כשייפתחו תורים.';
+      }
+      if (selectedDateIsUnreleased) {
+        return isAllBarbersMode
+          ? 'לא נפתחו תורים בתאריך הזה. אפשר להצטרף לרשימת המתנה לתאריך הזה.'
+          : 'לא נפתחו תורים לספר הזה בתאריך שבחרת. אפשר להצטרף לרשימת המתנה לתאריך הזה.';
+      }
+      return 'כל התורים שנפתחו בתאריך הזה כבר נתפסו. אפשר להצטרף לרשימת המתנה.';
+    }
     const hours = getWorkingHoursForDate(dateToStr(selectedDate), workingHours);
     if (!hours?.is_open) return 'העסק סגור ביום הזה.';
-    if (bookingSettings?.availabilityMode === 'manual') {
-      const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
-      if (barberReleases.length === 0) return 'עדיין לא נפתחו תורים לספר הזה. נעדכן אותך כשייפתחו תורים.';
-      return 'אין שעות פנויות בתאריך הזה. נסה לבחור יום אחר.';
-    }
     const [openHour, openMinute] = String(hours.open_time || '00:00').split(':').map(Number);
     const [closeHour, closeMinute] = String(hours.close_time || '00:00').split(':').map(Number);
     const availableMinutes = ((closeHour * 60) + closeMinute) - ((openHour * 60) + openMinute);
@@ -361,34 +396,58 @@ export default function Booking() {
       return 'משך השירות לא נכנס בחלון הזמן הפנוי.';
     }
     return 'אין שעות פנויות ביום זה';
-  }, [selectedDate, selectedService, workingHours, bookingSettings, slotReleases, selectedBarber]);
+  }, [
+    selectedDate,
+    selectedService,
+    isManualMode,
+    overallManualReleaseState,
+    selectedDateIsUnreleased,
+    isAllBarbersMode,
+    workingHours,
+  ]);
 
   useEffect(() => {
     if (!preselect?.startTime || !selectedDate || !selectedService) return;
     if (availableSlots.length === 0) return;
-    if (availableSlots.includes(preselect.startTime)) {
-      setSelectedTime(preselect.startTime);
+    const matchingSlot = availableSlots.find((slot) => (
+      slot.time === preselect.startTime
+      && (!preselect.barberId || slot.barberId === preselect.barberId)
+    ));
+    if (matchingSlot) {
+      setSelectedTime(matchingSlot.time);
+      setSelectedSlot(matchingSlot);
       const group = TIME_GROUPS.find(item => preselect.startTime >= item.from && preselect.startTime < item.to);
       if (group) setSelectedTimeGroup(group.key);
       setBookingError('');
       return;
     }
     setSelectedTime(null);
+    setSelectedSlot(null);
     setBookingError('השעה שהתפנתה כבר נתפסה. בחר שעה אחרת.');
   }, [preselect, selectedDate, selectedService, availableSlots]);
 
+  useEffect(() => {
+    if (!selectedSlot) return;
+    const stillAvailable = availableSlots.some((slot) => slot.id === selectedSlot.id);
+    if (!stillAvailable) {
+      setSelectedTime(null);
+      setSelectedSlot(null);
+    }
+  }, [availableSlots, selectedSlot]);
+
   const waitingPreferenceHasAvailableSlot = () => {
+    if (selectedDateIsUnreleased) return false;
     if (availableSlots.length === 0) return false;
     if (waitingListPreferenceType === 'exact_time') {
-      return availableSlots.includes(waitingListExactTime);
+      return availableSlots.some((slot) => slot.time === waitingListExactTime);
     }
     if (waitingListPreferenceType === 'time_range') {
-      return availableSlots.some((slot) => slot >= waitingListStartTime && slot <= waitingListEndTime);
+      return availableSlots.some((slot) => slot.time >= waitingListStartTime && slot.time <= waitingListEndTime);
     }
     if (waitingListPreferenceType === 'day_part') {
       const group = TIME_GROUPS.find((item) => item.key === waitingListDayPart);
       if (!group) return false;
-      return availableSlots.some((slot) => slot >= group.from && slot < group.to);
+      return availableSlots.some((slot) => slot.time >= group.from && slot.time < group.to);
     }
     return true;
   };
@@ -425,6 +484,13 @@ export default function Booking() {
     setLoading(true);
     setBookingError('');
     try {
+      const appointmentBarberId = selectedSlot?.barberId || (!isAllBarbersMode ? selectedBarber?.id : '');
+      const appointmentBarberName = selectedSlot?.barberName || (!isAllBarbersMode ? selectedBarber?.name : '');
+      if (!appointmentBarberId) {
+        setBookingError('יש לבחור שעה פנויה עם ספר זמין.');
+        setLoading(false);
+        return;
+      }
       const appointmentInput = {
         serviceId: selectedService.id,
         serviceName: selectedService.name,
@@ -432,8 +498,8 @@ export default function Booking() {
         serviceDuration: selectedService.duration,
         date: selectedDateStr,
         startTime: selectedTime,
-        barberId: selectedBarber.id,
-        barberName: selectedBarber.name,
+        barberId: appointmentBarberId,
+        barberName: appointmentBarberName,
         notes,
         policyAccepted: true,
         policyVersion: businessSettings?.bookingPolicyVersion || '2026-06-16',
@@ -490,8 +556,10 @@ export default function Booking() {
         dayPart: waitingListDayPart,
         serviceId: selectedService.id,
         serviceName: selectedService.name,
-        barberId: selectedBarber?.id,
-        barberName: selectedBarber?.name,
+        barberId: isAllBarbersMode ? null : selectedBarber?.id,
+        barberName: isAllBarbersMode ? ALL_BARBERS_OPTION.name : selectedBarber?.name,
+        barberMode: isAllBarbersMode ? 'all' : 'single',
+        source: selectedDateIsUnreleased ? 'unreleased_day' : 'booking_waitlist',
       });
       setWaitingListMessage('נכנסת לרשימת ההמתנה. נעדכן אותך אם יתפנה תור מתאים.');
       toast({ title: 'נכנסת לרשימת ההמתנה', description: 'אם יתפנה תור מתאים, תישלח אליך הודעה.' });
@@ -527,7 +595,9 @@ export default function Booking() {
         onClick={() => setWaitingListOpen((open) => !open)}
         className="w-full rounded-xl bg-primary/15 text-primary px-4 py-3 text-sm font-bold"
       >
-        {waitingListOpen ? 'סגור רשימת המתנה' : 'הצטרף לרשימת המתנה'}
+        {waitingListOpen
+          ? 'סגור רשימת המתנה'
+          : (selectedDateIsUnreleased ? 'הצטרפות לרשימת המתנה לתאריך הזה' : 'הצטרף לרשימת המתנה')}
       </button>
 
       {waitingListOpen && (
@@ -637,7 +707,7 @@ export default function Booking() {
           <div className="glass rounded-2xl p-5 text-right mb-6 space-y-3">
             {[
               { label: 'שירות', value: selectedService.name },
-              { label: 'ספר', value: selectedBarber?.name },
+              { label: 'ספר', value: selectedAppointmentBarberName },
               { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL') },
               { label: 'שעה', value: selectedTime },
               { label: 'מחיר', value: `₪${selectedService.price}`, highlight: true },
@@ -750,6 +820,7 @@ export default function Booking() {
                 setReplacementMode(true);
                 setSelectedDate(null);
                 setSelectedTime(null);
+                setSelectedSlot(null);
                 setBookingError('');
                 setStep(1);
               }}
@@ -802,7 +873,19 @@ export default function Booking() {
               {/* Barber */}
               {barbers.length > 1 && (
                 <div className="glass rounded-2xl p-4 mb-5">
-                  <BarberSelector barbers={barbers} selectedBarber={selectedBarber} onSelect={setSelectedBarber} />
+                  <BarberSelector
+                    barbers={barbers}
+                    selectedBarber={selectedBarber}
+                    includeAllOption
+                    onSelect={(barber) => {
+                      setSelectedBarber(barber);
+                      setSelectedDate(null);
+                      setSelectedTime(null);
+                      setSelectedSlot(null);
+                      setWaitingListOpen(false);
+                      setWaitingListMessage('');
+                    }}
+                  />
                 </div>
               )}
               {barbers.length === 0 && (
@@ -817,7 +900,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -826,7 +909,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name === 'עיצוב זקן').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -835,7 +918,7 @@ export default function Booking() {
                 <div className="space-y-2">
                   {serviceList.filter(s => s.name === 'חבילת פרימיום').map(service => (
                     <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
+                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
                   ))}
                 </div>
               </div>
@@ -879,8 +962,9 @@ export default function Booking() {
                 selectedDate={selectedDate}
                 availabilityMode={bookingSettings?.availabilityMode}
                 manualReleases={upcomingSlotReleases}
-                selectedBarberId={selectedBarber?.id}
-                onSelect={(d) => { setSelectedDate(d); setSelectedTime(null); setSelectedTimeGroup(null); setWaitingListOpen(false); setWaitingListMessage(''); }}
+                selectedBarberId={selectedSpecificBarberId}
+                activeBarberIds={activeBarberIds}
+                onSelect={(d) => { setSelectedDate(d); setSelectedTime(null); setSelectedSlot(null); setSelectedTimeGroup(null); setWaitingListOpen(false); setWaitingListMessage(''); }}
               />
 
               {/* Time selection */}
@@ -929,7 +1013,7 @@ export default function Booking() {
                       ) : (
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <button onClick={() => { setSelectedTimeGroup(null); setSelectedTime(null); }} className="flex items-center gap-1 text-muted-foreground text-sm">
+                            <button onClick={() => { setSelectedTimeGroup(null); setSelectedTime(null); setSelectedSlot(null); }} className="flex items-center gap-1 text-muted-foreground text-sm">
                               <ArrowRight className="w-4 h-4" /> חזרה לבחירת זמן
                             </button>
                             <span className="text-sm font-bold">
@@ -937,16 +1021,22 @@ export default function Booking() {
                             </span>
                           </div>
                           <div className="grid grid-cols-4 gap-2">
-                            {(slotGroups[selectedTimeGroup] || []).map(time => (
+                            {(slotGroups[selectedTimeGroup] || []).map(slot => (
                               <motion.button
-                                key={time}
+                                key={slot.id}
                                 whileTap={{ scale: 0.92 }}
-                                onClick={() => setSelectedTime(time)}
+                                onClick={() => {
+                                  setSelectedTime(slot.time);
+                                  setSelectedSlot(slot);
+                                }}
                                 className={`py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                  selectedTime === time ? 'gold-gradient text-black' : 'glass hover:border-primary/50'
+                                  selectedSlot?.id === slot.id ? 'gold-gradient text-black' : 'glass hover:border-primary/50'
                                 }`}
                               >
-                                {time}
+                                <span className="block">{slot.time}</span>
+                                {isAllBarbersMode && (
+                                  <span className="block w-full truncate px-1 text-[10px] font-medium opacity-80 leading-4">{slot.barberName}</span>
+                                )}
                               </motion.button>
                             ))}
                           </div>
@@ -965,7 +1055,7 @@ export default function Booking() {
                 </div>
               )}
 
-              {selectedDate && selectedTime && (
+              {selectedDate && selectedTime && selectedSlot && (
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-6">
                   <GoldButton onClick={() => setStep(3)} size="lg" className="w-full">המשך לאישור</GoldButton>
                 </motion.div>
@@ -982,7 +1072,7 @@ export default function Booking() {
               <div className="glass rounded-2xl p-5 mb-5 space-y-4">
                 {[
                   { label: 'שירות', value: selectedService?.name },
-                  { label: 'ספר', value: selectedBarber?.name },
+                  { label: 'ספר', value: selectedAppointmentBarberName },
                   { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL', { weekday:'long', year:'numeric', month:'long', day:'numeric' }) },
                   { label: 'שעה', value: selectedTime },
                   { label: 'משך', value: `${selectedService?.duration} דקות` },

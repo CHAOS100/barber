@@ -24,11 +24,16 @@ import {
   getFirestoreDb,
   normalizeIsraeliPhoneNumber,
 } from '@/lib/firebase';
+import {
+  isExpiredAppointmentInboxNotification,
+  isVisibleCustomerNotification,
+} from '@/lib/customerNotificationVisibility';
 
 export const CUSTOMER_NOTIFICATION_TYPES = [
   'admin_custom',
   'broadcast',
   'free_slot',
+  'slots_released',
   'appointment',
   'haircut_reminder',
   'warning',
@@ -51,7 +56,6 @@ export const CUSTOMER_NOTIFICATION_TARGET_TYPES = [
   'phone',
 ];
 
-const ACTIVE_NOTIFICATION_STATUSES = new Set(['unread', 'read']);
 const MAX_BATCH_WRITES = 400;
 const CUSTOMER_NOTIFICATION_LIMIT = 50;
 const CRITICAL_NOTIFICATION_TYPES = new Set(['warning', 'block', 'payment_request', 'no_show_payment_required']);
@@ -61,11 +65,6 @@ const cleanString = (value) => String(value || '').trim();
 const customerNotificationCollection = (customerId) => (
   collection(getFirestoreDb(), 'customerNotifications', customerId, 'notifications')
 );
-
-const isExpired = (notification) => {
-  const expiresMs = notification.expiresAt?.toMillis?.() || 0;
-  return expiresMs > 0 && Date.now() > expiresMs;
-};
 
 const normalizeExpiresAt = (value) => {
   if (!value) return null;
@@ -317,11 +316,7 @@ export const subscribeToCurrentCustomerNotifications = (onData, onError) => {
         (snapshot) => {
           const notifications = snapshot.docs
             .map(mapNotificationDoc)
-            .filter((notification) => (
-              ACTIVE_NOTIFICATION_STATUSES.has(notification.status)
-              && notification.archivedFromInbox !== true
-              && !isExpired(notification)
-            ));
+            .filter((notification) => isVisibleCustomerNotification(notification));
 
           console.info('[Firestore] Customer notifications snapshot received', JSON.stringify({
             projectId: firebaseProjectId,
@@ -471,13 +466,11 @@ export const clearCompletedAppointmentNotifications = async () => {
     orderBy('createdAt', 'desc'),
     limitQuery(CUSTOMER_NOTIFICATION_LIMIT),
   ));
-  const terminalStatuses = new Set(['completed', 'cancelled', 'rejected', 'no_show']);
   const ids = snapshot.docs
     .map(mapNotificationDoc)
     .filter((notification) => (
-      notification.type === 'appointment'
-      && notification.canDismiss
-      && terminalStatuses.has(notification.appointmentStatus || notification.statusType || notification.eventStatus)
+      notification.canDismiss
+      && isExpiredAppointmentInboxNotification(notification)
     ))
     .map((notification) => notification.id);
   return hideNotificationRefs(firebaseUser, ids);

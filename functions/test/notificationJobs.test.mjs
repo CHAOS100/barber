@@ -7,6 +7,8 @@ import {
   buildWaitingListAvailableJob,
   buildWaitingListManualJob,
   buildWaitingListManualSmsJob,
+  buildPushJobForSlotsReleased,
+  buildSlotsReleasedMessage,
 } from '../src/notifications/notificationJobs.js';
 
 const appointment = {
@@ -96,4 +98,29 @@ test('manual waiting list SMS notify creates queued SMS job', () => {
   assert.equal(notificationJob.data.channel, 'sms');
   assert.equal(notificationJob.data.phone, '+972541234567');
   assert.equal(notificationJob.data.providerConfigured, false);
+});
+
+test('slots released push mentions a specific barber and keeps one customer/batch id', () => {
+  const job = buildPushJobForSlotsReleased(
+    'customer-1',
+    'batch-1',
+    new Date('2026-06-12T12:00:00.000Z'),
+    { barberMode: 'single', barberId: 'barber-a', barberName: 'דוד' },
+  );
+
+  assert.equal(job.id, 'slots_released_batch-1_customer-1');
+  assert.equal(job.data.type, 'slots_released');
+  assert.equal(job.data.data.barberId, 'barber-a');
+  assert.match(job.data.body, /דוד/);
+});
+
+test('slots released all-barbers message includes names', () => {
+  const message = buildSlotsReleasedMessage({
+    barberMode: 'all',
+    barberNames: ['דוד', 'יוסי'],
+  });
+
+  assert.match(message.body, /כל הספרים/);
+  assert.match(message.body, /דוד/);
+  assert.match(message.body, /יוסי/);
 });

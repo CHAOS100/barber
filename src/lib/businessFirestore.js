@@ -21,6 +21,7 @@ import {
   timeToMinutes,
 } from '@/lib/slotEngine';
 import { isBarberBookable } from '@/lib/barberStatus';
+import { isActiveBookingSlotRelease } from '@/lib/bookingAvailability';
 
 export { isBarberBookable };
 
@@ -648,7 +649,7 @@ export const subscribeToBookingSlotReleases = (date, onData, onError) => onSnaps
   (snapshot) => onData(
     snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
-      .filter((r) => r.status === 'active'),
+      .filter(isActiveBookingSlotRelease),
   ),
   onError,
 );
@@ -657,11 +658,11 @@ export const subscribeToUpcomingBookingSlotReleases = (fromDate, onData, onError
   query(
     collection(getFirestoreDb(), 'bookingSlotReleases'),
     where('date', '>=', fromDate),
-    where('status', '==', 'active'),
   ),
   (snapshot) => onData(
     snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
+      .filter(isActiveBookingSlotRelease)
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)),
   ),
   onError,
@@ -675,6 +676,7 @@ export const subscribeToBookingSlotReleasesAll = (sinceDate, onData, onError) =>
   (snapshot) => onData(
     snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
+      .filter(isActiveBookingSlotRelease)
       .sort((a, b) => a.date.localeCompare(b.date)),
   ),
   onError,

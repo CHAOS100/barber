@@ -472,21 +472,65 @@ export const buildPushJobForProfileStatus = (
  * Build a push notification job announcing new available slots to a customer.
  * One job per customer per batch — dedup ID is slots_released_{batchId}_{customerId}.
  */
+const cleanText = (value) => String(value || '').trim();
+
+const formatNameList = (names) => {
+  const cleanNames = [...new Set((names || []).map(cleanText).filter(Boolean))];
+  if (cleanNames.length <= 3) return cleanNames.join(', ');
+  return `${cleanNames.slice(0, 3).join(', ')} ועוד ${cleanNames.length - 3}`;
+};
+
+export const buildSlotsReleasedMessage = (context = {}) => {
+  const barberMode = context.barberMode === 'all' ? 'all' : 'single';
+  const barberName = cleanText(context.barberName);
+  const barberNames = Array.isArray(context.barberNames) ? context.barberNames : [];
+  const namesText = formatNameList(barberNames);
+  const title = 'נפתחו תורים חדשים';
+
+  if (barberMode === 'all') {
+    return {
+      title,
+      body: namesText
+        ? `נפתחו תורים חדשים אצל כל הספרים: ${namesText}. היכנסו לשריין מקום.`
+        : 'נפתחו תורים חדשים אצל כל הספרים ב־OST BARBER. היכנסו לשריין מקום.',
+    };
+  }
+
+  return {
+    title,
+    body: barberName
+      ? `נפתחו תורים חדשים אצל ${barberName}. היכנסו לשריין מקום.`
+      : 'נפתחו תורים חדשים ל־OST BARBER. היכנסו לשריין מקום.',
+  };
+};
+
 export const buildPushJobForSlotsReleased = (
   customerId,
   releaseBatchId,
   now = new Date(),
-) => buildPushJob({
-  id: `slots_released_${releaseBatchId}_${customerId}`,
-  customerId,
-  customerPhone: null,
-  type: 'slots_released',
-  title: 'נפתחו תורים חדשים',
-  body: 'נפתחו תורים חדשים ל־OST BARBER. היכנסו לשריין מקום.',
-  data: { releaseBatchId },
-  scheduledFor: now,
-  createdAt: now,
-});
+  context = {},
+) => {
+  const message = buildSlotsReleasedMessage(context);
+  return buildPushJob({
+    id: `slots_released_${releaseBatchId}_${customerId}`,
+    customerId,
+    customerPhone: null,
+    type: 'slots_released',
+    title: message.title,
+    body: message.body,
+    data: {
+      releaseBatchId,
+      barberMode: context.barberMode === 'all' ? 'all' : 'single',
+      barberId: context.barberId || null,
+      barberName: cleanText(context.barberName) || null,
+      barberNames: Array.isArray(context.barberNames)
+        ? context.barberNames.map(cleanText).filter(Boolean)
+        : [],
+    },
+    scheduledFor: now,
+    createdAt: now,
+  });
+};
 
 /**
  * Build a time-scheduled push job reminding a customer to rebook.

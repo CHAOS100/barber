@@ -21,6 +21,7 @@ import {
   buildPushJobForWaitlistMatch,
   buildPushJobForProfileStatus,
   buildPushJobForSlotsReleased,
+  buildSlotsReleasedMessage,
   buildPushJobForHaircutReminder,
   LEGACY_WHATSAPP_JOBS_ENABLED,
 } from './notifications/notificationJobs.js';
@@ -1015,6 +1016,7 @@ const createReleasesForBarber = async (
       endTime,
       note,
       status: 'active',
+      active: true,
       releaseBatchId,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -1062,18 +1064,33 @@ export const publishManualSlotRelease = onCall(
     }
 
     // Resolve which barbers to release for
-    let targetBarberIds;
+    let targetBarbers;
     if (releaseAllBarbers) {
       const barbersSnap = await firestore.collection('barbers').get();
-      targetBarberIds = barbersSnap.docs
+      targetBarbers = barbersSnap.docs
         .filter((docSnap) => isBarberDocBookable(docSnap.data()))
-        .map((docSnap) => docSnap.id);
-      if (targetBarberIds.length === 0) {
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      if (targetBarbers.length === 0) {
         throw new HttpsError('failed-precondition', 'No active barbers found to release slots for.');
       }
     } else {
-      targetBarberIds = [barberId];
+      const barberSnap = await firestore.collection('barbers').doc(barberId).get();
+      if (!barberSnap.exists || !isBarberDocBookable(barberSnap.data())) {
+        throw new HttpsError('failed-precondition', 'Selected barber is not active.');
+      }
+      targetBarbers = [{ id: barberSnap.id, ...barberSnap.data() }];
     }
+    const targetBarberIds = targetBarbers.map((barber) => barber.id);
+    const targetBarberNames = targetBarbers
+      .map((barber) => String(barber.name || barber.displayName || '').trim())
+      .filter(Boolean);
+    const releaseNotificationContext = {
+      barberMode: releaseAllBarbers ? 'all' : 'single',
+      barberId: releaseAllBarbers ? null : targetBarberIds[0],
+      barberName: releaseAllBarbers ? null : targetBarberNames[0] || null,
+      barberNames: targetBarberNames,
+    };
+    const releaseMessage = buildSlotsReleasedMessage(releaseNotificationContext);
 
     // Generate a releaseBatchId shared across all docs in this publish action
     // (even across multiple barbers when releasing for 'all')
@@ -1125,8 +1142,8 @@ export const publishManualSlotRelease = onCall(
         writeBatch.set(notifRef, {
           type: 'slots_released',
           severity: 'success',
-          title: 'נפתחו תורים חדשים',
-          message: 'נפתחו תורים חדשים ל־OST BARBER. היכנסו לשריין מקום.',
+          title: releaseMessage.title,
+          message: releaseMessage.body,
           targetType: 'single_customer',
           targetCustomerId: customer.id,
           targetPhone: customer.phoneNumber || null,
@@ -1135,11 +1152,21 @@ export const publishManualSlotRelease = onCall(
           releaseBatchId,
           fromDate,
           toDate,
+          barberMode: releaseNotificationContext.barberMode,
+          barberId: releaseNotificationContext.barberId,
+          barberName: releaseNotificationContext.barberName,
+          barberIds: targetBarberIds,
+          barberNames: targetBarberNames,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
           expiresAt: null,
         });
-        pushJobs.push(buildPushJobForSlotsReleased(customer.id, releaseBatchId, now));
+        pushJobs.push(buildPushJobForSlotsReleased(
+          customer.id,
+          releaseBatchId,
+          now,
+          releaseNotificationContext,
+        ));
       });
       await writeBatch.commit();
     }

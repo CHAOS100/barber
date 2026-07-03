@@ -71,6 +71,8 @@ export const createWaitingListEntry = async (input) => {
     serviceName: input.serviceName,
     barberId: input.barberId,
     barberName: input.barberName,
+    barberMode: input.barberMode,
+    source: input.source,
     expiresAt: input.expiresAt || null,
   });
 

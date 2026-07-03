@@ -11,9 +11,33 @@ export const DEFAULT_WORKING_HOURS = [
 ];
 
 export const timeToMinutes = (time) => {
-  const [hours, minutes] = String(time || '').split(':').map(Number); ``
-  return (hours * 60) + minutes;1
-  };
+  const [hours, minutes] = String(time || '').split(':').map(Number);
+  return (hours * 60) + minutes;
+};
+
+const INACTIVE_RELEASE_STATUSES = new Set(['cancelled', 'canceled', 'inactive', 'archived', 'deleted']);
+
+export const isActiveBookingSlotRelease = (release) => {
+  if (!release || release.active === false) return false;
+  const status = String(release.status || '').trim();
+  return !INACTIVE_RELEASE_STATUSES.has(status);
+};
+
+export const getMatchingManualReleaseWindows = (appointment, releases = []) => {
+  const slotMinutes = timeToMinutes(appointment.startTime);
+  const endMinutes = timeToMinutes(appointment.endTime);
+  if (!Number.isFinite(slotMinutes) || !Number.isFinite(endMinutes)) return [];
+
+  return releases.filter((release) => {
+    if (!isActiveBookingSlotRelease(release)) return false;
+    if (release.date !== appointment.date) return false;
+    if (release.barberId !== appointment.barberId) return false;
+    const from = timeToMinutes(release.startTime);
+    const to = timeToMinutes(release.endTime);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
+    return slotMinutes >= from && endMinutes <= to;
+  });
+};
 
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 

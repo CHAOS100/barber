@@ -5,8 +5,9 @@ import {
   BLOCKING_STATUSES,
   DEFAULT_WORKING_HOURS,
   findConflict,
-  getWorkingHoursForDate,
+  getMatchingManualReleaseWindows,
   getScheduleRejectionCode,
+  isActiveBookingSlotRelease,
   timeToMinutes,
 } from './scheduling.js';
 import {
@@ -353,12 +354,17 @@ const validateCustomer = (snapshot, auth) => {
 const validateServiceAndBarber = (serviceSnapshot, barberSnapshot) => {
   const service = serviceSnapshot.data();
   const barber = barberSnapshot.data();
-  if (!serviceSnapshot.exists || service?.active !== true) {
+  if (!serviceSnapshot.exists || service?.active === false || service?.is_active === false) {
     throw new HttpsError('failed-precondition', 'The selected service is not active.', {
       code: 'service/not-active',
     });
   }
-  if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) {
+  if (
+    !barberSnapshot.exists
+    || barber?.archived === true
+    || barber?.active === false
+    || barber?.is_active === false
+  ) {
     throw new HttpsError('failed-precondition', 'The selected barber is not active.', {
       code: 'barber/not-active',
     });
@@ -379,21 +385,36 @@ const buildCustomerAppointment = (requested, customer, service, barber, customer
 
 const rejectManualModeSlot = async (transaction, appointment) => {
   const releasesSnapshot = await transaction.get(
-    db().collection('bookingSlotReleases').where('date', '==', appointment.date),
+    db()
+      .collection('bookingSlotReleases')
+      .where('date', '==', appointment.date)
+      .where('barberId', '==', appointment.barberId),
   );
-  const activeReleases = releasesSnapshot.docs
-    .map((item) => item.data())
-    .filter((r) => r.barberId === appointment.barberId && r.status === 'active');
-  const slotMinutes = timeToMinutes(appointment.startTime);
-  const endMinutes = timeToMinutes(appointment.endTime);
-  const isReleased = activeReleases.some((r) => {
-    const from = timeToMinutes(r.startTime);
-    const to = timeToMinutes(r.endTime);
-    return slotMinutes >= from && endMinutes <= to;
-  });
-  if (!isReleased) {
-    throw new HttpsError('failed-precondition', 'This time slot has not been released for booking.', {
-      code: 'appointment/slot-not-released',
+  const releases = releasesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const activeReleases = releases.filter(isActiveBookingSlotRelease);
+  const matchingReleases = getMatchingManualReleaseWindows(appointment, activeReleases);
+  const allowed = matchingReleases.length > 0;
+  const rejectReason = allowed ? null : 'manual_release_window_not_found';
+
+  console.info('[BOOKING_RELEASE_VALIDATION]', JSON.stringify({
+    manualMode: true,
+    barberId: appointment.barberId,
+    date: appointment.date,
+    startTime: appointment.startTime,
+    endTime: appointment.endTime,
+    matchingReleaseCount: matchingReleases.length,
+    allowed,
+    rejectReason,
+  }));
+
+  if (!allowed) {
+    throw new HttpsError('failed-precondition', 'לא נפתחו תורים לספר הזה בשעה שבחרת', {
+      code: 'manual_release_window_not_found',
+      rejectReason,
+      barberId: appointment.barberId,
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
     });
   }
 };
@@ -668,7 +689,12 @@ const updateAppointment = async (request, adminOnly) => {
 
     const appointments = await getDayAppointments(transaction, merged.date);
     if (BLOCKING_STATUSES.has(merged.status)) {
-      if (!adminOnly) rejectSchedule(merged, settings.workingHours);
+      if (!adminOnly) {
+        rejectSchedule(merged, settings.workingHours);
+        if (settings.availabilityMode === 'manual') {
+          await rejectManualModeSlot(transaction, merged);
+        }
+      }
       rejectConflict(findConflict(
         merged,
         appointments,
