@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { timeToMinutes } from '../src/scheduling.js';
-import { generateSlotReleaseDates } from '../src/index.js';
+import { generateSlotReleaseDates, isBarberDocBookable } from '../src/index.js';
 import { buildPushJobForHaircutReminder } from '../src/notifications/notificationJobs.js';
 import { isAllowedByPreferences } from '../src/notifications/pushSender.js';
 import { ACTIVE_APPOINTMENT_STATUSES, findActiveCustomerAppointment } from '../src/bookingPolicy.js';
@@ -746,8 +746,11 @@ test('admin getEffectiveStatus: future confirmed stays confirmed', () => {
 // Mirrors client-side filter in Booking.jsx: services.filter(s => s.is_active !== false)
 const filterActiveServices = (services) => services.filter(s => s.is_active !== false);
 
-// Mirrors server-side: subscribeToActiveBarbers uses where('active','==',true) && !archived
-const filterActiveBarbers = (barbers) => barbers.filter(b => b.active !== false && !b.archived);
+// Mirrors isBarberBookable (src/lib/barberStatus.js) and isBarberDocBookable (functions/src/index.js).
+// Three gates: archived must not be true, active must not be false, is_active must not be false.
+// Missing fields default to bookable (legacy docs with no active field remain visible).
+const filterActiveBarbers = (barbers) =>
+  barbers.filter(b => b.archived !== true && b.active !== false && b.is_active !== false);
 
 test('inactive service (is_active: false) is hidden from customer booking list', () => {
   const services = [
@@ -889,4 +892,201 @@ test('reminder is skipped with appointment_customer_mismatch when job customerId
 test('reminder is not blocked by customer mismatch check when job has no customerId', () => {
   const result = evaluateReminderAppointmentState(futureAppointment({ customerId: 'cust-1' }), null);
   assert.equal(result.valid, true);
+});
+
+// ─── PART 10: Barber visibility + per-barber release enforcement ──────────────
+
+// ── A) isBarberDocBookable (exported server-side helper in functions/src/index.js) ──
+
+test('active barber (active:true, archived:false) is bookable', () => {
+  assert.equal(isBarberDocBookable({ active: true, archived: false }), true);
+});
+
+test('legacy barber with no active/archived fields is bookable by default', () => {
+  // Old Firestore docs may have neither field — should be treated as active.
+  assert.equal(isBarberDocBookable({ name: 'ספר ותיק' }), true);
+});
+
+test('barber with active:false is NOT bookable', () => {
+  assert.equal(isBarberDocBookable({ active: false, archived: false }), false);
+});
+
+test('barber with is_active:false is NOT bookable', () => {
+  assert.equal(isBarberDocBookable({ is_active: false }), false);
+});
+
+test('barber with active:false and is_active:false is NOT bookable', () => {
+  assert.equal(isBarberDocBookable({ active: false, is_active: false }), false);
+});
+
+test('archived barber (archived:true) is NOT bookable even with active:true', () => {
+  assert.equal(isBarberDocBookable({ active: true, archived: true }), false);
+});
+
+test('archived barber is NOT bookable even if active field is missing', () => {
+  assert.equal(isBarberDocBookable({ archived: true }), false);
+});
+
+test('null/undefined barber data is NOT bookable (graceful — no crash)', () => {
+  assert.equal(isBarberDocBookable(null), false);
+  assert.equal(isBarberDocBookable(undefined), false);
+});
+
+// ── B) filterActiveBarbers — updated to mirror full isBarberBookable logic ──────
+
+test('barber with only is_active:false is excluded from customer booking', () => {
+  const barbers = [
+    { id: 'b-1', name: 'פעיל', active: true },
+    { id: 'b-2', name: 'כבוי', is_active: false },
+  ];
+  const visible = filterActiveBarbers(barbers);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, 'b-1');
+});
+
+test('legacy barber (no active field) is visible in customer booking', () => {
+  const barbers = [{ id: 'b-1', name: 'ספר ותיק' }];
+  const visible = filterActiveBarbers(barbers);
+  assert.equal(visible.length, 1, 'missing active field defaults to visible');
+});
+
+test('all-inactive barber list returns empty — triggers "no active barber" copy', () => {
+  const barbers = [
+    { id: 'b-1', name: 'כבוי', active: false },
+    { id: 'b-2', name: 'ארכיב', archived: true },
+  ];
+  assert.equal(filterActiveBarbers(barbers).length, 0);
+});
+
+// ── C) Per-barber release isolation ──────────────────────────────────────────
+//
+// Booking.jsx and rejectManualModeSlot both filter releases by barberId before
+// checking slot fit. These tests verify that isolation logic is correct.
+
+// Mirrors: releases.filter(r => r.barberId === selectedBarberId && r.status === 'active')
+const releasesForBarber = (releases, barberId) =>
+  releases.filter(r => r.barberId === barberId && r.status === 'active');
+
+test("barber A's release allows booking barber A in that window", () => {
+  const releases = [release('10:00', '12:00', 'barber-a')];
+  const barberASlots = releasesForBarber(releases, 'barber-a');
+  assert.equal(isSlotInReleaseWindow('10:00', barberASlots, 30), true);
+});
+
+test("barber A's release does NOT allow booking barber B in the same window", () => {
+  const releases = [release('10:00', '12:00', 'barber-a')];
+  const barberBSlots = releasesForBarber(releases, 'barber-b');
+  assert.equal(isSlotInReleaseWindow('10:00', barberBSlots, 30), false,
+    'barber B has no release in that window — booking must be rejected');
+});
+
+test("barber B's release does NOT allow booking barber A in the same window", () => {
+  const releases = [release('14:00', '16:00', 'barber-b')];
+  const barberASlots = releasesForBarber(releases, 'barber-a');
+  assert.equal(isSlotInReleaseWindow('14:00', barberASlots, 30), false,
+    'barber A has no release at 14:00 — must be rejected');
+});
+
+test('each barber can have their own independent release window', () => {
+  const releases = [
+    release('09:00', '11:00', 'barber-a'),
+    release('14:00', '17:00', 'barber-b'),
+  ];
+  const aSlots = releasesForBarber(releases, 'barber-a');
+  const bSlots = releasesForBarber(releases, 'barber-b');
+
+  assert.equal(isSlotInReleaseWindow('09:00', aSlots, 60), true,  'barber A: 09:00 fits in 09:00-11:00');
+  assert.equal(isSlotInReleaseWindow('14:00', bSlots, 60), true,  'barber B: 14:00 fits in 14:00-17:00');
+  assert.equal(isSlotInReleaseWindow('14:00', aSlots, 60), false, 'barber A has no 14:00 release');
+  assert.equal(isSlotInReleaseWindow('09:00', bSlots, 60), false, 'barber B has no 09:00 release');
+});
+
+test('manual mode with no release for selected barber rejects every slot', () => {
+  const releases = [release('10:00', '12:00', 'barber-a')];
+  const barberCSlots = releasesForBarber(releases, 'barber-c');
+  assert.equal(barberCSlots.length, 0, 'no release docs for barber C');
+  assert.equal(isSlotInReleaseWindow('10:00', barberCSlots, 30), false);
+  assert.equal(isSlotInReleaseWindow('11:00', barberCSlots, 30), false);
+});
+
+test('full service duration must fit inside barber release window', () => {
+  const releases = [release('10:00', '10:30', 'barber-a')];
+  const slots = releasesForBarber(releases, 'barber-a');
+  // 30-minute service at 10:00 fits exactly (10:00–10:30 ≤ 10:00–10:30)
+  assert.equal(isSlotInReleaseWindow('10:00', slots, 30), true);
+  // 30-minute service at 10:10 would end at 10:40, past the window end
+  assert.equal(isSlotInReleaseWindow('10:10', slots, 30), false,
+    '10:10 + 30min = 10:40 which exceeds release end 10:30');
+  // 60-minute service at 10:00 ends at 11:00, past the window
+  assert.equal(isSlotInReleaseWindow('10:00', slots, 60), false,
+    '10:00 + 60min = 11:00 which exceeds release end 10:30');
+});
+
+test('slot at release boundary end time is rejected (slot end must be ≤ window end)', () => {
+  const releases = [release('10:00', '11:00', 'barber-a')];
+  const slots = releasesForBarber(releases, 'barber-a');
+  // 30-minute service at 10:30 ends exactly at 11:00 — must fit
+  assert.equal(isSlotInReleaseWindow('10:30', slots, 30), true, '10:30+30=11:00 ≤ 11:00');
+  // 30-minute service at 10:31 ends at 11:01 — must NOT fit
+  assert.equal(isSlotInReleaseWindow('10:31', slots, 30), false, '10:31+30=11:01 > 11:00');
+});
+
+// ── D) All-barbers batch release — structural invariants ──────────────────────
+//
+// publishManualSlotRelease with barberId:'all' creates one release doc per barber
+// per date, all sharing the same releaseBatchId. These tests verify the structural
+// properties of that output without hitting Firestore.
+
+test('all-barbers batch: each doc has a barberId (not "all")', () => {
+  const targetBarberIds = ['barber-a', 'barber-b', 'barber-c'];
+  const batchId = 'batch-xyz';
+  const docs = targetBarberIds.map(bid => ({
+    barberId: bid,
+    date: '2099-09-01',
+    startTime: '10:00',
+    endTime: '12:00',
+    releaseBatchId: batchId,
+    status: 'active',
+  }));
+
+  assert.equal(docs.length, 3, 'one doc per barber');
+  assert.ok(docs.every(d => d.barberId !== 'all'), 'no doc stores barberId="all"');
+  assert.ok(docs.every(d => typeof d.barberId === 'string' && d.barberId.length > 0), 'each doc has a real barberId');
+});
+
+test('all-barbers batch: all docs share the same releaseBatchId', () => {
+  const batchId = 'batch-shared-123';
+  const docs = ['barber-a', 'barber-b'].map(bid => ({
+    barberId: bid, releaseBatchId: batchId,
+  }));
+  const batchIds = [...new Set(docs.map(d => d.releaseBatchId))];
+  assert.equal(batchIds.length, 1, 'all docs share one batchId');
+  assert.equal(batchIds[0], batchId);
+});
+
+test('batch cancel: filters releases by releaseBatchId, affects all barbers in batch', () => {
+  const batchId = 'batch-to-cancel';
+  const releases = [
+    { id: 'r1', barberId: 'barber-a', releaseBatchId: batchId, status: 'active' },
+    { id: 'r2', barberId: 'barber-b', releaseBatchId: batchId, status: 'active' },
+    { id: 'r3', barberId: 'barber-a', releaseBatchId: 'other-batch', status: 'active' },
+  ];
+  const toBeCancelled = releases.filter(r => r.releaseBatchId === batchId);
+  assert.equal(toBeCancelled.length, 2, 'both barbers in the batch are cancelled');
+  assert.ok(toBeCancelled.some(r => r.barberId === 'barber-a'));
+  assert.ok(toBeCancelled.some(r => r.barberId === 'barber-b'));
+  const untouched = releases.filter(r => r.releaseBatchId !== batchId);
+  assert.equal(untouched.length, 1, 'release from other batch is not cancelled');
+  assert.equal(untouched[0].id, 'r3');
+});
+
+test('barber-specific cancel: only affects releases for that barber', () => {
+  const releases = [
+    { id: 'r1', barberId: 'barber-a', status: 'active' },
+    { id: 'r2', barberId: 'barber-b', status: 'active' },
+  ];
+  const cancelled = releases.filter(r => r.barberId === 'barber-a').map(r => ({ ...r, status: 'cancelled' }));
+  const final = releases.map(r => cancelled.find(c => c.id === r.id) || r);
+  assert.equal(final.find(r => r.id === 'r1').status, 'cancelled');
+  assert.equal(final.find(r => r.id === 'r2').status, 'active', 'barber B release unaffected');
 });

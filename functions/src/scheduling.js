@@ -11,9 +11,9 @@ export const DEFAULT_WORKING_HOURS = [
 ];
 
 export const timeToMinutes = (time) => {
-  const [hours, minutes] = String(time || '').split(':').map(Number);
-  return (hours * 60) + minutes;
-};
+  const [hours, minutes] = String(time || '').split(':').map(Number); ``
+  return (hours * 60) + minutes;1
+  };
 
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 

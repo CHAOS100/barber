@@ -196,18 +196,23 @@ function DayCard({ day, onUpdate }) {
   );
 }
 
+const ALL_BARBERS_VALUE = 'all';
+
 function SlotReleaseForm({ barbers, onPublish, disabled }) {
   const [fromDate, setFromDate] = useState(todayStr());
   const [toDate, setToDate] = useState(todayStr());
   const [daysOfWeek, setDaysOfWeek] = useState([]); // [] = all days
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('18:00');
-  const [barberId, setBarberId] = useState(barbers[0]?.id || '');
+  // Default to first barber; 'all' = release for every active barber
+  const [barberId, setBarberId] = useState(barbers.length > 1 ? ALL_BARBERS_VALUE : (barbers[0]?.id || ''));
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    if (barbers.length > 0 && !barbers.find(b => b.id === barberId)) {
-      setBarberId(barbers[0].id);
+    if (barbers.length === 0) return;
+    // If a specific barber was selected and they no longer exist, fall back
+    if (barberId !== ALL_BARBERS_VALUE && !barbers.find(b => b.id === barberId)) {
+      setBarberId(barbers.length > 1 ? ALL_BARBERS_VALUE : barbers[0].id);
     }
   }, [barbers, barberId]);
 
@@ -226,6 +231,10 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
     && barberId && startTime && endTime && startTime < endTime
     && previewDates.length > 0;
 
+  const releaseTargetLabel = barberId === ALL_BARBERS_VALUE
+    ? `כל הספרים (${barbers.length})`
+    : (barbers.find(b => b.id === barberId)?.name || barberId);
+
   const handlePublish = () => {
     if (!isValid) return;
     onPublish({ fromDate, toDate, daysOfWeek, barberId, startTime, endTime, note });
@@ -234,6 +243,21 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
 
   return (
     <div className="space-y-4">
+      {/* Barber selector — always visible so admin knows who gets the release */}
+      <div>
+        <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">✂️ שחרור תורים עבור</label>
+        <select
+          value={barberId}
+          onChange={e => setBarberId(e.target.value)}
+          className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
+        >
+          {barbers.length > 1 && (
+            <option value={ALL_BARBERS_VALUE}>כל הספרים הפעילים ({barbers.length})</option>
+          )}
+          {barbers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      </div>
+
       {/* Date range — single column on mobile, two columns on wider screens */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="min-w-0">
@@ -297,20 +321,6 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
         </div>
       </div>
 
-      {/* Barber (if multiple) */}
-      {barbers.length > 1 && (
-        <div>
-          <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">✂️ ספר</label>
-          <select
-            value={barberId}
-            onChange={e => setBarberId(e.target.value)}
-            className="w-full bg-secondary border border-border rounded-xl px-2 py-2 text-sm focus:outline-none focus:border-primary appearance-none cursor-pointer"
-          >
-            {barbers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </div>
-      )}
-
       {/* Note */}
       <div>
         <label className="text-xs text-muted-foreground font-semibold mb-1.5 block">📝 הערה (אופציונלי)</label>
@@ -330,7 +340,7 @@ function SlotReleaseForm({ barbers, onPublish, disabled }) {
       {isValid && (
         <div className="glass rounded-xl p-3 space-y-2">
           <p className="text-xs font-bold text-primary">
-            ייפתחו {previewDates.length} {previewDates.length === 1 ? 'יום' : 'ימים'}
+            ייפתחו {previewDates.length} {previewDates.length === 1 ? 'יום' : 'ימים'} עבור {releaseTargetLabel}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {previewDates.slice(0, 14).map(d => (

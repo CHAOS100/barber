@@ -85,8 +85,12 @@ service cloud.firestore {
     }
 
     match /barbers/{barberId} {
-      allow read: if isAdmin()
-        || (resource.data.active == true && resource.data.archived == false);
+      // Public business profile data — anyone can list/read barbers.
+      // Client-side isBarberBookable() handles active/archived filtering so
+      // legacy docs (missing 'active' field) are treated as active correctly.
+      // A restrictive rule here caused Firestore to reject the broad collection
+      // query (no where clauses) for non-admin users, returning empty results.
+      allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 

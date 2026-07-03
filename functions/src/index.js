@@ -976,6 +976,54 @@ export const generateSlotReleaseDates = (fromDate, toDate, daysOfWeek) => {
   return dates;
 };
 
+// Returns true when a barber Firestore document represents a bookable barber.
+// Mirrors the client-side isBarberBookable in src/lib/barberStatus.js — keep in sync.
+// Exported for unit testing only.
+export const isBarberDocBookable = (data) =>
+  data != null
+  && data.archived !== true
+  && data.active !== false
+  && data.is_active !== false;
+
+// Creates bookingSlotReleases docs for one barber across the given dates.
+// Returns { created, skipped }.
+const createReleasesForBarber = async (
+  firestore, barberId, dates, startTime, endTime, note, releaseBatchId,
+) => {
+  let created = 0;
+  let skipped = 0;
+  for (const date of dates) {
+    const existingSnap = await firestore
+      .collection('bookingSlotReleases')
+      .where('date', '==', date)
+      .get();
+    const alreadyExists = existingSnap.docs.some((docSnap) => {
+      const d = docSnap.data();
+      return d.barberId === barberId
+        && d.startTime === startTime
+        && d.endTime === endTime
+        && d.status === 'active';
+    });
+    if (alreadyExists) {
+      skipped += 1;
+      continue;
+    }
+    await firestore.collection('bookingSlotReleases').add({
+      date,
+      barberId,
+      startTime,
+      endTime,
+      note,
+      status: 'active',
+      releaseBatchId,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    created += 1;
+  }
+  return { created, skipped };
+};
+
 export const publishManualSlotRelease = onCall(
   { enforceAppCheck: false },
   async (request) => {
@@ -996,6 +1044,7 @@ export const publishManualSlotRelease = onCall(
     const endTime = String(data.endTime || '').trim();
     const note = String(data.note || '').trim();
     const daysOfWeek = Array.isArray(data.daysOfWeek) ? data.daysOfWeek : [];
+    const releaseAllBarbers = barberId === 'all';
 
     if (!fromDate || !toDate || !barberId || !startTime || !endTime) {
       throw new HttpsError('invalid-argument', 'fromDate, toDate, barberId, startTime and endTime are required.');
@@ -1012,41 +1061,33 @@ export const publishManualSlotRelease = onCall(
       throw new HttpsError('invalid-argument', 'Cannot release more than 90 days at once.');
     }
 
+    // Resolve which barbers to release for
+    let targetBarberIds;
+    if (releaseAllBarbers) {
+      const barbersSnap = await firestore.collection('barbers').get();
+      targetBarberIds = barbersSnap.docs
+        .filter((docSnap) => isBarberDocBookable(docSnap.data()))
+        .map((docSnap) => docSnap.id);
+      if (targetBarberIds.length === 0) {
+        throw new HttpsError('failed-precondition', 'No active barbers found to release slots for.');
+      }
+    } else {
+      targetBarberIds = [barberId];
+    }
+
     // Generate a releaseBatchId shared across all docs in this publish action
+    // (even across multiple barbers when releasing for 'all')
     const releaseBatchId = firestore.collection('bookingSlotReleaseBatches').doc().id;
     const now = new Date();
 
-    // Check for existing active releases to avoid duplicates; query per date (single field)
     let datesCreated = 0;
     let datesSkipped = 0;
-    for (const date of dates) {
-      const existingSnap = await firestore
-        .collection('bookingSlotReleases')
-        .where('date', '==', date)
-        .get();
-      const alreadyExists = existingSnap.docs.some((doc) => {
-        const d = doc.data();
-        return d.barberId === barberId
-          && d.startTime === startTime
-          && d.endTime === endTime
-          && d.status === 'active';
-      });
-      if (alreadyExists) {
-        datesSkipped += 1;
-        continue;
-      }
-      await firestore.collection('bookingSlotReleases').add({
-        date,
-        barberId,
-        startTime,
-        endTime,
-        note,
-        status: 'active',
-        releaseBatchId,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      datesCreated += 1;
+    for (const targetBarberId of targetBarberIds) {
+      const result = await createReleasesForBarber(
+        firestore, targetBarberId, dates, startTime, endTime, note, releaseBatchId,
+      );
+      datesCreated += result.created;
+      datesSkipped += result.skipped;
     }
 
     pushDebug('manual slot release batch created', {
@@ -1054,6 +1095,8 @@ export const publishManualSlotRelease = onCall(
       fromDate,
       toDate,
       barberId,
+      releaseAllBarbers,
+      barberCount: targetBarberIds.length,
       startTime,
       endTime,
       datesCreated,

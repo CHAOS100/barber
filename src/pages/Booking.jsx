@@ -234,24 +234,39 @@ export default function Booking() {
   const activeAppointment = customerAppointments.find((appointment) =>
     isAppointmentActiveForSchedule(appointment));
 
-  // Temporary debug logging for "no active barbers" investigation — safe to remove once confirmed fixed.
+  // Temporary debug logging for "no active barbers" investigation — remove once confirmed fixed.
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(getFirestoreDb(), 'barbers'), (snapshot) => {
-      const rawBarbers = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-      const bookableCount = rawBarbers.filter(isBarberBookable).length;
-      console.info('[BOOKING_BARBERS_DEBUG]', {
-        rawCount: rawBarbers.length,
-        bookableCount,
-        barbers: rawBarbers.map((b) => ({
-          id: b.id,
-          name: b.name,
-          active: b.active,
-          is_active: b.is_active,
-          archived: b.archived,
-          isBookable: isBarberBookable(b),
-        })),
-      });
-    });
+    const unsubscribe = onSnapshot(
+      collection(getFirestoreDb(), 'barbers'),
+      (snapshot) => {
+        const rawBarbers = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        const mappedCount = rawBarbers.length;
+        const bookableCount = rawBarbers.filter(isBarberBookable).length;
+        const blockedReason = (b) => {
+          if (b?.archived === true) return 'archived';
+          if (b?.active === false) return 'active_false';
+          if (b?.is_active === false) return 'is_active_false';
+          return null;
+        };
+        console.info('[BOOKING_BARBERS_DEBUG]', {
+          rawCount: snapshot.docs.length,
+          mappedCount,
+          bookableCount,
+          barbers: rawBarbers.map((b) => ({
+            id: b.id,
+            name: b.name,
+            active: b.active,
+            is_active: b.is_active,
+            archived: b.archived,
+            available: b.available,
+            isAvailable: b.isAvailable,
+            isBookable: isBarberBookable(b),
+            blockedReason: blockedReason(b),
+          })),
+        });
+      },
+      (err) => console.warn('[BOOKING_BARBERS_DEBUG] subscription error', err?.code, err?.message),
+    );
     return unsubscribe;
   }, []);
 
@@ -336,8 +351,8 @@ export default function Booking() {
     if (!hours?.is_open) return 'העסק סגור ביום הזה.';
     if (bookingSettings?.availabilityMode === 'manual') {
       const barberReleases = slotReleases.filter(r => r.barberId === selectedBarber?.id);
-      if (barberReleases.length === 0) return 'עדיין לא נפתחו תורים חדשים. נעדכן אותך כשייפתחו תורים.';
-      return 'אין שעות פנויות ביום הזה. נסה לבחור יום אחר.';
+      if (barberReleases.length === 0) return 'עדיין לא נפתחו תורים לספר הזה. נעדכן אותך כשייפתחו תורים.';
+      return 'אין שעות פנויות בתאריך הזה. נסה לבחור יום אחר.';
     }
     const [openHour, openMinute] = String(hours.open_time || '00:00').split(':').map(Number);
     const [closeHour, closeMinute] = String(hours.close_time || '00:00').split(':').map(Number);
@@ -792,7 +807,7 @@ export default function Booking() {
               )}
               {barbers.length === 0 && (
                 <div className="glass rounded-2xl p-4 mb-5 text-center text-sm text-muted-foreground">
-                  אין כרגע ספר פעיל שניתן להזמין אליו תור.
+                  אין כרגע ספר פעיל לקביעת תור.
                 </div>
               )}
 
