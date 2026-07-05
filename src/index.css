@@ -175,6 +175,10 @@
  *   - safe-area-inset-top   (notch / status bar)
  *   - safe-area-inset-bottom (home indicator)
  *   - 32px                  (visual breathing room / overlay padding)
+ *
+ * NOTE: no CSS animation here — all modals use framer-motion for entrance/exit.
+ * A CSS animation that applies `transform` at any point would create a new
+ * stacking context on the card, which can trap any position:fixed descendants.
  */
 .keyboard-safe-modal {
   display: flex;
@@ -188,7 +192,6 @@
   overflow: hidden;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  animation: modalRise 0.24s ease-out;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
 }
 
@@ -583,14 +586,34 @@ select[dir="rtl"] {
   animation: pageIn 0.32s ease-out both;
 }
 
+/*
+ * IMPORTANT: The `to` keyframe must NOT include `transform`.
+ *
+ * With animation-fill-mode:both (forwards+backwards), the browser keeps the
+ * FINAL keyframe's CSS values after the animation ends.  If `to` includes
+ * `transform: translateY(0)`, that value is maintained as a non-`none`
+ * transform on the element — even though it is visually a no-op.
+ *
+ * A non-`none` CSS transform on any ancestor makes it the containing block
+ * for ALL `position:fixed` descendants (CSS spec: transforms create a new
+ * containing block for fixed positioning, overriding the viewport).  That
+ * breaks every modal overlay in every page that uses .page-transition, because
+ * the modal's `position:fixed;inset:0` anchors to the animating div instead
+ * of the viewport.  It also traps the modal's z-index inside that stacking
+ * context, so even z-[200] appears below the bottom-nav's z-50.
+ *
+ * Removing `transform` from the `to` keyframe means animation-fill-mode:forwards
+ * only retains `opacity:1`.  The element's transform returns to its natural
+ * static value (none), and the viewport is the containing block again.
+ */
 @keyframes pageIn {
   from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; }
 }
 
 @keyframes modalRise {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 1; }
 }
 
 .premium-empty-state {
@@ -829,12 +852,15 @@ select[dir="rtl"] {
 }
 
 /* ── Date input overflow prevention ──────────────────────────────────────────
-   input[type="date"] has an intrinsic minimum width on many browsers; without
-   this rule it can cause its parent flex/grid cell to overflow the viewport.
-   Applying min-width:0 here lets the browser let the layout algorithm shrink
-   the input to fit whatever space the container allocates. */
+   input[type="date"] has an intrinsic minimum width on many browsers (especially
+   iOS Safari / WKWebView) that can force the element wider than its container.
+   These rules let the layout algorithm shrink the input to the available space
+   and prevent horizontal overflow at any viewport width including 320px.
+   We do NOT apply -webkit-appearance:none because on some iOS versions it can
+   alter how the date value is rendered inside the field. */
 input[type="date"] {
   min-width: 0;
+  width: 100%;
   max-width: 100%;
   box-sizing: border-box;
 }
