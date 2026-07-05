@@ -19,8 +19,18 @@
  */
 
 import { Capacitor } from '@capacitor/core';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getFirestoreDb } from '@/lib/firebase';
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { getFirebaseFunctions, getFirestoreDb } from '@/lib/firebase';
 
 // ── Platform detection ────────────────────────────────────────────────────────
 
@@ -43,6 +53,31 @@ const maskToken = (token) => (
  * @param {string} uid  Firebase Auth UID
  * @param {string} token  FCM device token
  */
+/**
+ * Try to invoke the registerPushToken Cloud Function callable to perform
+ * server-side cross-user token cleanup. Falls back silently if not deployed.
+ * @param {string} uid
+ * @param {string} token
+ * @param {string} platform
+ */
+const tryRegisterPushTokenViaCallable = async (uid, token, platform) => {
+  try {
+    const callable = httpsCallable(getFirebaseFunctions(), 'registerPushToken');
+    await callable({ token, platform });
+    pushDebug('cross-user token cleanup callable succeeded', {
+      uid,
+      tokenMasked: maskToken(token),
+    });
+  } catch (err) {
+    // NOT_FOUND = callable not yet deployed; other errors are also non-fatal
+    pushDebug('cross-user token cleanup callable skipped or failed', {
+      uid,
+      tokenMasked: maskToken(token),
+      errorCode: err?.code || 'unknown',
+    });
+  }
+};
+
 export const savePushToken = async (uid, token) => {
   if (!uid || !token) return;
   // Use first 80 chars of token as document ID (tokens can be very long)
@@ -50,25 +85,31 @@ export const savePushToken = async (uid, token) => {
   const platform = getPlatformName();
 
   const ref = doc(getFirestoreDb(), 'users', uid, 'pushTokens', tokenSlug);
-  pushDebug('client saving push token', {
+  pushDebug('[PUSH_TOKEN_REGISTER] client saving push token', {
     uid,
     tokenPath: `users/${uid}/pushTokens/${tokenSlug}`,
-    tokenMasked: maskToken(token),
+    tokenSuffix: maskToken(token),
     platform,
   });
   await setDoc(ref, {
     token,
+    ownerUid: uid,       // explicit owner — allows cross-user verification in pushProcessor
     platform,
     enabled: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     lastSeenAt: serverTimestamp(),
+    lastLoginAt: serverTimestamp(),
   }, { merge: true });
-  pushDebug('client push token saved', {
+  pushDebug('[PUSH_TOKEN_REGISTER] client push token saved', {
     uid,
     tokenPath: `users/${uid}/pushTokens/${tokenSlug}`,
     platform,
   });
+
+  // Best-effort: ask the server to disable this token under any other UID.
+  // This prevents stale tokens from delivering another user's notifications to this device.
+  await tryRegisterPushTokenViaCallable(uid, token, platform);
 };
 
 const ensureAndroidNotificationChannel = async (PushNotifications) => {
@@ -217,6 +258,41 @@ export const disablePushToken = async (uid, token) => {
     await setDoc(ref, { enabled: false, updatedAt: serverTimestamp() }, { merge: true });
   } catch {
     // Non-critical — ignore
+  }
+};
+
+/**
+ * Disable ALL active push tokens for a user — call this on logout to prevent
+ * stale tokens from delivering a different user's notifications to this device.
+ * @param {string} uid
+ */
+export const disableAllPushTokensForCurrentUser = async (uid) => {
+  if (!uid) return;
+  try {
+    const db = getFirestoreDb();
+    const snap = await getDocs(
+      query(collection(db, 'users', uid, 'pushTokens'), where('enabled', '==', true)),
+    );
+    if (snap.empty) {
+      pushDebug('[PUSH_TOKEN_REGISTER] logout: no active tokens to disable', { uid });
+      return;
+    }
+    const batch = writeBatch(db);
+    snap.docs.forEach((tokenDoc) => {
+      batch.update(tokenDoc.ref, {
+        enabled: false,
+        updatedAt: serverTimestamp(),
+        disabledAt: serverTimestamp(),
+        disabledReason: 'logout',
+      });
+    });
+    await batch.commit();
+    pushDebug('[PUSH_TOKEN_REGISTER] logout: push tokens disabled', { uid, count: snap.size });
+  } catch (err) {
+    console.warn('[PUSH_TOKEN_REGISTER]', 'failed to disable tokens on logout', {
+      uid,
+      error: err?.message || String(err),
+    });
   }
 };
 

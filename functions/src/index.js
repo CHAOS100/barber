@@ -795,6 +795,109 @@ export const scheduledWaitlistExpiry = onSchedule(
  *
  * Returns a summary: { jobsChecked, jobsSent, jobsSkipped, jobsFailed, tokensDisabled, errors }
  */
+/**
+ * registerPushToken — customer callable
+ *
+ * Registers the calling user's FCM push token server-side with cross-user cleanup:
+ *  1. Queries collectionGroup('pushTokens').where('token', '==', token) via Admin SDK
+ *  2. Disables any docs belonging to a DIFFERENT user (stale cross-user contamination)
+ *  3. Writes / updates the token doc for the current user
+ *
+ * This ensures a physical device token is only active for ONE user at a time,
+ * preventing notifications from being delivered to the wrong person after
+ * an account switch or shared-device login.
+ *
+ * Requires a Firestore single-field collection-group index on pushTokens.token.
+ * (Firebase auto-creates this when the query is first executed, or add it to
+ *  firestore.indexes.json explicitly.)
+ */
+export const registerPushToken = onCall(
+  { enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated to register push token.');
+    }
+
+    const { token, platform } = request.data || {};
+    if (!token || typeof token !== 'string' || token.length < 10) {
+      throw new HttpsError('invalid-argument', 'A valid FCM token is required.');
+    }
+
+    const callerUid = request.auth.uid;
+    const tokenSlug = token.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'device';
+    const tokenSuffix = `${token.slice(0, 8)}...${token.slice(-6)}`;
+    const firestore = getFirestore();
+
+    // Cross-user cleanup: find all OTHER users who have this exact token active
+    // and disable those entries so this token exclusively belongs to the caller.
+    let cleanedCount = 0;
+    try {
+      const existingSnap = await firestore
+        .collectionGroup('pushTokens')
+        .where('token', '==', token)
+        .where('enabled', '==', true)
+        .get();
+
+      if (!existingSnap.empty) {
+        const batch = firestore.batch();
+        existingSnap.docs.forEach((tokenDoc) => {
+          const ownerUid = tokenDoc.ref.parent.parent?.id;
+          if (ownerUid && ownerUid !== callerUid) {
+            batch.update(tokenDoc.ref, {
+              enabled: false,
+              updatedAt: FieldValue.serverTimestamp(),
+              disabledAt: FieldValue.serverTimestamp(),
+              disabledReason: 'token_reassigned',
+              reassignedToUid: callerUid,
+            });
+            cleanedCount += 1;
+          }
+        });
+        if (cleanedCount > 0) {
+          await batch.commit();
+          logger.info('[PUSH_TOKEN_REGISTER] cross-user token cleanup completed', {
+            callerUid,
+            cleanedCount,
+            tokenSuffix,
+          });
+        }
+      }
+    } catch (cleanupError) {
+      // Non-fatal: cleanup failure is logged but token registration still proceeds.
+      // The ownerUid filter in pushProcessor is a fallback safety net.
+      logger.warn('[PUSH_TOKEN_REGISTER] cross-user cleanup failed (non-fatal)', {
+        callerUid,
+        tokenSuffix,
+        error: cleanupError.message,
+      });
+    }
+
+    // Register / refresh the token for the calling user
+    await firestore
+      .collection('users')
+      .doc(callerUid)
+      .collection('pushTokens')
+      .doc(tokenSlug)
+      .set({
+        token,
+        ownerUid: callerUid,
+        platform: typeof platform === 'string' ? platform : 'android',
+        enabled: true,
+        updatedAt: FieldValue.serverTimestamp(),
+        lastSeenAt: FieldValue.serverTimestamp(),
+        lastLoginAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+    logger.info('[PUSH_TOKEN_REGISTER] token registered', {
+      callerUid,
+      tokenSuffix,
+      cleanedDuplicateOwners: cleanedCount,
+    });
+
+    return { success: true, tokenSuffix, cleanedDuplicateOwners: cleanedCount };
+  },
+);
+
 export const processPendingPushNotifications = onCall(
   { enforceAppCheck: false },
   async (request) => {

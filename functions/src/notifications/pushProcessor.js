@@ -12,11 +12,26 @@
 
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { sendPushJob } from './pushSender.js';
+import { filterTokensByOwner, sendPushJob } from './pushSender.js';
 import { ACTIVE_APPOINTMENT_STATUSES, isAppointmentPastByEndTime } from '../bookingPolicy.js';
 
 const BATCH_LIMIT = 25;
 const MAX_ATTEMPTS = 5;
+
+// Job types that are tied to a specific appointment customer.
+// These REQUIRE a customerId. If missing, the job is skipped rather than
+// broadcasting to an unintended recipient.
+const APPOINTMENT_JOB_TYPES = new Set([
+  'appointment_approved',
+  'appointment_confirmed',
+  'appointment_cancelled',
+  'appointment_rejected',
+  'appointment',
+  'appointment_reminder_24h',
+  'appointment_reminder_2h',
+  'appointment_status',
+  'appointment_created_admin',
+]);
 
 const pushDebug = (message, details = {}) => {
   console.log('[PUSH_DEBUG]', message, details);
@@ -148,11 +163,37 @@ const fetchEnabledTokens = async (firestore, customerId) => {
     .collection('pushTokens')
     .where('enabled', '==', true)
     .get();
-  const tokens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  pushDebug('token lookup complete', {
+  const rawTokens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // Defense-in-depth: filter out tokens whose ownerUid doesn't match the
+  // requested customerId. This catches stale cross-user token contamination
+  // even if the token document ended up under the wrong user's path.
+  // Legacy tokens without any ownerUid field are also excluded — privacy over
+  // backward compatibility (missing a push is safer than sending to wrong device).
+  const { accepted: tokens, missingOwnerCount, wrongOwnerCount } =
+    filterTokensByOwner(rawTokens, customerId);
+  const filteredOutCount = missingOwnerCount + wrongOwnerCount;
+
+  if (filteredOutCount > 0) {
+    logger.warn('[PUSH_RECIPIENT_DEBUG] fetchEnabledTokens: removed stale/unverified tokens', {
+      customerId,
+      tokenPath,
+      rawCount: rawTokens.length,
+      missingOwnerCount,
+      wrongOwnerCount,
+      filteredOutCount,
+      acceptedTokenCount: tokens.length,
+    });
+  }
+
+  pushDebug('[PUSH_RECIPIENT_DEBUG] token lookup complete', {
     tokenPath,
-    tokenCount: tokens.length,
-    tokenIds: tokens.map((token) => token.id),
+    rawTokenCount: rawTokens.length,
+    missingOwnerCount,
+    wrongOwnerCount,
+    acceptedTokenCount: tokens.length,
+    tokenOwnerIds: rawTokens.map((t) => t.ownerUid || 'legacy_no_ownerUid'),
+    expectedOwnerId: customerId,
   });
   return tokens;
 };
@@ -345,6 +386,19 @@ export const processImmediatePushJobs = async (jobIds) => {
 
     const attempts = Number(jobData.attempts || 0);
 
+    // Strict guard: appointment-type jobs MUST have a customerId.
+    // If missing, skip immediately — never broadcast to an unintended recipient.
+    if (APPOINTMENT_JOB_TYPES.has(jobData.type) && !customerId) {
+      logger.warn('[PUSH_RECIPIENT_DEBUG] immediate job skipped: appointment job missing customerId', {
+        jobId,
+        type: jobData.type,
+        skipReason: 'missing_customer_id',
+      });
+      await markJobSkipped(firestore, jobId, 'missing_customer_id', attempts);
+      summary.jobsSkipped += 1;
+      continue;
+    }
+
     if (APPOINTMENT_REMINDER_TYPES.has(jobData.type)) {
       const validation = await validateAppointmentReminderJob(firestore, jobData);
       if (!validation.valid) {
@@ -362,6 +416,17 @@ export const processImmediatePushJobs = async (jobIds) => {
         fetchEnabledTokens(firestore, customerId),
         fetchCustomerPreferences(firestore, customerId),
       ]);
+
+      console.log('[PUSH_RECIPIENT_DEBUG]', {
+        jobId,
+        jobType: jobData.type || null,
+        resolvedCustomerId: customerId,
+        jobCustomerId: jobData.customerId || null,
+        targetUserId: jobData.targetUserId || null,
+        tokenCount: tokens.length,
+        tokenOwnerIds: tokens.map((t) => t.ownerUid || 'legacy_no_ownerUid'),
+        skippedReason: null,
+      });
 
       const result = await sendPushJob(jobData, tokens, preferences);
       pushDebug('immediate send result', {
@@ -502,6 +567,18 @@ export const processPendingPushJobs = async () => {
       continue;
     }
 
+    // Strict guard: appointment-type jobs MUST have a customerId.
+    if (APPOINTMENT_JOB_TYPES.has(jobData.type) && !customerId) {
+      logger.warn('[PUSH_RECIPIENT_DEBUG] pending job skipped: appointment job missing customerId', {
+        jobId,
+        type: jobData.type,
+        skipReason: 'missing_customer_id',
+      });
+      await markJobSkipped(firestore, jobId, 'missing_customer_id', attempts);
+      summary.jobsSkipped += 1;
+      continue;
+    }
+
     // Haircut reminder: skip if customer already has a future booking
     if (jobData.type === 'haircut_reminder' && customerId) {
       const hasFuture = await customerHasFutureAppointment(firestore, customerId);
@@ -532,6 +609,17 @@ export const processPendingPushJobs = async () => {
         fetchEnabledTokens(firestore, customerId),
         fetchCustomerPreferences(firestore, customerId),
       ]);
+
+      console.log('[PUSH_RECIPIENT_DEBUG]', {
+        jobId,
+        jobType: jobData.type || null,
+        resolvedCustomerId: customerId,
+        jobCustomerId: jobData.customerId || null,
+        targetUserId: jobData.targetUserId || null,
+        tokenCount: tokens.length,
+        tokenOwnerIds: tokens.map((t) => t.ownerUid || 'legacy_no_ownerUid'),
+        skippedReason: null,
+      });
 
       const result = await sendPushJob(jobData, tokens, preferences);
       pushDebug('pending send result', {

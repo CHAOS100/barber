@@ -9,7 +9,17 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDocs,
+  getDocFromServer,
+  getFirestore,
+  query,
+  serverTimestamp as firestoreServerTimestamp,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
@@ -1302,11 +1312,58 @@ export const signInFirebaseAdminWithPhoneCode = async (confirmationResult, code)
   return signInFirebaseAdminWithVerifiedPhoneUser(firebaseUser);
 };
 
+/**
+ * Disable all active FCM push tokens for a given UID.
+ * Called on logout so stale device tokens cannot receive another user's pushes.
+ * Non-fatal — a failure here is logged but never blocks the sign-out.
+ * @param {string} uid
+ */
+const disablePushTokensForUid = async (uid) => {
+  if (!uid) return;
+  try {
+    const db = getFirestoreDb();
+    const tokensSnap = await getDocs(
+      query(
+        collection(db, 'users', uid, 'pushTokens'),
+        where('enabled', '==', true),
+      ),
+    );
+    if (tokensSnap.empty) return;
+    const batch = writeBatch(db);
+    tokensSnap.docs.forEach((tokenDoc) => {
+      batch.update(tokenDoc.ref, {
+        enabled: false,
+        updatedAt: firestoreServerTimestamp(),
+        disabledAt: firestoreServerTimestamp(),
+        disabledReason: 'logout',
+      });
+    });
+    await batch.commit();
+    console.info('[Push] Disabled push tokens on logout', JSON.stringify({
+      uid,
+      count: tokensSnap.size,
+    }));
+  } catch (err) {
+    console.warn('[Push] Failed to disable push tokens on logout', JSON.stringify({
+      uid,
+      error: err?.message || String(err),
+    }));
+  }
+};
+
 export const signOutFirebaseSession = async () => {
   customerAuthPromise = null;
   clearNativePhoneBridgeUser();
   clearPhoneSmsGuard();
   clearFirebasePhoneRecaptcha('sign-out');
+
+  // Disable this device's push tokens before sign-out so they cannot
+  // receive notifications for this user after the session ends.
+  // Only do this on native (where push tokens are registered).
+  if (Capacitor.isNativePlatform() && firebaseAuth?.currentUser?.uid) {
+    await disablePushTokensForUid(firebaseAuth.currentUser.uid);
+  }
+
   if (isCapacitorAndroidNative()) {
     await clearNativePhoneAuthListeners('sign-out');
     try {

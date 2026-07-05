@@ -155,6 +155,72 @@ export const buildDataPayload = (jobData) => {
   );
 };
 
+// ── Token ownership verification ──────────────────────────────────────────────
+
+/**
+ * Filter tokens to only those that explicitly prove ownership of the expected UID.
+ *
+ * When expectedOwnerUid is provided (i.e. for any customer-targeted push):
+ *  - ALLOWED:  token.ownerUid === expectedOwnerUid
+ *              token.customerId === expectedOwnerUid   (alternate field, same meaning)
+ *              token.userId === expectedOwnerUid       (alternate field, same meaning)
+ *  - EXCLUDED: token.ownerUid exists and differs       → stale cross-user token
+ *  - EXCLUDED: none of ownerUid/customerId/userId present → cannot prove ownership;
+ *              privacy risk: old token may point to a different physical device.
+ *              Skip with skipReason 'missing_token_owner' rather than risk sending
+ *              to the wrong person. The user will re-register on next app open.
+ *
+ * This is deliberately strict. It is safer to miss a push than to deliver
+ * a notification to someone else's device.
+ *
+ * @param {object[]} tokens           - token docs from users/{uid}/pushTokens
+ * @param {string|null} expectedOwnerUid - the uid whose notifications we're sending
+ * @returns {{ accepted: object[], missingOwnerCount: number, wrongOwnerCount: number }}
+ */
+export const filterTokensByOwner = (tokens, expectedOwnerUid) => {
+  if (!expectedOwnerUid) {
+    return { accepted: tokens, missingOwnerCount: 0, wrongOwnerCount: 0 };
+  }
+
+  let missingOwnerCount = 0;
+  let wrongOwnerCount = 0;
+  const accepted = [];
+
+  for (const t of tokens) {
+    // Resolve the token's declared owner from any of the supported fields
+    const declaredOwner = t.ownerUid || t.customerId || t.userId || null;
+
+    if (!declaredOwner) {
+      // No ownership field at all — cannot verify. Exclude for privacy.
+      missingOwnerCount += 1;
+      pushDebug('[PUSH_RECIPIENT_DEBUG] token excluded: no ownership field (legacy doc)', {
+        tokenId: t.id,
+        expectedOwnerUid,
+        skipReason: 'missing_token_owner',
+        tokenSuffix: t.token ? `${String(t.token).slice(0, 8)}...${String(t.token).slice(-6)}` : null,
+      });
+      continue;
+    }
+
+    if (declaredOwner !== expectedOwnerUid) {
+      // Token explicitly belongs to a different user — stale cross-user contamination.
+      wrongOwnerCount += 1;
+      pushDebug('[PUSH_RECIPIENT_DEBUG] token excluded: ownerUid mismatch (stale cross-user token)', {
+        tokenId: t.id,
+        tokenOwnerUid: declaredOwner,
+        expectedOwnerUid,
+        skipReason: 'wrong_token_owner',
+        tokenSuffix: t.token ? `${String(t.token).slice(0, 8)}...${String(t.token).slice(-6)}` : null,
+      });
+      continue;
+    }
+
+    accepted.push(t);
+  }
+
+  return { accepted, missingOwnerCount, wrongOwnerCount };
+};
+
 // ── High-level: send one push job to all of a customer's enabled tokens ───────
 
 /**
@@ -173,7 +239,11 @@ export const buildDataPayload = (jobData) => {
  * }}
  */
 export const sendPushJob = async (jobData, tokens, preferences) => {
-  const enabledTokens = tokens.filter((t) => t.enabled !== false && t.token);
+  // Apply owner filter before the enabled filter so we catch cross-user contamination early.
+  // Returns accepted tokens only — tokens without proof of ownership are excluded.
+  const { accepted: ownerVerifiedTokens, missingOwnerCount, wrongOwnerCount } =
+    filterTokensByOwner(tokens, jobData.customerId || null);
+  const enabledTokens = ownerVerifiedTokens.filter((t) => t.enabled !== false && t.token);
   const preferenceDecision = getPreferenceDecision(jobData.type, preferences);
 
   pushDebug('sendPushJob start', {
@@ -183,6 +253,9 @@ export const sendPushJob = async (jobData, tokens, preferences) => {
     userId: jobData.userId || null,
     recipientId: jobData.recipientId || null,
     tokenCount: tokens.length,
+    missingOwnerCount,
+    wrongOwnerCount,
+    ownerVerifiedCount: ownerVerifiedTokens.length,
     enabledTokenCount: enabledTokens.length,
     preferenceDecision,
     titlePresent: Boolean(jobData.title),
