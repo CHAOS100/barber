@@ -31,7 +31,15 @@ export const getBookingRejectionMessage = (error) => {
     return 'לא נפתחו תורים לספר הזה בשעה שבחרת';
   }
   if (code === 'business/closed-day') return 'העסק סגור ביום הזה.';
+  if (code === 'business/blocked-date') return 'העסק חסום להזמנות בתאריך הזה.';
+  if (code === 'waiting-list/date-unavailable') return 'לא ניתן להצטרף לרשימת המתנה בתאריך סגור או חסום.';
+  if (code === 'business/booking-policy-not-configured') {
+    return 'מדיניות העסק טרם הוגדרה. לא ניתן לקבוע תור כרגע.';
+  }
   if (code === 'appointment/outside-working-hours') return 'השעה שבחרת מחוץ לשעות הפעילות.';
+  if (code === 'appointment/invalid-time') return 'שעת התור אינה תקינה.';
+  if (code === 'appointment/past') return 'לא ניתן לקבוע או להעביר תור למועד שכבר עבר.';
+  if (code === 'appointment/invalid-slot-interval') return 'השעה שבחרת אינה תואמת למרווחי הזמינות של העסק.';
   if (code === 'appointment/duration-does-not-fit') {
     return 'משך השירות לא נכנס בחלון הזמן הפנוי.';
   }

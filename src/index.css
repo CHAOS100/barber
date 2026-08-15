@@ -9,6 +9,7 @@
     --app-viewport-height: 100dvh;
     --visible-viewport-height: 100dvh;
     --keyboard-height: 0px;
+    --visual-viewport-offset-top: 0px;
     --safe-area-top: calc(env(safe-area-inset-top, 0px) + 12px);
     --safe-area-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
     --bottom-nav-height: calc(72px + env(safe-area-inset-bottom, 0px));
@@ -144,8 +145,7 @@
 /* Full-screen modal backdrop — uses dvh so it tracks the visual viewport
    including when the iOS home indicator is present. */
 .keyboard-safe-overlay {
-  /* dvh tracks the visual viewport; fallback to 100vh if not supported */
-  height: 100dvh;
+  height: var(--visible-viewport-height, 100dvh);
   width: 100vw;
   /* Padding keeps content out of status bar / home indicator zones */
   padding: max(env(safe-area-inset-top, 0px), 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
@@ -156,8 +156,10 @@
 
 /* Fixed-positioned overlay variant (used with inset-0 class) */
 .keyboard-safe-overlay.fixed {
-  height: 100dvh;
-  min-height: 100dvh;
+  top: var(--visual-viewport-offset-top, 0px);
+  bottom: auto;
+  height: var(--visible-viewport-height, 100dvh);
+  min-height: var(--visible-viewport-height, 100dvh);
   padding-top: max(env(safe-area-inset-top, 0px), 16px);
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   padding-left: 16px;
@@ -184,7 +186,7 @@
   display: flex;
   flex-direction: column;
   max-height: calc(
-    100dvh
+    var(--visible-viewport-height, 100dvh)
     - max(env(safe-area-inset-top, 0px), 8px)
     - max(env(safe-area-inset-bottom, 0px), 8px)
     - 32px
@@ -324,6 +326,22 @@ body:has([role="dialog"]) {
   min-height: var(--visible-viewport-height);
   height: var(--visible-viewport-height);
   max-height: var(--visible-viewport-height);
+}
+
+.keyboard-open .keyboard-safe-overlay.fixed {
+  align-items: flex-start;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.keyboard-open .keyboard-safe-modal {
+  max-height: calc(var(--visible-viewport-height) - 16px);
+}
+
+.keyboard-open .mobile-bottom-nav,
+.keyboard-open .mobile-fixed-cta {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .auth-credit {

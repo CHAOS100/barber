@@ -1135,6 +1135,20 @@ const getAdminRejectionReason = (adminSnapshot, adminProfile) => {
   return null;
 };
 
+/**
+ * Reads the signed-in user's own admin document without mutating auth state.
+ * This is used by the global session hydrator to distinguish a phone-auth
+ * admin from a customer before subscribing to users/{uid}.
+ * @param {import('firebase/auth').User | null | undefined} user
+ */
+export const findActiveFirebaseAdminProfile = async (user = firebaseAuth?.currentUser) => {
+  await prepareFirebaseAuth();
+  if (!user || firebaseAuth.currentUser?.uid !== user.uid) return null;
+  const snapshot = await getDocFromServer(doc(getFirestoreDb(), ADMIN_COLLECTION, user.uid));
+  const profile = snapshot.exists() ? snapshot.data() : null;
+  return getAdminRejectionReason(snapshot, profile) ? null : profile;
+};
+
 /** @param {import('firebase/auth').User} user */
 const validateAdminDocument = async (user) => {
   const currentUserUid = firebaseAuth.currentUser?.uid || null;

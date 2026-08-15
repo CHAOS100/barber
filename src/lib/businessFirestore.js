@@ -26,11 +26,8 @@ import { isActiveBookingSlotRelease } from '@/lib/bookingAvailability';
 export { isBarberBookable };
 
 const DEFAULT_SLOT_INTERVAL = 10;
-export const DEFAULT_BOOKING_POLICY_TEXT = `חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!
-*יש לבחור תור לתספורת במידה ובחרת עם גזירות.
-*איחורים מעל 10 דקות לא יתקבלו.
-*במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.`;
-export const DEFAULT_BOOKING_POLICY_VERSION = '2026-06-16';
+export const DEFAULT_BOOKING_POLICY_TEXT = '';
+export const DEFAULT_BOOKING_POLICY_VERSION = '';
 
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
 const normalizeOptionalMinutes = (value) =>
@@ -78,10 +75,12 @@ const normalizeService = (input) => ({
 
 const validateService = (input) => {
   const name = String(input.name || '').trim();
+  const category = String(input.category || '').trim();
   const price = Number(input.price);
   const duration = Number(input.duration);
 
   if (!name) throw Object.assign(new Error('Service name is required.'), { code: 'service/name-required' });
+  if (!category) throw Object.assign(new Error('Service category is required.'), { code: 'service/category-required' });
   if (!Number.isFinite(price) || price <= 0) {
     throw Object.assign(new Error('Service price is required.'), { code: 'service/price-required' });
   }
@@ -138,13 +137,52 @@ const normalizeBarber = (input) => ({
 });
 
 const validateWorkingHours = (workingHours) => {
-  workingHours.filter(day => day.is_open).forEach((day) => {
-    if (timeToMinutes(day.open_time) >= timeToMinutes(day.close_time)) {
+  const dayNumbers = new Set();
+  workingHours.forEach((day) => {
+    if (!Number.isInteger(day.day_of_week) || day.day_of_week < 0 || day.day_of_week > 6) {
+      throw Object.assign(
+        new Error('Working-hours day must be between 0 and 6.'),
+        { code: 'settings/invalid-working-day' },
+      );
+    }
+    if (dayNumbers.has(day.day_of_week)) {
+      throw Object.assign(
+        new Error(`Duplicate working-hours entry for day ${day.day_of_week}.`),
+        { code: 'settings/duplicate-working-day' },
+      );
+    }
+    dayNumbers.add(day.day_of_week);
+    if (!day.is_open) return;
+
+    const open = timeToMinutes(day.open_time);
+    const close = timeToMinutes(day.close_time);
+    if (!Number.isFinite(open) || !Number.isFinite(close) || open >= close) {
       throw Object.assign(
         new Error(`Closing time must be after opening time for day ${day.day_of_week}.`),
         { code: 'settings/invalid-working-hours' },
       );
     }
+
+    const breaks = (day.breaks || []).map((item) => ({
+      start: timeToMinutes(item.start || item.startTime),
+      end: timeToMinutes(item.end || item.endTime),
+    })).sort((left, right) => left.start - right.start);
+    breaks.forEach((item, index) => {
+      const overlapsPrevious = index > 0 && item.start < breaks[index - 1].end;
+      if (
+        !Number.isFinite(item.start)
+        || !Number.isFinite(item.end)
+        || item.start >= item.end
+        || item.start < open
+        || item.end > close
+        || overlapsPrevious
+      ) {
+        throw Object.assign(
+          new Error(`Invalid break configuration for day ${day.day_of_week}.`),
+          { code: 'settings/invalid-break' },
+        );
+      }
+    });
   });
 };
 
@@ -269,7 +307,10 @@ export const saveBarber = async (id, input) => {
     archived: payload.archived,
   });
   if (id) {
-    await updateDoc(doc(getFirestoreDb(), 'barbers', id), payload);
+    const profilePayload = { ...payload };
+    delete profilePayload.active;
+    delete profilePayload.archived;
+    await updateDoc(doc(getFirestoreDb(), 'barbers', id), profilePayload);
     console.info('[Firestore Barbers] barber updated', { barberId: id });
     return id;
   }
@@ -281,22 +322,12 @@ export const saveBarber = async (id, input) => {
   return created.id;
 };
 
-export const archiveBarber = async (id) => {
+export const callSetBarberLifecycle = async ({ barberId, action }) => {
   await ensureFirebaseAdmin();
-  console.info('[Firestore Barbers] archiving barber', { barberId: id });
-  await updateDoc(doc(getFirestoreDb(), 'barbers', id), {
-    active: false,
-    archived: true,
-    updatedAt: serverTimestamp(),
-  });
-  console.info('[Firestore Barbers] barber archived', { barberId: id });
-};
-
-export const deleteBarber = async (id) => {
-  await ensureFirebaseAdmin();
-  console.info('[Firestore Barbers] deleting barber', { barberId: id });
-  await deleteDoc(doc(getFirestoreDb(), 'barbers', id));
-  console.info('[Firestore Barbers] barber deleted', { barberId: id });
+  const fn = httpsCallable(getFirebaseFunctions(), 'setBarberLifecycle');
+  const result = await fn({ barberId, action });
+  console.info('[Firestore Barbers] lifecycle updated via callable', result.data);
+  return result.data;
 };
 
 const imageContentType = (file) => {
@@ -349,20 +380,49 @@ export const uploadBarberPhoto = async (barberId, file, onProgress) => {
   });
 };
 
-const normalizeWorkingHours = (workingHours = DEFAULT_WORKING_HOURS) =>
-  DEFAULT_WORKING_HOURS.map((defaultDay) => {
-    const input = workingHours.find((day) => day.day_of_week === defaultDay.day_of_week) || defaultDay;
-    return {
-      day_of_week: defaultDay.day_of_week,
-      day_name: input.day_name || defaultDay.day_name,
-      is_open: input.is_open === true,
-      open_time: input.open_time || defaultDay.open_time || '09:00',
-      close_time: input.close_time || defaultDay.close_time || '20:00',
-      breaks: Array.isArray(input.breaks) ? input.breaks : [],
-      bufferBeforeMinutes: null,
-      bufferAfterMinutes: null,
-    };
+const normalizeWorkingHours = (workingHours = []) => {
+  if (!Array.isArray(workingHours)) return [];
+  return workingHours
+    .filter((day) => Number.isInteger(Number(day?.day_of_week)))
+    .map((input) => {
+      const defaultDay = DEFAULT_WORKING_HOURS.find(
+        (day) => day.day_of_week === Number(input.day_of_week),
+      );
+      return {
+        day_of_week: Number(input.day_of_week),
+        day_name: String(input.day_name || defaultDay?.day_name || '').trim(),
+        is_open: input.is_open === true,
+        open_time: input.is_open === true ? String(input.open_time || '').trim() : null,
+        close_time: input.is_open === true ? String(input.close_time || '').trim() : null,
+        breaks: Array.isArray(input.breaks)
+          ? input.breaks.map((item) => ({
+            start: String(item.start || item.startTime || '').trim(),
+            end: String(item.end || item.endTime || '').trim(),
+            label: String(item.label || '').trim(),
+          }))
+          : [],
+        bufferBeforeMinutes: null,
+        bufferAfterMinutes: null,
+      };
+    })
+    .sort((left, right) => left.day_of_week - right.day_of_week);
+};
+
+const normalizeBlockedDates = (blockedDates = []) => {
+  if (!Array.isArray(blockedDates)) return [];
+  const unique = new Map();
+  blockedDates.forEach((entry) => {
+    const date = String(entry?.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    unique.set(date, {
+      date,
+      reason: String(entry?.reason || '').trim(),
+      isFullDay: true,
+      active: entry?.active !== false,
+    });
   });
+  return [...unique.values()].sort((left, right) => left.date.localeCompare(right.date));
+};
 
 const mapBookingSettings = (data = {}) => {
   const appointmentBufferMinutes = Math.max(
@@ -389,6 +449,7 @@ const mapBookingSettings = (data = {}) => {
       Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
     ),
     workingHours: normalizeWorkingHours(data.workingHours),
+    blockedDates: normalizeBlockedDates(data.blockedDates),
     availabilityMode: data.availabilityMode === 'manual' ? 'manual' : 'automatic',
   };
 };
@@ -431,6 +492,9 @@ export const saveBookingSettings = async (input) => {
     payload.workingHours = normalizeWorkingHours(input.workingHours);
     validateWorkingHours(payload.workingHours);
   }
+  if (input.blockedDates !== undefined) {
+    payload.blockedDates = normalizeBlockedDates(input.blockedDates);
+  }
   if (input.availabilityMode !== undefined) {
     payload.availabilityMode = input.availabilityMode === 'manual' ? 'manual' : 'automatic';
   }
@@ -459,8 +523,8 @@ export const subscribeToBusinessSettings = (onData, onError) => onSnapshot(
     const data = snapshot.data() || {};
     const settings = {
       ...data,
-      bookingPolicyText: data.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT,
-      bookingPolicyVersion: data.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION,
+      bookingPolicyText: String(data.bookingPolicyText || '').trim(),
+      bookingPolicyVersion: String(data.bookingPolicyVersion || '').trim(),
       cancellationDeadlineMinutesBeforeAppointment: Math.max(
         0,
         Number(data.cancellationDeadlineMinutesBeforeAppointment ?? 180),
@@ -482,8 +546,8 @@ export const saveBusinessSettings = async (input) => {
     phone: String(input.phone || '').trim(),
     address: String(input.address || '').trim(),
     description: String(input.description || '').trim(),
-    bookingPolicyText: String(input.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT).trim(),
-    bookingPolicyVersion: String(input.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION).trim(),
+    bookingPolicyText: String(input.bookingPolicyText || '').trim(),
+    bookingPolicyVersion: String(input.bookingPolicyVersion || '').trim(),
     defaultAppointmentBufferBeforeMinutes: Math.max(
       0,
       Number(input.defaultAppointmentBufferBeforeMinutes ?? 0),
@@ -522,14 +586,7 @@ export const saveBusinessSettings = async (input) => {
   return payload;
 };
 
-export const DEFAULT_FEATURES = [
-  { id: 'f1', icon: '✂️', title: 'תספורת מקצועית', description: 'גזירות מדויקות ומעוצבות', enabled: true, order: 0 },
-  { id: 'f2', icon: '🧔', title: 'עיצוב זקן', description: 'עיצוב וטיפוח זקן איכותי', enabled: true, order: 1 },
-  { id: 'f3', icon: '⭐', title: 'שירות אישי', description: 'יחס אישי ומקצועי לכל לקוח', enabled: true, order: 2 },
-  { id: 'f4', icon: '💎', title: 'אווירה יוקרתית', description: 'חוויה מפנקת ואיכותית', enabled: true, order: 3 },
-  { id: 'f5', icon: '💈', title: 'חומרים איכותיים', description: 'מוצרים מהשורה הראשונה', enabled: true, order: 4 },
-  { id: 'f6', icon: '📅', title: 'זמינות נוחה', description: 'הזמנת תורים קלה ומהירה', enabled: true, order: 5 },
-];
+export const DEFAULT_FEATURES = [];
 
 export const saveBusinessFeatures = async (features) => {
   await ensureFirebaseAdmin();

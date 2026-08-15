@@ -233,7 +233,10 @@ const subscribe = async (buildQuery, audience, authenticate, onData, onError, is
   return onSnapshot(
     buildQuery(user),
     (snapshot) => {
-      const appointments = snapshot.docs.map(mapAppointment).sort(bySchedule);
+      const appointments = snapshot.docs
+        .map(mapAppointment)
+        .filter((appointment) => audience !== 'admin' || appointment.deletedFromAdmin !== true)
+        .sort(bySchedule);
       console.info(
         audience === 'admin'
           ? '[Firestore] Admin received appointments snapshot'

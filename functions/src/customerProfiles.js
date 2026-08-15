@@ -52,14 +52,12 @@ const attachPhoneAppointmentsToCustomer = async (transaction, uid, phoneNumber, 
 
   appointments.docs.forEach((appointmentSnapshot) => {
     const appointment = appointmentSnapshot.data();
-    const linkedPreviousCustomerId = appointment.customerId && appointment.customerId !== uid
-      ? appointment.customerId
-      : null;
+    if (appointment.customerId && appointment.customerId !== uid) return;
+    if (appointment.customerId === uid && appointment.customerRegistered === true) return;
     transaction.update(appointmentSnapshot.ref, {
       customerId: uid,
       customerName: appointment.customerName || displayName,
       customerRegistered: true,
-      ...(linkedPreviousCustomerId ? { linkedPreviousCustomerId } : {}),
       linkedCustomerAt: FieldValue.serverTimestamp(),
       linkedCustomerBy: 'phone_login',
       updatedAt: FieldValue.serverTimestamp(),

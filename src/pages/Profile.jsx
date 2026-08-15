@@ -8,6 +8,7 @@ import AppointmentHistory from '../components/profile/AppointmentHistory';
 import GoldButton from '../components/ui/GoldButton';
 import SettingsTab from '../components/profile/SettingsTab';
 import GalTechBadge from '@/components/branding/GalTechBadge';
+import { formatILS } from '@/lib/formatters';
 
 const TABS = [
   { key: 'info', label: 'פרופיל', icon: User },
@@ -48,7 +49,7 @@ export default function Profile() {
       icon: CreditCard,
       title: 'דרישת תשלום פעילה',
       message: noShowPaymentAmount > 0
-        ? `נדרש תשלום של ₪${noShowPaymentAmount}. ${noShowPaymentReason || 'פנה לעסק להסדרת התשלום.'}`
+        ? `נדרש תשלום של ${formatILS(noShowPaymentAmount)}. ${noShowPaymentReason || 'פנה לעסק להסדרת התשלום.'}`
         : noShowPaymentReason || 'פנה לעסק להסדרת התשלום לפני קביעת תור נוסף.',
       color: 'text-yellow-300',
       bg: 'bg-yellow-400/10 border-yellow-400/25',

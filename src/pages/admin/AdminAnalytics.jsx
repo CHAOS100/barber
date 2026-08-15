@@ -15,6 +15,7 @@ import {
   buildServiceUsage,
   calculateAdminStats,
 } from '@/lib/dashboardStats';
+import { formatILS } from '@/lib/formatters';
 
 const GOLD_COLORS = ['#93E3BD', '#78D2AA', '#C5F6DE', '#63B991', '#A9ECCA'];
 
@@ -30,9 +31,9 @@ export default function AdminAnalytics() {
   const peakHours = useMemo(() => buildPeakHours(appointments), [appointments]);
   const servicesPie = useMemo(() => buildServiceUsage(appointments), [appointments]);
   const stats = useMemo(() => calculateAdminStats(appointments, customers, [], []), [appointments, customers]);
-  const currentMonth = monthlyData[monthlyData.length - 1] || { revenue: 0, appointments: 0, customers: 0, cancellations: 0 };
-  const cancellationRate = currentMonth.appointments
-    ? Math.round((currentMonth.cancellations / currentMonth.appointments) * 100)
+  const currentMonth = monthlyData[monthlyData.length - 1] || { revenue: 0, appointments: 0, totalBookings: 0, customers: 0, cancellations: 0 };
+  const cancellationRate = currentMonth.totalBookings
+    ? Math.round((currentMonth.cancellations / currentMonth.totalBookings) * 100)
     : 0;
 
   return (
@@ -56,7 +57,7 @@ export default function AdminAnalytics() {
       <div className="px-4 py-4 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           {[
-            { icon: Wallet, label: 'הכנסות החודש', value: `₪${currentMonth.revenue.toLocaleString()}` },
+            { icon: Wallet, label: 'הכנסות החודש', value: formatILS(currentMonth.revenue) },
             { icon: Users, label: 'לקוחות אמיתיים', value: stats.customersCount },
             { icon: TrendingUp, label: 'תורים החודש', value: currentMonth.appointments },
             { icon: Clock, label: 'שיעור ביטול', value: `${cancellationRate}%` },
@@ -90,7 +91,7 @@ export default function AdminAnalytics() {
               </defs>
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 11 }} />
               <YAxis hide />
-              <Tooltip formatter={(value) => [`₪${value}`, 'הכנסות']} />
+              <Tooltip formatter={(value) => [formatILS(value), 'הכנסות']} />
               <Area type="monotone" dataKey="revenue" stroke="#93E3BD" strokeWidth={2} fill="url(#goldGradAnalytics)" />
             </AreaChart>
           </ResponsiveContainer>

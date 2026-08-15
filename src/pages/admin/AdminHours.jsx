@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2, Unlock, Lock } from 'lucide-react';
+import { ArrowRight, Plus, Clock, Save, ChevronDown, ChevronUp, Coffee, Trash2, Unlock, Lock, CalendarX } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { BUSINESS_INFO } from '../../lib/businessConfig';
 import GoldButton from '../../components/ui/GoldButton';
 import {
   saveBookingSettings,
@@ -19,13 +18,14 @@ import {
 } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { DEFAULT_WORKING_HOURS } from '@/lib/slotEngine';
 
-const DEFAULT_DAYS = BUSINESS_INFO.hours.map((h, i) => ({
-  day_of_week: i,
-  day_name: h.day,
-  is_open: h.is_open,
-  open_time: h.open || '09:00',
-  close_time: h.close || '20:00',
+const DEFAULT_DAYS = DEFAULT_WORKING_HOURS.map((day) => ({
+  day_of_week: day.day_of_week,
+  day_name: day.day_name,
+  is_open: day.is_open,
+  open_time: day.open_time || '09:00',
+  close_time: day.close_time || '20:00',
   breaks: [],
 }));
 
@@ -490,6 +490,9 @@ export default function AdminHours() {
   const [slotInterval, setSlotInterval] = useState(10);
   const [visibleSlotIntervalMinutes, setVisibleSlotIntervalMinutes] = useState(30);
   const [availabilityMode, setAvailabilityMode] = useState('automatic');
+  const [blockedDates, setBlockedDates] = useState([]);
+  const [blockedDate, setBlockedDate] = useState('');
+  const [blockedReason, setBlockedReason] = useState('');
   const [cancellingId, setCancellingId] = useState(null); // holds batchId or single doc id
   const [showReleaseHistory, setShowReleaseHistory] = useState(false);
 
@@ -534,6 +537,7 @@ export default function AdminHours() {
     setVisibleSlotIntervalMinutes(settings.visibleSlotIntervalMinutes);
     setSlotInterval(settings.slotInterval);
     setAvailabilityMode(settings.availabilityMode || 'automatic');
+    setBlockedDates(Array.isArray(settings.blockedDates) ? settings.blockedDates : []);
   }, [settings]);
 
   const saveMutation = useMutation({
@@ -549,6 +553,7 @@ export default function AdminHours() {
       visibleSlotIntervalMinutes,
       slotInterval,
       availabilityMode,
+      blockedDates,
     }),
     onSuccess: () => {
       toast({ title: 'נשמר בהצלחה', description: 'ימי העבודה והזמינות עודכנו בזמן אמת.' });
@@ -602,6 +607,25 @@ export default function AdminHours() {
 
   const updateDay = (updated) => {
     setDays(prev => prev.map(d => d.day_of_week === updated.day_of_week ? updated : d));
+  };
+
+  const addBlockedDate = () => {
+    if (!blockedDate) return;
+    setBlockedDates((current) => [
+      ...current.filter((entry) => entry.date !== blockedDate),
+      {
+        date: blockedDate,
+        reason: blockedReason.trim(),
+        isFullDay: true,
+        active: true,
+      },
+    ].sort((left, right) => left.date.localeCompare(right.date)));
+    setBlockedDate('');
+    setBlockedReason('');
+  };
+
+  const removeBlockedDate = (date) => {
+    setBlockedDates((current) => current.filter((entry) => entry.date !== date));
   };
 
   const openDays = days.filter(d => d.is_open).length;
@@ -740,7 +764,10 @@ export default function AdminHours() {
               {[5, 10, 15, 20, 30].map(value => (
                 <button
                   key={value}
-                  onClick={() => setSlotInterval(value)}
+                  onClick={() => {
+                    setSlotInterval(value);
+                    setVisibleSlotIntervalMinutes(value);
+                  }}
                   className={`py-2 rounded-xl text-xs font-bold ${slotInterval === value ? 'gold-gradient text-black' : 'glass text-muted-foreground'}`}
                 >
                   {value}
@@ -765,6 +792,61 @@ export default function AdminHours() {
               className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center focus:outline-none focus:border-primary"
             />
           </label>
+        </div>
+
+        <div className="glass rounded-2xl p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <CalendarX className="w-4 h-4 text-primary" />
+            <div>
+              <h2 className="text-sm font-black text-foreground">תאריכים חסומים</h2>
+              <p className="text-xs text-muted-foreground">חסימה מלאה של יום מיושמת גם באפליקציה וגם באימות השרת.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] gap-2">
+            <input
+              type="date"
+              min={todayStr()}
+              value={blockedDate}
+              onChange={(event) => setBlockedDate(event.target.value)}
+              className="min-w-0 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+            />
+            <input
+              value={blockedReason}
+              onChange={(event) => setBlockedReason(event.target.value)}
+              placeholder="סיבה (אופציונלי)"
+              className="min-w-0 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+            />
+            <button
+              type="button"
+              onClick={addBlockedDate}
+              disabled={!blockedDate}
+              className="gold-gradient text-black rounded-xl px-4 py-2.5 text-xs font-black disabled:opacity-40"
+            >
+              הוסף חסימה
+            </button>
+          </div>
+          {blockedDates.length === 0 ? (
+            <p className="text-xs text-muted-foreground/60 text-center py-2">אין תאריכים חסומים</p>
+          ) : (
+            <div className="space-y-2">
+              {blockedDates.map((entry) => (
+                <div key={entry.date} className="dark-card rounded-xl px-3 py-2.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold">{formatDate(entry.date)}</div>
+                    {entry.reason && <div className="text-xs text-muted-foreground truncate">{entry.reason}</div>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeBlockedDate(entry.date)}
+                    className="icon-btn glass press-scale"
+                    aria-label={`הסר חסימה לתאריך ${entry.date}`}
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {days.map((day) => (

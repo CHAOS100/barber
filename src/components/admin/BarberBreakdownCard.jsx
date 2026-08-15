@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Scissors, TrendingUp } from 'lucide-react';
 import { listAllBarbers } from '@/lib/businessFirestore';
+import { formatILS } from '@/lib/formatters';
+import { isDeletedAppointment, revenueFor } from '@/lib/dashboardStats';
 
 const AVATAR_COLORS = ['#93E3BD', '#78D2AA', '#C5F6DE', '#63B991', '#A9ECCA'];
 
@@ -18,20 +20,24 @@ export default function BarberBreakdownCard({ appointments = [] }) {
   });
 
   const thisMonthAppts = appointments.filter(a =>
-    a.date?.startsWith(thisMonth) && a.status !== 'cancelled' && a.status !== 'no_show'
+    a.date?.startsWith(thisMonth)
+      && !isDeletedAppointment(a)
+      && !['cancelled', 'rejected', 'no_show'].includes(a.status)
   );
   const lastMonthAppts = appointments.filter(a =>
-    a.date?.startsWith(lastMonth) && a.status !== 'cancelled' && a.status !== 'no_show'
+    a.date?.startsWith(lastMonth)
+      && !isDeletedAppointment(a)
+      && !['cancelled', 'rejected', 'no_show'].includes(a.status)
   );
 
   // Group by barber_name (fallback to 'ללא שיוך' if none)
   const buildStats = (appts) => {
     const map = {};
     appts.forEach(a => {
-      const key = a.barber_name || 'ללא העדפה';
+      const key = a.barberName || a.barber_name || 'ללא העדפה';
       if (!map[key]) map[key] = { name: key, count: 0, revenue: 0 };
       map[key].count += 1;
-      map[key].revenue += a.service_price || 0;
+      map[key].revenue += revenueFor(a);
     });
     return map;
   };
@@ -83,7 +89,7 @@ export default function BarberBreakdownCard({ appointments = [] }) {
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-sm truncate">{barber.name}</span>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-primary font-black text-sm">₪{barber.revenue.toLocaleString()}</span>
+                      <span className="text-primary font-black text-sm">{formatILS(barber.revenue)}</span>
                       {barber.revGrowth !== null && (
                         <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${barber.revGrowth >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                           {barber.revGrowth >= 0 ? '+' : ''}{barber.revGrowth}%
@@ -112,7 +118,7 @@ export default function BarberBreakdownCard({ appointments = [] }) {
         <span className="flex items-center gap-1">
           <TrendingUp className="w-3 h-3" /> % שינוי מחודש שעבר
         </span>
-        <span>סה"כ: ₪{rows.reduce((s, r) => s + r.revenue, 0).toLocaleString()}</span>
+        <span>סה"כ: {formatILS(rows.reduce((s, r) => s + r.revenue, 0))}</span>
       </div>
     </div>
   );

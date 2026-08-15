@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
   firebaseAuth,
+  findActiveFirebaseAdminProfile,
   isFirebaseConfigured,
   resolveFirebaseUserPhoneNumber,
 } from '@/lib/firebase';
@@ -9,8 +10,18 @@ import {
   customerProfileToSession,
   subscribeToCurrentCustomerProfile,
 } from '@/lib/customerProfilesFirestore';
-import { loginUser, logoutUser, userStore } from '@/lib/userStore';
+import { loginUser, logoutUser } from '@/lib/userStore';
 import { initPushNotifications, isNativePlatform } from '@/lib/pushNotifications';
+
+const adminProfileToSession = (firebaseUser, profile) => ({
+  uid: firebaseUser.uid,
+  name: String(profile?.name || 'מנהל').trim(),
+  email: String(profile?.email || firebaseUser.email || '').trim(),
+  phoneNumber: String(profile?.phoneNumber || firebaseUser.phoneNumber || '').trim(),
+  role: 'admin',
+  isAdmin: true,
+  authProvider: firebaseUser.providerData?.[0]?.providerId || 'firebase',
+});
 
 export default function CustomerSessionHydrator() {
   useEffect(() => {
@@ -23,17 +34,30 @@ export default function CustomerSessionHydrator() {
       const runId = authRunId;
       unsubscribeProfile();
       unsubscribeProfile = () => {};
-      const localUser = userStore.getState().currentUser;
       if (!firebaseUser) {
-        if (localUser?.isAdmin !== true) logoutUser();
+        logoutUser();
         return;
       }
 
-      resolveFirebaseUserPhoneNumber(firebaseUser)
-        .then((phoneNumber) => {
-          if (runId !== authRunId || !phoneNumber) return;
+      Promise.resolve()
+        .then(async () => {
+          const adminProfile = await findActiveFirebaseAdminProfile(firebaseUser);
+          if (runId !== authRunId) return;
+          if (adminProfile) {
+            loginUser(adminProfileToSession(firebaseUser, adminProfile));
+            return;
+          }
+
+          const phoneNumber = await resolveFirebaseUserPhoneNumber(firebaseUser);
+          if (runId !== authRunId) return;
+          if (!phoneNumber) {
+            logoutUser();
+            return;
+          }
+
           let pushRegistered = false;
           unsubscribeProfile = subscribeToCurrentCustomerProfile((profile) => {
+            if (runId !== authRunId) return;
             if (profile) {
               loginUser(customerProfileToSession(profile));
               // Re-register push token once per auth session (silent — won't prompt).
@@ -42,7 +66,7 @@ export default function CustomerSessionHydrator() {
                 pushRegistered = true;
                 initPushNotifications(firebaseUser.uid, { silent: true }).catch(() => {});
               }
-            } else if (localUser?.isAdmin !== true) {
+            } else {
               logoutUser();
             }
           }, (error) => {
@@ -50,7 +74,7 @@ export default function CustomerSessionHydrator() {
               code: error?.code || 'unknown',
               message: error?.message || 'Unknown profile error',
             });
-            if (localUser?.isAdmin !== true) logoutUser();
+            if (runId === authRunId) logoutUser();
           });
         })
         .catch((error) => {
@@ -59,7 +83,7 @@ export default function CustomerSessionHydrator() {
             code: error?.code || 'unknown',
             message: error?.message || 'Unknown profile error',
           });
-          if (localUser?.isAdmin !== true) logoutUser();
+          logoutUser();
         });
     });
 

@@ -3,14 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
-  Armchair,
   BadgeCheck,
   Ban,
   Bell,
   Calendar,
   ChevronLeft,
   Clock,
-  Coffee,
   CreditCard,
   Info,
   Instagram,
@@ -19,14 +17,12 @@ import {
   Navigation,
   PhoneCall,
   Share2,
-  Shield,
   ShieldAlert,
   Sparkles,
   Star,
 } from 'lucide-react';
-import { BUSINESS_INFO, isOpenNow } from '../lib/businessConfig';
-import { DEFAULT_FEATURES } from '@/lib/businessFirestore';
-import { useActiveBarbersRealtime, useActiveServicesRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
+import { isOpenNow } from '../lib/businessConfig';
+import { useActiveBarbersRealtime, useActiveServicesRealtime, useBookingSettingsRealtime, useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { usePublishedReviewsRealtime } from '@/hooks/useReviewsRealtime';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
@@ -34,6 +30,8 @@ import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
 import GalTechBadge from '@/components/branding/GalTechBadge';
 import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
+import { formatILS } from '@/lib/formatters';
+import { groupServicesByCategory } from '@/lib/serviceCategories';
 
 // ── Notification mini-card (home screen preview) ──────────────────────────────
 
@@ -79,14 +77,7 @@ function HomeMessageCard({ msg }) {
   );
 }
 
-const AMENITIES = [
-  { Icon: Armchair, label: 'שירותים' },
-  { Icon: Coffee, label: 'מתקן שתייה' },
-  { Icon: BadgeCheck, label: 'עזרה ראשונה' },
-  { Icon: Shield, label: 'מקלט / מ"מ' },
-];
-
-const MAP_SRC = "https://maps.google.com/maps?q=%D7%94%D7%A9%D7%95%D7%9E%D7%A8+55+%D7%A8%D7%90%D7%A9%D7%95%D7%9F+%D7%9C%D7%A6%D7%99%D7%95%D7%9F&output=embed&z=16";
+const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 const normalizeInstagramUrl = (value) => {
   const raw = String(value || '').trim();
@@ -111,7 +102,6 @@ const withImageVersion = (url, timestamp) => {
 
 export default function Home() {
   const navigate = useNavigate();
-  const open = isOpenNow();
   const [activeTab, setActiveTab] = useState('info');
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const { data: services } = useActiveServicesRealtime();
@@ -120,24 +110,28 @@ export default function Home() {
   const { photos } = usePublishedGalleryRealtime();
   const { messages: customerMessages, unreadCount: msgUnreadCount, isLoggedIn } = useCustomerMessages();
   const { settings: businessSettings, loading: businessSettingsLoading } = useBusinessSettingsRealtime();
+  const { settings: bookingSettings } = useBookingSettingsRealtime();
+  const workingHours = bookingSettings?.workingHours || [];
+  const open = isOpenNow(workingHours);
   const previewMessages = customerMessages.slice(0, 3);
   const averageRating = reviews.length
     ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
     : 0;
-  const haircutServices = services.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום');
-  const beardServices = services.filter(s => s.name === 'עיצוב זקן');
-  const premiumServices = services.filter(s => s.name === 'חבילת פרימיום');
-  // Social links: prefer live Firestore business settings, fall back to barber profile then static config
-  const liveWaze = businessSettings?.waze || BUSINESS_INFO.waze;
-  const liveWhatsapp = businessSettings?.whatsapp || BUSINESS_INFO.whatsapp;
+  const serviceGroups = groupServicesByCategory(services);
+  const liveWaze = String(businessSettings?.waze || '').trim();
+  const liveWhatsapp = String(businessSettings?.whatsapp || '').trim();
+  const livePhone = String(businessSettings?.phone || '').trim();
+  const businessName = String(businessSettings?.name || 'OST BARBER').trim();
+  const businessAddress = String(businessSettings?.address || '').trim();
   const instagramUrl = normalizeInstagramUrl(
     businessSettings?.instagram
     || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagram_url
     || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUrl
-    || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUsername
-    || BUSINESS_INFO.instagramUrl
-    || BUSINESS_INFO.instagram,
+    || barbers.find((barber) => barber.instagram_url || barber.instagramUrl || barber.instagramUsername)?.instagramUsername,
   );
+  const mapSrc = businessAddress
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(businessAddress)}&output=embed&z=16`
+    : '';
   const heroImageUrl = businessSettingsLoading
     ? ''
     : withImageVersion(businessSettings?.homeHeroImageUrl, businessSettings?.homeHeroImageUpdatedAt);
@@ -147,12 +141,14 @@ export default function Home() {
 
   const handleShare = () => {
     if (navigator.share) {
-      navigator.share({ title: 'OST BARBER', url: window.location.href });
+      navigator.share({ title: businessName, url: window.location.href });
     }
   };
 
-  const todayHours = BUSINESS_INFO.hours[new Date().getDay()];
-  const todayStr = todayHours?.is_open ? `${todayHours.open}-${todayHours.close}` : 'סגור';
+  const todayHours = workingHours.find((day) => Number(day.day_of_week) === new Date().getDay());
+  const todayStr = todayHours?.is_open
+    ? `${todayHours.open_time}-${todayHours.close_time}`
+    : 'סגור';
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -175,10 +171,15 @@ export default function Home() {
           </button>
         </div>
         {/* Category pills on image */}
-        <div className="absolute bottom-4 right-4 flex gap-2">
-          <span className="glass px-3 py-1 rounded-full text-xs font-bold text-white">ספרות</span>
-          <span className="glass px-3 py-1 rounded-full text-xs font-bold text-white">עיצוב זקן</span>
-        </div>
+        {serviceGroups.length > 0 && (
+          <div className="absolute bottom-4 right-4 flex gap-2">
+            {serviceGroups.slice(0, 2).map((group) => (
+              <span key={group.category} className="glass px-3 py-1 rounded-full text-xs font-bold text-white">
+                {group.category}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Barber avatar */}
         <div className="absolute bottom-4 left-4">
           <img
@@ -194,15 +195,15 @@ export default function Home() {
         <div className="flex items-start justify-between mb-1">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-black text-foreground tracking-tight">OST BARBER</h1>
+              <h1 className="text-2xl font-black text-foreground tracking-tight">{businessName}</h1>
               <BadgeCheck className="w-6 h-6 text-primary fill-primary/20" />
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
               <span className="text-primary font-bold text-sm">{averageRating.toFixed(1)}</span>
               <span className="text-muted-foreground text-xs">({reviews.length} ביקורות)</span>
-              <span className="text-muted-foreground text-xs">·</span>
-              <span className="text-muted-foreground text-xs">{BUSINESS_INFO.address}</span>
+               {businessAddress && <span className="text-muted-foreground text-xs">·</span>}
+               {businessAddress && <span className="text-muted-foreground text-xs">{businessAddress}</span>}
             </div>
           </div>
         </div>
@@ -210,34 +211,34 @@ export default function Home() {
         {/* Action Buttons */}
         <div className="flex gap-3 my-4">
           {/* Waze */}
-          <motion.button
+          {liveWaze && <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => window.open(liveWaze)}
             className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
           >
             <Navigation className="w-7 h-7 text-primary" />
             <span className="text-xs text-foreground font-medium">וייז</span>
-          </motion.button>
+          </motion.button>}
 
           {/* WhatsApp */}
-          <motion.button
+          {liveWhatsapp && <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => window.open(`https://wa.me/${String(liveWhatsapp || '').replace(/\D/g, '')}`)}
             className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
           >
             <MessageCircle className="w-7 h-7 text-primary" />
             <span className="text-xs text-foreground font-medium">וואטסאפ</span>
-          </motion.button>
+          </motion.button>}
 
           {/* Phone */}
-          <motion.button
+          {livePhone && <motion.button
             whileTap={{ scale: 0.92 }}
-            onClick={() => window.open(`tel:${BUSINESS_INFO.phone}`)}
+            onClick={() => window.open(`tel:${livePhone}`)}
             className="flex-1 glass flex flex-col items-center gap-1.5 py-3 rounded-2xl press-scale border border-border/40"
           >
             <PhoneCall className="w-7 h-7 text-primary" />
             <span className="text-xs text-foreground font-medium">שיחה</span>
-          </motion.button>
+          </motion.button>}
 
           {instagramUrl && (
             <motion.button
@@ -334,19 +335,12 @@ export default function Home() {
                   <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-line">
                     {businessSettings.description}
                   </p>
-                ) : (
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    חברים שימו לב: מומלץ להקדים את התור עקב מצוקת חניות באזור!<br />
-                    *יש לבחור תור לתספורת במידה ובחרת עם גזירות.<br />
-                    *איחורים מעל 10 דקות לא יתקבלו.<br />
-                    *במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.
-                  </p>
-                )}
+                ) : null}
               </div>
 
               {/* Features / Highlights */}
               {(() => {
-                const raw = businessSettings?.features?.length ? businessSettings.features : DEFAULT_FEATURES;
+                const raw = Array.isArray(businessSettings?.features) ? businessSettings.features : [];
                 const displayFeatures = raw
                   .filter(f => f.enabled !== false)
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -397,13 +391,13 @@ export default function Home() {
                       className="overflow-hidden"
                     >
                       <div className="pt-3 space-y-2">
-                        {BUSINESS_INFO.hours.map((h) => {
-                          const isToday = BUSINESS_INFO.hours.indexOf(h) === new Date().getDay();
+                        {workingHours.map((h) => {
+                          const isToday = Number(h.day_of_week) === new Date().getDay();
                           return (
-                            <div key={h.day} className={`flex justify-between items-center text-sm ${isToday ? 'text-primary font-bold' : ''}`}>
-                              <span className={isToday ? 'text-primary' : 'text-muted-foreground'}>{h.day}</span>
+                            <div key={h.day_of_week} className={`flex justify-between items-center text-sm ${isToday ? 'text-primary font-bold' : ''}`}>
+                              <span className={isToday ? 'text-primary' : 'text-muted-foreground'}>{h.day_name || DAY_NAMES_HE[h.day_of_week]}</span>
                               <span className={h.is_open ? (isToday ? 'text-primary' : 'text-foreground') : 'text-muted-foreground/60'}>
-                                {h.is_open ? `${h.open}-${h.close}` : 'סגור'}
+                                {h.is_open ? `${h.open_time}-${h.close_time}` : 'סגור'}
                               </span>
                             </div>
                           );
@@ -477,46 +471,47 @@ export default function Home() {
               </div>
 
               {/* Team */}
-              <div className="mb-5">
+              {barbers.length > 0 && <div className="mb-5">
                 <h2 className="text-base font-black mb-3">צוות המקום</h2>
-                <div className="dark-card rounded-2xl p-4 flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full border-2 border-primary gold-gradient text-black font-black flex items-center justify-center flex-shrink-0">
-                    OST
-                  </div>
-                  <div>
-                    <div className="font-bold text-foreground">עומרי סימן טוב</div>
-                    <div className="text-muted-foreground text-sm">בעלים</div>
-                    <StarRating rating={5} size="sm" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Location */}
-              <div className="mb-5">
-                <h2 className="text-base font-black mb-3">במקום</h2>
-                <div className="grid grid-cols-4 gap-2 mb-4">
-                  {AMENITIES.map((a) => (
-                    <div key={a.label} className="dark-card rounded-2xl p-3 flex flex-col items-center gap-1.5">
-                      <a.Icon className="w-6 h-6 text-primary" />
-                      <span className="text-xs text-muted-foreground text-center leading-tight">{a.label}</span>
+                <div className="space-y-2">
+                  {barbers.map((barber) => (
+                    <div key={barber.id} className="dark-card rounded-2xl p-4 flex items-center gap-4">
+                      {barber.photo_url ? (
+                        <img src={barber.photo_url} alt={barber.name} className="w-16 h-16 rounded-full border-2 border-primary object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-full border-2 border-primary gold-gradient text-black font-black flex items-center justify-center flex-shrink-0">
+                          {String(barber.name || '?').slice(0, 2)}
+                        </div>
+                      )}
+                      <div>
+                        <div className="font-bold text-foreground">{barber.name}</div>
+                        {barber.specialties?.length > 0 && (
+                          <div className="text-muted-foreground text-sm">{barber.specialties.join(' • ')}</div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
+              </div>}
+
+              {/* Location */}
+              {(mapSrc || liveWaze) && <div className="mb-5">
+                <h2 className="text-base font-black mb-3">מיקום</h2>
                 <div className="rounded-2xl overflow-hidden h-44 relative">
-                  <iframe
-                    src={MAP_SRC}
+                  {mapSrc && <iframe
+                    src={mapSrc}
                     className="w-full h-full border-0"
                     loading="lazy"
                     title="מפה"
-                  />
-                  <button
+                  />}
+                  {liveWaze && <button
                     onClick={() => window.open(liveWaze)}
                     className="absolute bottom-3 left-3 glass-gold px-4 py-2 rounded-xl text-sm font-bold text-primary press-scale"
                   >
                     נווט עם וייז
-                  </button>
+                  </button>}
                 </div>
-              </div>
+              </div>}
 
             </motion.div>
           )}
@@ -532,43 +527,16 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Category: תספורות */}
-              {haircutServices.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
+              {serviceGroups.map((group, groupIndex) => (
+                <div key={group.category} className={groupIndex === serviceGroups.length - 1 ? 'mb-6' : 'mb-4'}>
+                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">{group.category}</p>
                   <div className="space-y-2">
-                    {haircutServices.map((service, i) => (
-                      <motion.div
-                        key={service.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        onClick={() => navigate('/booking', { state: { service } })}
-                        className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
-                      >
-                        <div className="flex-1 text-right">
-                          <div className="font-bold text-foreground text-sm">{service.name}</div>
-                          <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
-                        </div>
-                        <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
-                        <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
-                          <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Category: עיצוב זקן */}
-              {beardServices.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
-                  {beardServices.map((service) => (
+                    {group.services.map((service, serviceIndex) => (
                     <motion.div
                       key={service.id}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: (groupIndex * 0.03) + (serviceIndex * 0.05) }}
                       onClick={() => navigate('/booking', { state: { service } })}
                       className="dark-card rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-transparent hover:border-primary/30 transition-all"
                     >
@@ -576,41 +544,15 @@ export default function Home() {
                         <div className="font-bold text-foreground text-sm">{service.name}</div>
                         <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
                       </div>
-                      <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
+                      <div className="text-foreground font-black text-sm flex-shrink-0">{formatILS(service.price)}</div>
                       <div className="w-7 h-7 rounded-lg border-2 border-border flex items-center justify-center flex-shrink-0">
                         <ChevronLeft className="w-4 h-4 text-muted-foreground" />
                       </div>
                     </motion.div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              )}
-
-              {/* Category: חבילות */}
-              {premiumServices.length > 0 && (
-                <div className="mb-6">
-                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות פרימיום</p>
-                  {premiumServices.map((service) => (
-                    <motion.div
-                      key={service.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      onClick={() => navigate('/booking', { state: { service } })}
-                      className="glass-gold rounded-2xl px-4 py-3.5 flex items-center gap-3 cursor-pointer press-scale border border-primary/30 transition-all"
-                    >
-                      <div className="flex-1 text-right">
-                        <div className="font-bold text-foreground text-sm flex items-center gap-1 justify-end">
-                          {service.name} <span className="text-primary text-xs">⭐</span>
-                        </div>
-                        <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳ | פתוח לכולם</div>
-                      </div>
-                      <div className="text-primary font-black text-sm flex-shrink-0">₪{service.price}</div>
-                      <div className="w-7 h-7 rounded-lg border-2 border-primary/40 flex items-center justify-center flex-shrink-0">
-                        <ChevronLeft className="w-4 h-4 text-primary" />
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
+              ))}
             </motion.div>
           )}
         </AnimatePresence>

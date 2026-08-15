@@ -1,12 +1,15 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { isActiveCustomerAppointment } from './bookingPolicy.js';
 
 const db = () => getFirestore();
 
 const syncAppointmentStatsForCustomer = async (customerId) => {
   if (!customerId) return;
   const snapshot = await db().collection('appointments').where('customerId', '==', customerId).get();
-  const appointments = snapshot.docs.map((item) => item.data());
+  const appointments = snapshot.docs
+    .map((item) => item.data())
+    .filter((item) => item.deletedFromAdmin !== true);
   const completed = appointments.filter((item) => item.status === 'completed');
 
   await db().doc(`users/${customerId}`).set({
@@ -15,7 +18,7 @@ const syncAppointmentStatsForCustomer = async (customerId) => {
     cancelledAppointments: appointments.filter((item) =>
       item.status === 'cancelled' || item.status === 'rejected').length,
     noShowCount: appointments.filter((item) => item.status === 'no_show').length,
-    totalSpent: appointments
+    totalSpent: completed
       .filter((item) => item.paid === true)
       .reduce((total, item) => total + Number(item.servicePrice || 0), 0),
     updatedAt: FieldValue.serverTimestamp(),
@@ -64,8 +67,7 @@ export const syncCustomerActiveAppointmentLock = onDocumentWritten(
     await Promise.all([...customerIds].filter(Boolean).map(async (customerId) => {
       const lockRef = db().doc(`customerBookingLocks/${customerId}`);
       const snapshot = await db().collection('appointments').where('customerId', '==', customerId).get();
-      const active = snapshot.docs.find((item) =>
-        ['pending', 'approved', 'confirmed', 'scheduled'].includes(item.data().status));
+      const active = snapshot.docs.find((item) => isActiveCustomerAppointment(item.data()));
       if (!active) {
         await lockRef.delete();
         return;

@@ -8,6 +8,7 @@ import GoldButton from '../../components/ui/GoldButton';
 import { useAllServicesRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { formatILS } from '@/lib/formatters';
 
 const emptyService = {
   name: '',
@@ -69,6 +70,10 @@ export default function AdminServices() {
   const handleSave = () => {
     if (!String(form.name || '').trim()) {
       setValidationError('שם השירות הוא שדה חובה.');
+      return;
+    }
+    if (!String(form.category || '').trim()) {
+      setValidationError('קטגוריית השירות היא שדה חובה.');
       return;
     }
     if (!Number(form.price) || Number(form.price) <= 0) {
@@ -133,7 +138,7 @@ export default function AdminServices() {
                 </div>
                 <div className="text-muted-foreground text-xs mt-0.5">{service.description}</div>
                 <div className="flex items-center gap-3 mt-1">
-                  <span className="text-primary font-black">₪{service.price}</span>
+                  <span className="text-primary font-black">{formatILS(service.price)}</span>
                   <span className="text-muted-foreground text-xs">{service.duration} דק'</span>
                 </div>
               </div>

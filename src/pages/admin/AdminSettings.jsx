@@ -2,11 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Bell, Edit3, MessageCircle, Plus, Sparkles, Store, Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
-import { BUSINESS_INFO } from '../../lib/businessConfig';
+import { EMPTY_BUSINESS_INFO } from '../../lib/businessConfig';
 import {
-  DEFAULT_BOOKING_POLICY_TEXT,
-  DEFAULT_BOOKING_POLICY_VERSION,
-  DEFAULT_FEATURES,
   saveBookingSettings,
   saveBusinessSettings,
   saveBusinessFeatures,
@@ -22,7 +19,7 @@ import { getGalleryUploadErrorMessage, validateGalleryImageFile } from '@/lib/ga
 
 export default function AdminSettings() {
   const navigate = useNavigate();
-  const [info, setInfo] = useState(/** @type {Record<string, any>} */ ({ ...BUSINESS_INFO }));
+  const [info, setInfo] = useState(/** @type {Record<string, any>} */ ({ ...EMPTY_BUSINESS_INFO }));
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const { settings: businessSettings } = useBusinessSettingsRealtime();
   const [bufferMinutes, setBufferMinutes] = useState(null);
@@ -56,9 +53,7 @@ export default function AdminSettings() {
       if (!featuresInitRef.current) {
         featuresInitRef.current = true;
         setFeatures(
-          businessSettings.features?.length
-            ? [...businessSettings.features]
-            : [...DEFAULT_FEATURES],
+          Array.isArray(businessSettings.features) ? [...businessSettings.features] : [],
         );
       }
     }
@@ -487,7 +482,7 @@ export default function AdminSettings() {
           <label className="block text-xs text-muted-foreground">
             מדיניות שמוצגת לפני אישור תור
             <textarea
-              value={info.bookingPolicyText || DEFAULT_BOOKING_POLICY_TEXT}
+              value={info.bookingPolicyText || ''}
               onChange={e => setInfo(prev => ({ ...prev, bookingPolicyText: e.target.value }))}
               className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-right text-sm focus:outline-none focus:border-primary resize-none h-36"
               dir="rtl"
@@ -497,7 +492,7 @@ export default function AdminSettings() {
             <label className="block text-xs text-muted-foreground">
               גרסת מדיניות
               <input
-                value={info.bookingPolicyVersion || DEFAULT_BOOKING_POLICY_VERSION}
+                value={info.bookingPolicyVersion || ''}
                 onChange={e => setInfo(prev => ({ ...prev, bookingPolicyVersion: e.target.value }))}
                 className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-center text-sm focus:outline-none focus:border-primary"
               />

@@ -25,13 +25,11 @@ import {
   completeExistingCustomerLogin,
   createCustomerProfile,
   customerProfileToSession,
-  findAuthenticatedUserProfile,
 } from '@/lib/customerProfilesFirestore';
+import { useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_RESEND_ATTEMPTS = 2;
-const WHATSAPP_NUMBER = '054-2244542';
-const WHATSAPP_URL = 'https://wa.me/972542244542';
 const INVALID_PHONE_MESSAGE = 'מספר הטלפון לא תקין';
 
 /**
@@ -120,6 +118,11 @@ const buildAdminSession = (firebaseUser, profile) => {
 export default function OTPLogin() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { settings: businessSettings } = useBusinessSettingsRealtime();
+  const supportWhatsApp = String(businessSettings?.whatsapp || '').trim();
+  const supportWhatsAppUrl = supportWhatsApp
+    ? `https://wa.me/${supportWhatsApp.replace(/\D/g, '')}`
+    : '';
   const explicitAdminLogin = new URLSearchParams(location.search).get('admin') === 'true';
   const nextPath = location.state?.next || '/';
   const customerNavigationTarget = safeCustomerNextPath(nextPath);
@@ -202,18 +205,9 @@ export default function OTPLogin() {
     }));
   };
 
-  /** @param {import('firebase/auth').User} firebaseUser */
-  const completeCustomerFirebaseLogin = async (firebaseUser) => {
+  const completeCustomerFirebaseLogin = async () => {
     if (mode !== 'customer') setMode('customer');
     logOtpConfirmDebug('otp-confirmed-profile-lookup-start');
-
-    const existingProfile = await findAuthenticatedUserProfile();
-    if (!existingProfile) {
-      setStep('registration');
-      setError('');
-      logOtpConfirmDebug('new-user-registration-required', 'registration');
-      return;
-    }
 
     const profile = await completeExistingCustomerLogin();
     if (!profile) {
@@ -811,15 +805,15 @@ export default function OTPLogin() {
                           : 'שליחה מחדש'}
                     </button>
                   )}
-                  <a
-                    href={WHATSAPP_URL}
+                  {supportWhatsAppUrl && <a
+                    href={supportWhatsAppUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center justify-center gap-2 text-primary text-sm font-bold"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    WhatsApp {WHATSAPP_NUMBER}
-                  </a>
+                    WhatsApp {supportWhatsApp}
+                  </a>}
                 </div>
                 <button
                   disabled={smsLoading || verificationLoading}

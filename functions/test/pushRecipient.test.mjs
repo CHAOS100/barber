@@ -190,7 +190,11 @@ test('evaluateReminderAppointmentState: rejects when job customerId differs from
     serviceDuration: 30,
   };
   // A reminder job mistakenly addressed to Yadin for Ali's appointment
-  const result = evaluateReminderAppointmentState(appointment, yadinUid);
+  const result = evaluateReminderAppointmentState(
+    appointment,
+    yadinUid,
+    new Date('2026-07-31T12:00:00.000Z'),
+  );
   assert.equal(result.valid, false);
   assert.equal(result.reason, 'appointment_customer_mismatch',
     'cross-customer reminder must be rejected');
@@ -204,6 +208,10 @@ test('evaluateReminderAppointmentState: accepts when customerId matches', () => 
     startTime: '10:00',
     serviceDuration: 30,
   };
-  const result = evaluateReminderAppointmentState(appointment, aliUid);
+  const result = evaluateReminderAppointmentState(
+    appointment,
+    aliUid,
+    new Date('2026-07-31T12:00:00.000Z'),
+  );
   assert.equal(result.valid, true);
 });

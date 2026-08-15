@@ -17,6 +17,7 @@ import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime
 import { buildServiceUsage, buildWeeklyAppointments, calculateAdminStats } from '@/lib/dashboardStats';
 import { isCriticalCustomerNotification, subscribeToAdminCustomerNotifications } from '@/lib/customerNotificationsFirestore';
 import { BUSINESS_BRAND_IMAGE_SRC } from '@/lib/brandAssets';
+import { formatILS } from '@/lib/formatters';
 import {
   getEffectiveAppointmentStatus,
   isAppointmentActiveForSchedule,
@@ -97,7 +98,7 @@ export default function AdminDashboard() {
 
   const adminSections = [
     { icon: Calendar, label: 'ניהול תורים', path: '/admin/appointments', desc: `${todayAppts.length} תורים היום` },
-    { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: `${services.length} שירותים` },
+    { icon: Scissors, label: 'שירותים', path: '/admin/services', desc: `${stats.servicesCount} שירותים פעילים` },
     { icon: UserRoundCog, label: 'ספרים / צוות', path: '/admin/barbers', desc: 'הוספה וניהול ספרים' },
     { icon: Users, label: 'לקוחות', path: '/admin/customers', desc: `${customers.length} לקוחות` },
     { icon: Star, label: 'ביקורות', path: '/admin/reviews', desc: `${reviews.length} ביקורות` },
@@ -153,9 +154,9 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 gap-3">
           {[
             { icon: Calendar, label: 'תורים היום', value: stats.todayAppointments, color: 'text-primary', bg: 'bg-primary/20' },
-            { icon: Wallet, label: 'הכנסות היום', value: `₪${stats.todayRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
+            { icon: Wallet, label: 'הכנסות היום', value: formatILS(stats.todayRevenue), color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Users, label: 'ממתינים לאישור', value: stats.pendingAppointments, color: 'text-yellow-400', bg: 'bg-yellow-400/20' },
-            { icon: TrendingUp, label: 'הכנסות החודש', value: `₪${stats.monthRevenue.toLocaleString()}`, color: 'text-primary', bg: 'bg-primary/20' },
+            { icon: TrendingUp, label: 'הכנסות החודש', value: formatILS(stats.monthRevenue), color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'מאושרים', value: stats.approvedAppointments, color: 'text-green-400', bg: 'bg-green-400/20' },
             { icon: Calendar, label: 'הושלמו', value: stats.completedAppointments, color: 'text-primary', bg: 'bg-primary/20' },
             { icon: Calendar, label: 'בוטלו', value: stats.cancelledAppointments, color: 'text-red-400', bg: 'bg-red-400/20' },
@@ -317,7 +318,7 @@ export default function AdminDashboard() {
                   <div className="text-muted-foreground text-xs">{appt.service_name} • {appt.time}</div>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
-                  <div className="text-primary font-black text-sm">₪{appt.service_price}</div>
+                  <div className="text-primary font-black text-sm">{formatILS(appt.service_price)}</div>
                   <span className={`status-pill ${appt.status === 'confirmed' ? 'status-pill--success' : 'status-pill--warning'}`}>
                     {appt.status === 'confirmed' ? 'מאושר' : 'ממתין'}
                   </span>

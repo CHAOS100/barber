@@ -11,7 +11,6 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "admin:provision": "node scripts/provision-admin.mjs",
-    "booking:seed": "node scripts/seed-booking-data.mjs",
     "reset:app-data": "node scripts/resetAppData.mjs",
     "test:firestore-rules": "firebase emulators:exec --only firestore --project ost-barber-app \"node --test tests/firestore.rules.test.mjs\"",
     "test:notification-jobs": "npm --prefix functions test",

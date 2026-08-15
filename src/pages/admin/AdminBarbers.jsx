@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Archive, Edit3, Instagram, Plus, Trash2, User, X } from 'lucide-react';
+import { ArrowRight, Archive, Edit3, Instagram, Plus, RotateCcw, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  archiveBarber,
   callDeactivateBarber,
-  deleteBarber,
+  callSetBarberLifecycle,
   saveBarber,
   uploadBarberPhoto,
   isBarberBookable,
@@ -54,23 +53,21 @@ export default function AdminBarbers() {
     onError: (error) => toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
   });
   const archiveMutation = useMutation({
-    mutationFn: archiveBarber,
+    mutationFn: (barberId) => callSetBarberLifecycle({ barberId, action: 'archive' }),
     onSuccess: () => {
       toast({ title: 'הספר הועבר לארכיון' });
     },
     onError: (error) => toast({ variant: 'destructive', title: 'העברה לארכיון נכשלה', description: getUserFacingErrorMessage(error) }),
   });
-  const deleteMutation = useMutation({
-    mutationFn: deleteBarber,
-    onSuccess: () => {
-      toast({ title: 'הספר נמחק' });
-    },
-    onError: (error) => toast({ variant: 'destructive', title: 'מחיקת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
-  });
   const activateMutation = useMutation({
-    mutationFn: (barber) => saveBarber(barber.id, { ...barber, active: true, is_active: true }),
+    mutationFn: (barber) => callSetBarberLifecycle({ barberId: barber.id, action: 'activate' }),
     onSuccess: () => toast({ title: 'הספר הופעל מחדש' }),
     onError: (error) => toast({ variant: 'destructive', title: 'הפעלת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
+  });
+  const restoreMutation = useMutation({
+    mutationFn: (barber) => callSetBarberLifecycle({ barberId: barber.id, action: 'restore' }),
+    onSuccess: () => toast({ title: 'הספר הוחזר מהארכיון', description: 'הספר נשאר לא פעיל עד להפעלה מפורשת.' }),
+    onError: (error) => toast({ variant: 'destructive', title: 'השחזור נכשל', description: getUserFacingErrorMessage(error) }),
   });
 
   const handleDeactivateConfirm = async () => {
@@ -99,7 +96,11 @@ export default function AdminBarbers() {
     }
   };
 
-  const togglingBarberId = activateMutation.isPending ? activateMutation.variables?.id : null;
+  const togglingBarberId = activateMutation.isPending
+    ? activateMutation.variables?.id
+    : restoreMutation.isPending
+      ? restoreMutation.variables?.id
+      : null;
 
   const openEditor = (barber = null) => {
     setForm(barber ? {
@@ -190,8 +191,9 @@ export default function AdminBarbers() {
               <button onClick={() => openEditor(barber)} className="icon-btn glass press-scale" aria-label="עריכת ספר"><Edit3 className="w-4 h-4 text-primary" /></button>
               <button
                 onClick={() => {
-                  if (barber.archived) return;
-                  if (isBarberBookable(barber)) {
+                  if (barber.archived) {
+                    restoreMutation.mutate(barber);
+                  } else if (isBarberBookable(barber)) {
                     setDeactivatingBarber(barber);
                     setDeactivateReason('');
                     setDeactivateReasonError('');
@@ -199,18 +201,19 @@ export default function AdminBarbers() {
                     activateMutation.mutate(barber);
                   }
                 }}
-                disabled={barber.archived || togglingBarberId === barber.id || deactivateLoading}
-                title={isBarberBookable(barber) ? 'הסר מהזמנות' : 'הפעל להזמנות'}
+                disabled={togglingBarberId === barber.id || deactivateLoading}
+                title={barber.archived ? 'החזר מהארכיון' : isBarberBookable(barber) ? 'הסר מהזמנות' : 'הפעל להזמנות'}
                 className={`icon-btn glass press-scale px-2 text-[11px] font-bold disabled:opacity-40 ${isBarberBookable(barber) ? 'text-primary' : 'text-muted-foreground'}`}
               >
-                {togglingBarberId === barber.id ? 'מעדכן...' : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
+                {togglingBarberId === barber.id ? 'מעדכן...' : barber.archived ? <RotateCcw className="w-4 h-4" /> : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
               </button>
-              <button onClick={() => archiveMutation.mutate(barber.id)} className="icon-btn glass press-scale" aria-label="העבר לארכיון"><Archive className="w-4 h-4 text-orange-400" /></button>
               <button
-                onClick={() => window.confirm('למחוק את הספר לצמיתות?') && deleteMutation.mutate(barber.id)}
+                onClick={() => archiveMutation.mutate(barber.id)}
+                disabled={barber.archived || isBarberBookable(barber) || archiveMutation.isPending}
                 className="icon-btn glass press-scale"
-                aria-label="מחק ספר"
-              ><Trash2 className="w-4 h-4 text-red-400" /></button>
+                title={isBarberBookable(barber) ? 'יש להסיר מהזמנות לפני העברה לארכיון' : 'העבר לארכיון'}
+                aria-label="העבר לארכיון"
+              ><Archive className="w-4 h-4 text-orange-400" /></button>
             </div>
           </div>
         ))}
@@ -297,10 +300,10 @@ export default function AdminBarbers() {
                   <label className="block text-xs text-muted-foreground">התמחויות, מופרדות בפסיק
                     <input value={form.specialties} onChange={e => setForm({ ...form, specialties: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm" />
                   </label>
-                  <label className="flex items-center justify-between">
+                  {editing.isNew && <label className="flex items-center justify-between">
                     <span className="text-sm">פעיל ומוצג ללקוחות</span>
                     <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked, archived: false })} className="accent-primary w-5 h-5" />
-                  </label>
+                  </label>}
                 </div>
               </div>
 

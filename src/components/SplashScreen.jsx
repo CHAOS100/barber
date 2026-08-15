@@ -60,7 +60,7 @@ export default function SplashScreen({ onDone }) {
             transition={{ delay: 0.7, duration: 0.5 }}
             className="text-muted-foreground text-sm mt-4 tracking-wide"
           >
-            ספר פרימיום · ראשון לציון
+            קביעת תורים וניהול
           </motion.p>
 
           {/* Loading dots */}

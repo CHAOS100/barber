@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { X, Calendar, Clock, AlertCircle, Check } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { getAvailableSlots, getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../../lib/slotEngine';
+import { getAvailableSlots, getWorkingHoursForDate, isDateBlocked as isBusinessDateBlocked } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
@@ -15,14 +15,14 @@ function dateToStr(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function generateDates(workingHours) {
+function generateDates(workingHours, blockedDates) {
   const dates = [];
   const today = new Date();
   for (let i = 0; i < 21; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     const wh = workingHours.find(h => h.day_of_week === d.getDay());
-    if (wh && wh.is_open) dates.push(d);
+    if (wh && wh.is_open && !isBusinessDateBlocked(dateToStr(d), blockedDates)) dates.push(d);
   }
   return dates;
 }
@@ -34,9 +34,8 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   const [done, setDone] = useState(false);
 
   const { settings: bookingSettings } = useBookingSettingsRealtime();
-  const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
-
-  const blockedDates = [];
+  const workingHours = bookingSettings?.workingHours || [];
+  const blockedDates = bookingSettings?.blockedDates || [];
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
 
@@ -48,11 +47,14 @@ export default function EditAppointmentModal({ appointment, onClose }) {
     [appointmentBlocks, appointment.id, appointment.barber_id]
   );
 
-  const availableDates = useMemo(() => generateDates(workingHours), [workingHours]);
+  const availableDates = useMemo(
+    () => generateDates(workingHours, blockedDates),
+    [workingHours, blockedDates],
+  );
 
   const isDateBlocked = useMemo(() => {
     if (!selectedDate) return false;
-    return blockedDates.some(b => b.date === dateToStr(selectedDate) && b.is_full_day);
+    return isBusinessDateBlocked(dateToStr(selectedDate), blockedDates);
   }, [selectedDate, blockedDates]);
 
   const availableSlots = useMemo(() => {
@@ -147,7 +149,7 @@ export default function EditAppointmentModal({ appointment, onClose }) {
                 <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
                   {availableDates.map((date) => {
                     const isSelected = selectedDate?.toDateString() === date.toDateString();
-                    const isBlocked = blockedDates.some(b => b.date === dateToStr(date) && b.is_full_day);
+                    const isBlocked = isBusinessDateBlocked(dateToStr(date), blockedDates);
                     return (
                       <motion.button
                         key={date.toDateString()}

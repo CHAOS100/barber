@@ -22,7 +22,9 @@ import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFa
 import { getCancellationReasonLabel } from '@/lib/labels';
 import { useCustomerProfilesRealtime } from '@/hooks/useCustomerProfilesRealtime';
 import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
+import { formatILS } from '@/lib/formatters';
 import { downloadAppointmentsIcs, isCalendarExportableAppointment } from '@/lib/calendarExport';
+import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 
 const STATUS_CONFIG = {
   pending:               { label: 'ממתין',              color: 'text-yellow-400 bg-yellow-400/20',   pill: 'status-pill--warning' },
@@ -211,7 +213,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
                 dir="rtl"
               >
                 {services.map(s => (
-                  <option key={s.id} value={s.name}>{s.name} — ₪{s.price}</option>
+                  <option key={s.id} value={s.name}>{s.name} — {formatILS(s.price)}</option>
                 ))}
               </select>
             </div>
@@ -339,7 +341,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
         <div className="modal-actions px-5">
           {error && (
             <div className="banner-error mb-3">
-              {error.code === 'functions/already-exists' ? 'התור חופף לתור קיים של אותו ספר.' : 'שמירת התור נכשלה.'}
+              {getBookingRejectionMessage(error)}
             </div>
           )}
           <div className="flex gap-2">
@@ -408,7 +410,7 @@ export default function AdminAppointments() {
     onSuccess: () => {
       setSelectedAppt(null);
       clearAction();
-      toast({ title: 'התור נמחק', description: 'הזמן התפנה להזמנה מחדש.' });
+      toast({ title: 'התור הוסר מהניהול', description: 'הרשומה נשמרה להיסטוריה והזמן התפנה להזמנה מחדש.' });
     },
     onError: (error) => {
       clearAction();
@@ -667,7 +669,7 @@ export default function AdminAppointments() {
               </div>
               {appt.service_price > 0 && (
                 <div className="flex items-center justify-between mt-2">
-                  <div className="text-primary font-black">₪{appt.service_price}</div>
+                  <div className="text-primary font-black">{formatILS(appt.service_price)}</div>
                   {appt.admin_notes && (
                     <span className="text-muted-foreground text-xs truncate max-w-[60%]">📝 {appt.admin_notes}</span>
                   )}
@@ -761,7 +763,7 @@ export default function AdminAppointments() {
                   return (
                     <button
                       onClick={() => {
-                        if (!window.confirm('למחוק תור זה?')) return;
+                        if (!window.confirm('להסיר תור זה מהניהול? הרשומה תישמר להיסטוריה.')) return;
                         handleQuickAction(key, () => deleteMutation.mutate(appt.id));
                       }}
                       disabled={appointmentBusy}

@@ -7,17 +7,25 @@ import { NotificationJobService } from './notifications/notificationService.js';
 import { processImmediatePushJobs, IMMEDIATE_PUSH_TYPES } from './notifications/pushProcessor.js';
 import { requirePhoneCustomerAuth } from './auth.js';
 import {
+  hasActivePaymentRequest,
+  isCustomerBlocked,
+  localDateString,
+} from './bookingPolicy.js';
+import {
   addMinutes,
-  DEFAULT_WORKING_HOURS,
   findConflict,
   getScheduleRejectionCode,
   getWorkingHoursForDate,
+  isDateBlocked,
+  timeToMinutes,
 } from './scheduling.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://barber-sigma-five.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://localhost',
+  'capacitor://localhost',
 ]);
 
 const db = () => getFirestore();
@@ -110,7 +118,8 @@ const getBookingSettings = async (transaction) => {
     defaultAppointmentBufferAfterMinutes: legacyBuffer,
     workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
       ? settings.workingHours
-      : DEFAULT_WORKING_HOURS,
+      : [],
+    blockedDates: Array.isArray(settings.blockedDates) ? settings.blockedDates : [],
   };
 };
 
@@ -123,7 +132,7 @@ const normalizeCreateWaitingListInput = (input) => {
   }
 
   const date = text(input?.date);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < localDateString()) {
     throw new HttpsError('invalid-argument', 'Waiting list date is invalid.', {
       code: 'waiting-list/invalid-date',
     });
@@ -134,14 +143,18 @@ const normalizeCreateWaitingListInput = (input) => {
   const endTime = preferenceType === 'time_range' ? text(input?.endTime) : '';
   const dayPart = preferenceType === 'day_part' ? text(input?.dayPart) : '';
 
-  if (preferenceType === 'exact_time' && !/^\d{2}:\d{2}$/.test(exactTime)) {
+  if (preferenceType === 'exact_time' && !Number.isFinite(timeToMinutes(exactTime))) {
     throw new HttpsError('invalid-argument', 'Exact time is invalid.', {
       code: 'waiting-list/invalid-time',
     });
   }
   if (
     preferenceType === 'time_range'
-    && (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || startTime >= endTime)
+    && (
+      !Number.isFinite(timeToMinutes(startTime))
+      || !Number.isFinite(timeToMinutes(endTime))
+      || timeToMinutes(startTime) >= timeToMinutes(endTime)
+    )
   ) {
     throw new HttpsError('invalid-argument', 'Time range is invalid.', {
       code: 'waiting-list/invalid-time-range',
@@ -187,7 +200,7 @@ const assertNoActiveWaitingListEntry = async (transaction, customerId) => {
   }
 };
 
-const assertExactSlotIsUnavailable = async (transaction, input) => {
+const assertExactSlotIsUnavailable = async (transaction, input, settings) => {
   if (input.preferenceType !== 'exact_time' || !input.serviceId || !input.barberId) return;
 
   const serviceSnapshot = await transaction.get(db().doc(`services/${input.serviceId}`));
@@ -197,7 +210,6 @@ const assertExactSlotIsUnavailable = async (transaction, input) => {
   if (!serviceSnapshot.exists || service?.active !== true) return;
   if (!barberSnapshot.exists || barber?.active !== true || barber?.archived === true) return;
 
-  const settings = await getBookingSettings(transaction);
   const serviceDuration = Math.max(1, Number(service.duration || 30));
   const candidate = {
     date: input.date,
@@ -211,7 +223,11 @@ const assertExactSlotIsUnavailable = async (transaction, input) => {
     bufferAfterMinutes: Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes || 0)),
   };
 
-  const scheduleCode = getScheduleRejectionCode(candidate, settings.workingHours);
+  const scheduleCode = getScheduleRejectionCode(
+    candidate,
+    settings.workingHours,
+    settings.blockedDates,
+  );
   if (scheduleCode) return;
 
   const appointmentsSnapshot = await transaction.get(
@@ -267,7 +283,9 @@ export const createCustomerWaitingListEntry = onCall(async (request) => {
   const ref = db().collection('waitingList').doc();
 
   await db().runTransaction(async (transaction) => {
+    const customerLockRef = db().doc(`waitingListCustomerLocks/${auth.uid}`);
     const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
+    await transaction.get(customerLockRef);
     const customer = customerSnapshot.data();
     if (
       !customerSnapshot.exists
@@ -279,9 +297,28 @@ export const createCustomerWaitingListEntry = onCall(async (request) => {
         code: 'customer/profile-missing',
       });
     }
+    if (isCustomerBlocked(customer)) {
+      throw new HttpsError('permission-denied', 'Customer is blocked from joining the waiting list.', {
+        code: 'customer/blocked',
+        blockedReason: text(customer.blockedReason),
+      });
+    }
+    if (hasActivePaymentRequest(customer)) {
+      throw new HttpsError('permission-denied', 'Customer has an active payment request.', {
+        code: 'customer/payment-required',
+      });
+    }
+
+    const settings = await getBookingSettings(transaction);
+    const hours = getWorkingHoursForDate(input.date, settings.workingHours);
+    if (isDateBlocked(input.date, settings.blockedDates) || !hours?.is_open) {
+      throw new HttpsError('failed-precondition', 'The requested date is not available.', {
+        code: 'waiting-list/date-unavailable',
+      });
+    }
 
     await assertNoActiveWaitingListEntry(transaction, auth.uid);
-    await assertExactSlotIsUnavailable(transaction, input);
+    await assertExactSlotIsUnavailable(transaction, input, settings);
 
     const customerName = text(customer.name)
       || text(`${customer.firstName || ''} ${customer.lastName || ''}`);
@@ -308,6 +345,13 @@ export const createCustomerWaitingListEntry = onCall(async (request) => {
       notifiedAt: null,
       expiresAt: input.expiresAt,
     });
+    transaction.set(customerLockRef, {
+      revision: FieldValue.increment(1),
+      customerId: auth.uid,
+      waitingListId: ref.id,
+      status: 'active',
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
   });
 
   return { id: ref.id };

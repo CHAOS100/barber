@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { collection, onSnapshot } from 'firebase/firestore';
 import { ArrowRight, Calendar, Clock, User, CheckCircle2, AlertCircle, BellRing, ChevronLeft, Lock, Scissors } from 'lucide-react';
 import {
   createCustomerAppointment,
@@ -22,9 +21,8 @@ import {
   useUpcomingBookingSlotReleasesRealtime,
 } from '@/hooks/useBookingData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { getWorkingHoursForDate, DEFAULT_WORKING_HOURS } from '../lib/slotEngine';
+import { getWorkingHoursForDate, isDateBlocked as isBusinessDateBlocked } from '../lib/slotEngine';
 import { isAppointmentActiveForSchedule } from '@/lib/appointmentStatus';
-import { isBarberBookable } from '@/lib/businessFirestore';
 import {
   ALL_BARBERS_OPTION,
   buildAvailabilitySlots,
@@ -32,11 +30,12 @@ import {
   getReleasedDateSet,
   isAllBarbersSelection,
 } from '@/lib/bookingAvailability';
-import { getFirestoreDb } from '@/lib/firebase';
 import BarberSelector from '../components/booking/BarberSelector';
 import GoldButton from '../components/ui/GoldButton';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
 import { toast } from '@/components/ui/use-toast';
+import { formatILS } from '@/lib/formatters';
+import { groupServicesByCategory } from '@/lib/serviceCategories';
 
 // ─── Calendar helpers ──────────────────────────────────────────────
 const MONTH_NAMES_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -81,7 +80,7 @@ function CalendarPicker({
     if (!date) return 'empty';
     if (date < today) return 'past';
     const ds = dateToStr(date);
-    if (blockedDates.some(b => b.date === ds && b.is_full_day)) return 'blocked';
+    if (isBusinessDateBlocked(ds, blockedDates)) return 'blocked';
     if (isManualMode) return releasedDates.has(ds) ? 'open' : 'unreleased';
     const wh = workingHours.find(h => h.day_of_week === date.getDay());
     if (!wh || !wh.is_open) return 'closed';
@@ -190,7 +189,7 @@ function ServiceCard({ service, selected, onSelect }) {
         <div className="font-bold text-foreground text-sm">{service.name}</div>
         <div className="text-muted-foreground text-xs mt-0.5">{service.duration} דק׳</div>
       </div>
-      <div className="text-foreground font-black text-sm flex-shrink-0">₪{service.price}</div>
+      <div className="text-foreground font-black text-sm flex-shrink-0">{formatILS(service.price)}</div>
       <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
         selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
       }`}>
@@ -236,9 +235,12 @@ export default function Booking() {
   const { appointments: customerAppointments } = useCustomerAppointmentsRealtime(Boolean(currentUser));
   const { settings: bookingSettings } = useBookingSettingsRealtime();
   const { settings: businessSettings } = useBusinessSettingsRealtime();
-  const workingHours = bookingSettings?.workingHours || DEFAULT_WORKING_HOURS;
+  const workingHours = bookingSettings?.workingHours || [];
+  const bookingPolicyText = String(businessSettings?.bookingPolicyText || '').trim();
+  const bookingPolicyVersion = String(businessSettings?.bookingPolicyVersion || '').trim();
+  const bookingPolicyConfigured = Boolean(bookingPolicyText && bookingPolicyVersion);
 
-  const blockedDates = [];
+  const blockedDates = bookingSettings?.blockedDates || [];
   const todayForReleases = useMemo(() => dateToStr(new Date()), []);
 
   const selectedDateStr = selectedDate ? dateToStr(selectedDate) : null;
@@ -252,42 +254,6 @@ export default function Booking() {
   const isAllBarbersMode = isAllBarbersSelection(selectedBarber);
   const selectedSpecificBarberId = isAllBarbersMode ? null : selectedBarber?.id || null;
   const selectedAppointmentBarberName = selectedSlot?.barberName || selectedBarber?.name || '';
-
-  // Temporary debug logging for "no active barbers" investigation — remove once confirmed fixed.
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(getFirestoreDb(), 'barbers'),
-      (snapshot) => {
-        const rawBarbers = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-        const mappedCount = rawBarbers.length;
-        const bookableCount = rawBarbers.filter(isBarberBookable).length;
-        const blockedReason = (b) => {
-          if (b?.archived === true) return 'archived';
-          if (b?.active === false) return 'active_false';
-          if (b?.is_active === false) return 'is_active_false';
-          return null;
-        };
-        console.info('[BOOKING_BARBERS_DEBUG]', {
-          rawCount: snapshot.docs.length,
-          mappedCount,
-          bookableCount,
-          barbers: rawBarbers.map((b) => ({
-            id: b.id,
-            name: b.name,
-            active: b.active,
-            is_active: b.is_active,
-            archived: b.archived,
-            available: b.available,
-            isAvailable: b.isAvailable,
-            isBookable: isBarberBookable(b),
-            blockedReason: blockedReason(b),
-          })),
-        });
-      },
-      (err) => console.warn('[BOOKING_BARBERS_DEBUG] subscription error', err?.code, err?.message),
-    );
-    return unsubscribe;
-  }, []);
 
   useEffect(() => {
     if (barbers.length === 1 && selectedBarber?.id !== barbers[0].id) {
@@ -337,7 +303,7 @@ export default function Booking() {
 
   const isDateBlocked = useMemo(() => {
     if (!selectedDate) return false;
-    return blockedDates.some(b => b.date === dateToStr(selectedDate) && b.is_full_day);
+    return isBusinessDateBlocked(dateToStr(selectedDate), blockedDates);
   }, [selectedDate, blockedDates]);
 
   const availableSlots = useMemo(() => {
@@ -480,6 +446,10 @@ export default function Booking() {
 
   const handleConfirm = async () => {
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
+    if (!bookingPolicyConfigured) {
+      setBookingError('מדיניות העסק טרם הוגדרה. לא ניתן לקבוע תור עד לעדכון ההגדרות.');
+      return;
+    }
     if (!policyAccepted) {
       setBookingError('יש לאשר את מדיניות העסק לפני קביעת התור.');
       return;
@@ -505,7 +475,6 @@ export default function Booking() {
         barberName: appointmentBarberName,
         notes,
         policyAccepted: true,
-        policyVersion: businessSettings?.bookingPolicyVersion || '2026-06-16',
       };
       if (replacementMode && activeAppointment) {
         await replaceCustomerAppointment(activeAppointment.id, appointmentInput);
@@ -583,7 +552,7 @@ export default function Booking() {
         ? 'התור הזה פנוי, ניתן להזמין אותו עכשיו'
         : errorCode === 'waiting-list/active-limit'
           ? 'כבר יש לך בקשת המתנה פעילה. ניתן להסיר אותה במסך התורים שלי.'
-          : 'אירעה תקלה זמנית. נסה שוב.';
+          : getBookingRejectionMessage(error);
       setWaitingListMessage(message);
       toast({ variant: 'destructive', title: 'הצטרפות לרשימת המתנה נכשלה', description: message });
     } finally {
@@ -721,7 +690,7 @@ export default function Booking() {
               { label: 'ספר', value: bookingConfirmation?.barberName },
               { label: 'תאריך', value: bookingConfirmation?.date },
               { label: 'שעה', value: bookingConfirmation?.time },
-              { label: 'מחיר', value: `₪${bookingConfirmation?.servicePrice}`, highlight: true },
+              { label: 'מחיר', value: formatILS(bookingConfirmation?.servicePrice), highlight: true },
             ].map(({ label, value, highlight }) => (
               <div key={label} className="flex justify-between">
                 <span className="text-muted-foreground">{label}</span>
@@ -781,7 +750,7 @@ export default function Booking() {
             לא ניתן להזמין תור עד להסדרת דרישת התשלום מול הספר.
           </p>
           {paymentAmount > 0 && (
-            <p className="text-primary font-black mb-2">סכום להסדרה: ₪{paymentAmount}</p>
+            <p className="text-primary font-black mb-2">סכום להסדרה: {formatILS(paymentAmount)}</p>
           )}
           {paymentReason && (
             <p className="text-muted-foreground text-xs leading-5 mb-5">{paymentReason}</p>
@@ -846,6 +815,7 @@ export default function Booking() {
   }
 
   const serviceList = services.filter(s => s.is_active !== false);
+  const serviceGroups = groupServicesByCategory(serviceList);
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
@@ -911,34 +881,18 @@ export default function Booking() {
                 </div>
               )}
 
-              {/* Services by category */}
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">תספורות</p>
-                <div className="space-y-2">
-                  {serviceList.filter(s => s.name !== 'עיצוב זקן' && s.name !== 'חבילת פרימיום').map(service => (
-                    <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
-                  ))}
+              {/* Services by Firestore category */}
+              {serviceGroups.map((group) => (
+                <div key={group.category} className="mb-4 last:mb-6">
+                  <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">{group.category}</p>
+                  <div className="space-y-2">
+                    {group.services.map(service => (
+                      <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
+                        onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">עיצוב זקן</p>
-                <div className="space-y-2">
-                  {serviceList.filter(s => s.name === 'עיצוב זקן').map(service => (
-                    <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
-                  ))}
-                </div>
-              </div>
-              <div className="mb-6">
-                <p className="text-xs text-muted-foreground font-semibold mb-2 px-1">חבילות</p>
-                <div className="space-y-2">
-                  {serviceList.filter(s => s.name === 'חבילת פרימיום').map(service => (
-                    <ServiceCard key={service.id} service={service} selected={selectedService?.id === service.id}
-                      onSelect={(s) => { setSelectedService(s); setSelectedTime(null); setSelectedSlot(null); setWaitingListOpen(false); setWaitingListMessage(''); }} />
-                  ))}
-                </div>
-              </div>
+              ))}
 
               {serviceList.length === 0 && (
                 <div className="glass rounded-2xl p-4 mb-5 text-center text-sm text-muted-foreground">
@@ -965,7 +919,7 @@ export default function Booking() {
                 </div>
                 <div className="text-right">
                   <span className="font-bold text-sm">{selectedService?.name}</span>
-                  <span className="text-primary font-black mr-2">₪{selectedService?.price}</span>
+                  <span className="text-primary font-black mr-2">{formatILS(selectedService?.price)}</span>
                 </div>
               </div>
 
@@ -1108,7 +1062,7 @@ export default function Booking() {
                   { label: 'תאריך', value: selectedDate?.toLocaleDateString('he-IL', { weekday:'long', year:'numeric', month:'long', day:'numeric' }) },
                   { label: 'שעה', value: selectedTime },
                   { label: 'משך', value: `${selectedService?.duration} דקות` },
-                  { label: 'מחיר', value: `₪${selectedService?.price}`, highlight: true },
+                  { label: 'מחיר', value: formatILS(selectedService?.price), highlight: true },
                 ].map(({ label, value, highlight }) => (
                   <div key={label} className="flex justify-between items-center">
                     <span className="text-muted-foreground">{label}</span>
@@ -1128,22 +1082,22 @@ export default function Booking() {
                     אין גבייה באפליקציה כרגע, יש ליצור קשר עם הספר להסדרת התשלום.
                   </p>
                   {currentUser?.noShowPaymentAmount > 0 && (
-                    <p className="text-primary font-black mt-2">סכום: ₪{currentUser.noShowPaymentAmount}</p>
+                    <p className="text-primary font-black mt-2">סכום: {formatILS(currentUser.noShowPaymentAmount)}</p>
                   )}
                 </div>
               )}
               <div className="glass rounded-2xl p-4 mb-4">
                 <h3 className="font-bold text-sm mb-2">מדיניות העסק</h3>
                 <p className="text-xs text-muted-foreground whitespace-pre-line leading-6">
-                  {businessSettings?.bookingPolicyText || `חברים שימו ❤️ ממליץ להקדים את התור עקב מצוקת חניות באזור!
-*יש לבחור תור לתספורת במידה ובחרת עם גזירות.
-*איחורים מעל 10 דקות לא יתקבלו.
-*במקרה של ביטולים ללא הודעה מראש יידרש 50 אחוז ממחיר התספורת בתור הבא.`}
+                  {bookingPolicyConfigured
+                    ? bookingPolicyText
+                    : 'מדיניות העסק טרם הוגדרה. יש לפנות לעסק לפני קביעת תור.'}
                 </p>
                 <label className="mt-3 flex items-center gap-2 text-sm font-bold">
                   <input
                     type="checkbox"
                     checked={policyAccepted}
+                    disabled={!bookingPolicyConfigured}
                     onChange={event => {
                       setPolicyAccepted(event.target.checked);
                       if (event.target.checked) setBookingError('');

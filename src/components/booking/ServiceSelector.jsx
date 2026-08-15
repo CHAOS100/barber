@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Check, Clock } from 'lucide-react';
+import { formatILS } from '@/lib/formatters';
 
 export default function ServiceSelector({ services, selectedService, onSelect }) {
   return (
@@ -43,7 +44,7 @@ export default function ServiceSelector({ services, selectedService, onSelect })
 
               {/* Price */}
               <div className="text-primary font-black text-lg flex-shrink-0">
-                ₪{service.price}
+                {formatILS(service.price)}
               </div>
             </motion.div>
           );

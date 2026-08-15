@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Scissors, RotateCcw, Clock, ChevronDown } from 'lucide-react';
 import { localDateToString } from '../../lib/slotEngine';
 import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime';
+import { formatILS } from '@/lib/formatters';
 
 const STATUS_LABELS = {
   confirmed: { label: 'מאושר', color: 'text-green-400', bg: 'bg-green-400/10' },
@@ -43,7 +44,7 @@ function AppointmentCard({ appt, index, onRepeat, isFuture }) {
         </div>
         <div className="text-right flex-shrink-0 flex items-center gap-2">
           <div>
-            <div className="text-primary font-black text-sm">₪{appt.service_price}</div>
+            <div className="text-primary font-black text-sm">{formatILS(appt.service_price)}</div>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusInfo.color} ${statusInfo.bg}`}>
               {statusInfo.label}
             </span>
@@ -67,7 +68,7 @@ function AppointmentCard({ appt, index, onRepeat, isFuture }) {
               )}
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>משך: {appt.service_duration || 30} דקות</span>
-                <span>מחיר: ₪{appt.service_price}</span>
+                <span>מחיר: {formatILS(appt.service_price)}</span>
               </div>
               {!isFuture && (
                 <button

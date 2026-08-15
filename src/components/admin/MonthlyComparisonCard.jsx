@@ -2,7 +2,8 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Calendar, Wallet } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
-import { buildMonthlyStats } from '@/lib/dashboardStats';
+import { buildMonthlyStats, isDeletedAppointment, revenueFor } from '@/lib/dashboardStats';
+import { formatILS } from '@/lib/formatters';
 
 function GrowthBadge({ current, previous, prefix = '' }) {
   const pct = previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
@@ -21,11 +22,11 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
   const lastMonth = monthly[0] || { key: '', revenue: 0, appointments: 0 };
   const thisMonth = monthly[1] || { key: '', revenue: 0, appointments: 0 };
   const thisMonthData = appointments
-    .filter((item) => String(item.date || '').startsWith(thisMonth.key))
+    .filter((item) => String(item.date || '').startsWith(thisMonth.key) && !isDeletedAppointment(item))
     .sort((left, right) => String(left.date).localeCompare(String(right.date)))
     .map((item) => ({
       day: String(item.date || '').slice(-2),
-      rev: item.paid === true ? Number(item.servicePrice ?? item.service_price ?? 0) : 0,
+      rev: revenueFor(item),
     }));
   return (
     <motion.div
@@ -50,7 +51,7 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
             </defs>
             <Tooltip
               contentStyle={{ background: '#161616', border: '1px solid rgba(147,227,189,0.3)', borderRadius: 8, color: '#fff', fontSize: 11 }}
-              formatter={(v) => [`₪${v}`, 'הכנסה']}
+              formatter={(v) => [formatILS(v), 'הכנסה']}
             />
             <Area type="monotone" dataKey="rev" stroke="#93E3BD" strokeWidth={2} fill="url(#goldGrad)" dot={false} />
           </AreaChart>
@@ -65,9 +66,9 @@ export default function MonthlyComparisonCard({ appointments = [] }) {
             <Wallet className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs text-muted-foreground">הכנסות</span>
           </div>
-          <div className="text-xl font-black text-primary">₪{thisMonth.revenue.toLocaleString()}</div>
+          <div className="text-xl font-black text-primary">{formatILS(thisMonth.revenue)}</div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground">vs ₪{lastMonth.revenue.toLocaleString()}</span>
+            <span className="text-xs text-muted-foreground">vs {formatILS(lastMonth.revenue)}</span>
             <GrowthBadge current={thisMonth.revenue} previous={lastMonth.revenue} />
           </div>
         </div>

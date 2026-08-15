@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronRight, ChevronLeft, GripVertical, Clock } from 'lucide-react';
+import { formatILS } from '@/lib/formatters';
 
 const HOURS = Array.from({ length: 12 }, (_, i) => `${9 + i}:00`);
 const STATUS_COLORS = {
@@ -89,7 +90,7 @@ export default function DailyCalendarView({ appointments = [], onMove }) {
                       </div>
                     )}
                   </div>
-                  <div className="mr-auto text-xs font-black flex-shrink-0">₪{appt.service_price}</div>
+                  <div className="mr-auto text-xs font-black flex-shrink-0">{formatILS(appt.service_price)}</div>
                 </div>
               </motion.div>
             );

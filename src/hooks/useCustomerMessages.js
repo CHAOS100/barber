@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { formatILS } from '@/lib/formatters';
 import {
   clearCompletedAppointmentNotifications,
   clearReadCustomerNotifications,
@@ -38,7 +39,7 @@ const buildProfileNotices = (user) => {
       type: 'payment_request',
       title: 'נדרש טיפול לפני הזמנה חדשה',
       message: amount > 0
-        ? `נדרש תשלום של ₪${amount} עבור אי-הגעה קודמת לפני קביעת תור חדש.`
+        ? `נדרש תשלום של ${formatILS(amount)} עבור אי-הגעה קודמת לפני קביעת תור חדש.`
         : 'נדרש תשלום עבור אי-הגעה קודמת לפני קביעת תור חדש.',
       severity: 'warning',
       source: 'profile',

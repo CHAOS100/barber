@@ -3,10 +3,10 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import {
   addMinutes,
   BLOCKING_STATUSES,
-  DEFAULT_WORKING_HOURS,
   findConflict,
   getMatchingManualReleaseWindows,
   getScheduleRejectionCode,
+  getWorkingHoursForDate,
   isActiveBookingSlotRelease,
   timeToMinutes,
 } from './scheduling.js';
@@ -16,27 +16,82 @@ import {
   isActiveCustomerAppointment,
   isCustomerBlocked,
 } from './bookingPolicy.js';
-import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
+import { requireActiveAdmin, requirePhoneCustomerAuth } from './auth.js';
 
 const db = () => getFirestore();
 
-const requireAuth = requireCallableAuth;
-
 const requireCustomer = (request) => requirePhoneCustomerAuth(request);
-
-const requireAdmin = async (request) => {
-  const auth = requireAuth(request);
-  const snapshot = await db().doc(`admins/${auth.uid}`).get();
-  const admin = snapshot.data();
-  if (!snapshot.exists || admin?.role !== 'admin' || admin?.active !== true) {
-    throw new HttpsError('permission-denied', 'Active admin access is required.');
-  }
-  return auth;
-};
+const requireAdmin = requireActiveAdmin;
 
 const text = (value) => String(value || '').trim();
 const positiveNumber = (value, fallback = 0) => Math.max(0, Number(value ?? fallback) || fallback);
 const hasNumberValue = (value) => value !== undefined && value !== null && value !== '';
+const ALLOWED_APPOINTMENT_STATUSES = new Set([
+  'pending',
+  'approved',
+  'confirmed',
+  'scheduled',
+  'completed',
+  'cancelled',
+  'rejected',
+  'no_show',
+]);
+
+export const getAppointmentScheduleLockId = (appointment = {}) => {
+  const barberId = encodeURIComponent(text(appointment.barberId || appointment.barber_id));
+  const date = text(appointment.date);
+  return barberId && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? `${barberId}_${date}`
+    : '';
+};
+
+export const getCustomerBookingLockId = (customer = {}) => {
+  const customerId = text(customer.customerId);
+  if (customerId) return customerId;
+  const phoneDigits = text(customer.customerPhone).replace(/\D/g, '');
+  return phoneDigits ? `phone_${phoneDigits}` : '';
+};
+
+const readCustomerBookingLock = async (transaction, customer) => {
+  const id = getCustomerBookingLockId(customer);
+  return id ? transaction.get(db().doc(`customerBookingLocks/${id}`)) : null;
+};
+
+const touchCustomerBookingLock = (transaction, snapshot, customer, appointment) => {
+  if (!snapshot) return;
+  transaction.set(snapshot.ref, {
+    revision: FieldValue.increment(1),
+    customerId: text(customer?.customerId) || null,
+    customerPhone: text(customer?.customerPhone) || null,
+    appointmentId: appointment.id,
+    status: appointment.status,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+};
+
+const readScheduleLocks = async (transaction, appointments = []) => {
+  const references = new Map();
+  appointments.forEach((appointment) => {
+    const id = getAppointmentScheduleLockId(appointment);
+    if (id) references.set(id, db().doc(`appointmentScheduleLocks/${id}`));
+  });
+  const snapshots = [];
+  for (const reference of references.values()) {
+    snapshots.push(await transaction.get(reference));
+  }
+  return snapshots;
+};
+
+const touchScheduleLocks = (transaction, snapshots, authUid, appointmentId) => {
+  snapshots.forEach((snapshot) => {
+    transaction.set(snapshot.ref, {
+      revision: FieldValue.increment(1),
+      lastAppointmentId: appointmentId,
+      updatedBy: authUid,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  });
+};
 
 const normalizeIsraeliPhoneNumber = (value) => {
   let normalized = text(value)
@@ -72,6 +127,12 @@ const normalizeAppointment = (input, customerId, forcedStatus = null) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text(input.date)) || !/^\d{2}:\d{2}$/.test(startTime)) {
     throw new HttpsError('invalid-argument', 'date or startTime format is invalid.');
   }
+  const status = forcedStatus || text(input.status) || 'pending';
+  if (!ALLOWED_APPOINTMENT_STATUSES.has(status)) {
+    throw new HttpsError('invalid-argument', 'Appointment status is invalid.', {
+      code: 'appointment/invalid-status',
+    });
+  }
 
   return {
     customerId: customerId || null,
@@ -86,7 +147,7 @@ const normalizeAppointment = (input, customerId, forcedStatus = null) => {
     date: text(input.date),
     startTime,
     endTime: addMinutes(startTime, serviceDuration),
-    status: forcedStatus || text(input.status) || 'pending',
+    status,
     paid: input.paid === true,
     bufferBeforeMinutes: input.bufferBeforeMinutes !== undefined ? Math.max(0, Number(input.bufferBeforeMinutes) || 0) : null,
     bufferAfterMinutes: input.bufferAfterMinutes !== undefined ? Math.max(0, Number(input.bufferAfterMinutes) || 0) : null,
@@ -119,6 +180,7 @@ const getBookingSettings = async (transaction) => {
       1,
       Number(settings.visibleSlotIntervalMinutes || businessSettings.visibleSlotIntervalMinutes || 30),
     ),
+    slotInterval: Math.max(1, Number(settings.slotInterval || 10)),
     cancellationDeadlineMinutesBeforeAppointment: Math.max(
       0,
       Number(
@@ -128,10 +190,11 @@ const getBookingSettings = async (transaction) => {
       ),
     ),
     bookingPolicyText: text(businessSettings.bookingPolicyText),
-    bookingPolicyVersion: text(businessSettings.bookingPolicyVersion) || '2026-06-16',
+    bookingPolicyVersion: text(businessSettings.bookingPolicyVersion),
     workingHours: Array.isArray(settings.workingHours) && settings.workingHours.length > 0
       ? settings.workingHours
-      : DEFAULT_WORKING_HOURS,
+      : [],
+    blockedDates: Array.isArray(settings.blockedDates) ? settings.blockedDates : [],
     availabilityMode: settings.availabilityMode === 'manual' ? 'manual' : 'automatic',
   };
 };
@@ -141,6 +204,14 @@ const applyResolvedBuffers = (appointment, service, settings) => ({
   bufferBeforeMinutes: 0,
   bufferAfterMinutes: Math.max(0, Number(settings.defaultAppointmentBufferAfterMinutes || 0)),
 });
+
+const requireConfiguredBookingPolicy = (settings) => {
+  if (!settings.bookingPolicyText || !settings.bookingPolicyVersion) {
+    throw new HttpsError('failed-precondition', 'Booking policy is not configured.', {
+      code: 'business/booking-policy-not-configured',
+    });
+  }
+};
 
 const conflictSettings = (settings) => ({
   defaultBufferBeforeMinutes: settings.defaultAppointmentBufferBeforeMinutes,
@@ -207,8 +278,8 @@ const rejectConflict = (conflict) => {
   });
 };
 
-const rejectSchedule = (appointment, workingHours) => {
-  const code = getScheduleRejectionCode(appointment, workingHours);
+const rejectSchedule = (appointment, workingHours, blockedDates = []) => {
+  const code = getScheduleRejectionCode(appointment, workingHours, blockedDates);
   if (!code) return;
   throw new HttpsError('failed-precondition', 'The requested appointment is outside availability.', {
     code,
@@ -244,6 +315,7 @@ const resolveAdminAppointmentCustomer = async (transaction, input) => {
       customerName: customerDisplayName(customer) || inputName,
       customerPhone: normalizeIsraeliPhoneNumber(customer.phoneNumber || rawPhone),
       customerRegistered: true,
+      customerProfile: customer,
     };
   }
 
@@ -269,6 +341,7 @@ const resolveAdminAppointmentCustomer = async (transaction, input) => {
       customerName: customerDisplayName(customer) || inputName,
       customerPhone: normalizedPhone,
       customerRegistered: true,
+      customerProfile: customer,
     };
   }
 
@@ -277,6 +350,7 @@ const resolveAdminAppointmentCustomer = async (transaction, input) => {
     customerName: inputName || normalizedPhone,
     customerPhone: normalizedPhone,
     customerRegistered: false,
+    customerProfile: null,
   };
 };
 
@@ -286,6 +360,55 @@ const applyAdminCustomerFields = (input, resolvedCustomer) => ({
   customerName: resolvedCustomer.customerName,
   customerPhone: resolvedCustomer.customerPhone,
 });
+
+const canonicalizeServiceAndBarber = (appointment, service, barber) => {
+  const serviceDuration = Math.max(1, Number(service.duration || 30));
+  return {
+    ...appointment,
+    serviceName: text(service.name),
+    servicePrice: Math.max(0, Number(service.price || 0)),
+    serviceDuration,
+    barberName: text(barber.name),
+    endTime: addMinutes(appointment.startTime, serviceDuration),
+  };
+};
+
+const rejectCustomerBooking = async (
+  transaction,
+  resolvedCustomer,
+  excludeAppointmentId = null,
+) => {
+  if (!resolvedCustomer?.customerId && !resolvedCustomer?.customerPhone) return;
+  const customer = resolvedCustomer.customerProfile || {};
+  if (resolvedCustomer.customerRegistered && isCustomerBlocked(customer)) {
+    throw new HttpsError('permission-denied', 'Customer is blocked from booking.', {
+      code: 'customer/blocked',
+      blockedReason: text(customer.blockedReason),
+    });
+  }
+  if (resolvedCustomer.customerRegistered && hasActivePaymentRequest(customer)) {
+    throw new HttpsError('permission-denied', 'Customer has an active payment request.', {
+      code: 'customer/payment-required',
+    });
+  }
+
+  const appointments = resolvedCustomer.customerId
+    ? await getCustomerAppointments(transaction, resolvedCustomer.customerId)
+    : (await transaction.get(
+      db().collection('appointments').where('customerPhone', '==', resolvedCustomer.customerPhone),
+    )).docs.map((item) => ({ id: item.id, ...item.data() }));
+  const activeAppointment = appointments.find((appointment) => (
+    appointment.id !== excludeAppointmentId
+    && isActiveCustomerAppointment(appointment)
+  ));
+  if (activeAppointment) {
+    throw new HttpsError('failed-precondition', 'Customer already has an active appointment.', {
+      code: 'appointment/active-limit',
+      activeAppointmentId: activeAppointment.id,
+      activeAppointment: activeAppointmentDetails(activeAppointment),
+    });
+  }
+};
 
 const getIsraelNowLocalMinutes = () => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -383,7 +506,7 @@ const buildCustomerAppointment = (requested, customer, service, barber, customer
     barberName: barber.name,
   }, customerId, 'pending');
 
-const rejectManualModeSlot = async (transaction, appointment) => {
+const rejectManualModeSlot = async (transaction, appointment, settings) => {
   const releasesSnapshot = await transaction.get(
     db()
       .collection('bookingSlotReleases')
@@ -393,7 +516,14 @@ const rejectManualModeSlot = async (transaction, appointment) => {
   const releases = releasesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
   const activeReleases = releases.filter(isActiveBookingSlotRelease);
   const matchingReleases = getMatchingManualReleaseWindows(appointment, activeReleases);
-  const allowed = matchingReleases.length > 0;
+  const interval = Math.max(
+    1,
+    Number(settings.visibleSlotIntervalMinutes || settings.slotInterval || 10),
+  );
+  const alignedReleases = matchingReleases.filter((release) => (
+    (timeToMinutes(appointment.startTime) - timeToMinutes(release.startTime)) % interval === 0
+  ));
+  const allowed = alignedReleases.length > 0;
   const rejectReason = allowed ? null : 'manual_release_window_not_found';
 
   console.info('[BOOKING_RELEASE_VALIDATION]', JSON.stringify({
@@ -403,6 +533,8 @@ const rejectManualModeSlot = async (transaction, appointment) => {
     startTime: appointment.startTime,
     endTime: appointment.endTime,
     matchingReleaseCount: matchingReleases.length,
+    alignedReleaseCount: alignedReleases.length,
+    intervalMinutes: interval,
     allowed,
     rejectReason,
   }));
@@ -415,6 +547,29 @@ const rejectManualModeSlot = async (transaction, appointment) => {
       date: appointment.date,
       startTime: appointment.startTime,
       endTime: appointment.endTime,
+    });
+  }
+};
+
+const rejectPastAppointment = (appointment) => {
+  if (getAppointmentLocalMinutes(appointment) > getIsraelNowLocalMinutes()) return;
+  throw new HttpsError('failed-precondition', 'The requested appointment is in the past.', {
+    code: 'appointment/past',
+  });
+};
+
+const rejectSlotAlignment = (appointment, settings, anchorTime = null) => {
+  const interval = Math.max(
+    1,
+    Number(settings.visibleSlotIntervalMinutes || settings.slotInterval || 10),
+  );
+  const hours = getWorkingHoursForDate(appointment.date, settings.workingHours);
+  const anchor = timeToMinutes(anchorTime || hours?.open_time);
+  const start = timeToMinutes(appointment.startTime);
+  if (!Number.isFinite(anchor) || !Number.isFinite(start) || (start - anchor) % interval !== 0) {
+    throw new HttpsError('failed-precondition', 'The requested time is not aligned to the booking interval.', {
+      code: 'appointment/invalid-slot-interval',
+      intervalMinutes: interval,
     });
   }
 };
@@ -433,6 +588,7 @@ export const createCustomerAppointment = onCall(async (request) => {
     const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
     const customer = validateCustomer(customerSnapshot, auth);
     const settings = await getBookingSettings(transaction);
+    requireConfiguredBookingPolicy(settings);
     if (request.data?.policyAccepted !== true) {
       throw new HttpsError('failed-precondition', 'Booking policy must be accepted.', {
         code: 'appointment/policy-not-accepted',
@@ -443,6 +599,7 @@ export const createCustomerAppointment = onCall(async (request) => {
       service,
       settings,
     );
+    const scheduleLocks = await readScheduleLocks(transaction, [appointment]);
     const appointments = await getDayAppointments(transaction, appointment.date);
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const activeAppointment = findActiveCustomerAppointment(customerAppointments);
@@ -455,9 +612,12 @@ export const createCustomerAppointment = onCall(async (request) => {
       });
     }
 
-    rejectSchedule(appointment, settings.workingHours);
+    rejectPastAppointment(appointment);
+    rejectSchedule(appointment, settings.workingHours, settings.blockedDates);
     if (settings.availabilityMode === 'manual') {
-      await rejectManualModeSlot(transaction, appointment);
+      await rejectManualModeSlot(transaction, appointment, settings);
+    } else {
+      rejectSlotAlignment(appointment, settings);
     }
     rejectConflict(findConflict(
       appointment,
@@ -478,6 +638,7 @@ export const createCustomerAppointment = onCall(async (request) => {
       status: 'pending',
       updatedAt: FieldValue.serverTimestamp(),
     });
+    touchScheduleLocks(transaction, scheduleLocks, auth.uid, ref.id);
   });
 
   return { id: ref.id };
@@ -515,6 +676,7 @@ export const replaceCustomerAppointment = onCall(async (request) => {
     }
 
     const settings = await getBookingSettings(transaction);
+    requireConfiguredBookingPolicy(settings);
     if (request.data?.appointment?.policyAccepted !== true) {
       throw new HttpsError('failed-precondition', 'Booking policy must be accepted.', {
         code: 'appointment/policy-not-accepted',
@@ -527,6 +689,7 @@ export const replaceCustomerAppointment = onCall(async (request) => {
       service,
       settings,
     );
+    const scheduleLocks = await readScheduleLocks(transaction, [existing, replacement]);
     const appointments = await getDayAppointments(transaction, replacement.date);
     const customerAppointments = await getCustomerAppointments(transaction, auth.uid);
     const otherActive = customerAppointments.find((appointment) => (
@@ -542,9 +705,12 @@ export const replaceCustomerAppointment = onCall(async (request) => {
       });
     }
 
-    rejectSchedule(replacement, settings.workingHours);
+    rejectPastAppointment(replacement);
+    rejectSchedule(replacement, settings.workingHours, settings.blockedDates);
     if (settings.availabilityMode === 'manual') {
-      await rejectManualModeSlot(transaction, replacement);
+      await rejectManualModeSlot(transaction, replacement, settings);
+    } else {
+      rejectSlotAlignment(replacement, settings);
     }
     rejectConflict(findConflict(
       replacement,
@@ -574,6 +740,7 @@ export const replaceCustomerAppointment = onCall(async (request) => {
       status: 'pending',
       updatedAt: FieldValue.serverTimestamp(),
     });
+    touchScheduleLocks(transaction, scheduleLocks, auth.uid, replacementRef.id);
   });
 
   return { id: replacementRef.id, replacedAppointmentId: activeAppointmentId };
@@ -589,17 +756,28 @@ export const createAdminAppointment = onCall(async (request) => {
       applyAdminCustomerFields(request.data || {}, resolvedCustomer),
       resolvedCustomer.customerId,
     );
-    const settings = await getBookingSettings(transaction);
-    const serviceSnapshot = requestedAppointment.serviceId
-      ? await transaction.get(db().doc(`services/${requestedAppointment.serviceId}`))
+    const isBlocking = BLOCKING_STATUSES.has(requestedAppointment.status);
+    const customerLockSnapshot = isBlocking
+      ? await readCustomerBookingLock(transaction, resolvedCustomer)
       : null;
+    const settings = await getBookingSettings(transaction);
+    const serviceSnapshot = await transaction.get(db().doc(`services/${requestedAppointment.serviceId}`));
+    const barberSnapshot = await transaction.get(db().doc(`barbers/${requestedAppointment.barberId}`));
+    const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
     const appointment = applyResolvedBuffers(
-      requestedAppointment,
-      serviceSnapshot?.data?.() || {},
+      canonicalizeServiceAndBarber(requestedAppointment, service, barber),
+      service,
       settings,
     );
+    if (isBlocking) {
+      await rejectCustomerBooking(transaction, resolvedCustomer);
+    }
+    const scheduleLocks = await readScheduleLocks(transaction, [appointment]);
     const appointments = await getDayAppointments(transaction, appointment.date);
-    if (BLOCKING_STATUSES.has(appointment.status)) {
+    if (isBlocking) {
+      rejectPastAppointment(appointment);
+      rejectSchedule(appointment, settings.workingHours, settings.blockedDates);
+      rejectSlotAlignment(appointment, settings);
       rejectConflict(findConflict(
         appointment,
         appointments,
@@ -614,6 +792,11 @@ export const createAdminAppointment = onCall(async (request) => {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    touchCustomerBookingLock(transaction, customerLockSnapshot, resolvedCustomer, {
+      id: ref.id,
+      status: appointment.status,
+    });
+    touchScheduleLocks(transaction, scheduleLocks, auth.uid, ref.id);
   });
 
   return { id: ref.id };
@@ -674,14 +857,56 @@ const updateAppointment = async (request, adminOnly) => {
       requested.status || existing.status,
     );
     const settings = await getBookingSettings(transaction);
-    const serviceSnapshot = normalizedMerged.serviceId
-      ? await transaction.get(db().doc(`services/${normalizedMerged.serviceId}`))
-      : null;
+    const serviceSnapshot = await transaction.get(db().doc(`services/${normalizedMerged.serviceId}`));
+    const barberSnapshot = await transaction.get(db().doc(`barbers/${normalizedMerged.barberId}`));
+    const isBlocking = BLOCKING_STATUSES.has(normalizedMerged.status);
+    let canonicalMerged = normalizedMerged;
+    if (isBlocking) {
+      const { service, barber } = validateServiceAndBarber(serviceSnapshot, barberSnapshot);
+      canonicalMerged = canonicalizeServiceAndBarber(normalizedMerged, service, barber);
+    }
     const merged = applyResolvedBuffers(
-      normalizedMerged,
+      canonicalMerged,
       serviceSnapshot?.data?.() || {},
       settings,
     );
+
+    let bookingCustomer = resolvedAdminCustomer;
+    if (adminOnly && isBlocking && !bookingCustomer && merged.customerId) {
+      const customerSnapshot = await transaction.get(db().doc(`users/${merged.customerId}`));
+      const customer = customerSnapshot.data();
+      if (!customerSnapshot.exists || customer?.role !== 'customer') {
+        throw new HttpsError('failed-precondition', 'Selected customer was not found.', {
+          code: 'customer/not-found',
+        });
+      }
+      bookingCustomer = {
+        customerId: customerSnapshot.id,
+        customerRegistered: true,
+        customerProfile: customer,
+        customerPhone: text(customer.phoneNumber || merged.customerPhone),
+      };
+    }
+    if (adminOnly && isBlocking && !bookingCustomer && merged.customerPhone) {
+      bookingCustomer = {
+        customerId: null,
+        customerPhone: normalizeIsraeliPhoneNumber(merged.customerPhone),
+        customerRegistered: false,
+        customerProfile: null,
+      };
+    }
+    const customerLockSnapshot = adminOnly && isBlocking
+      ? await readCustomerBookingLock(transaction, bookingCustomer)
+      : null;
+    if (adminOnly && isBlocking) {
+      await rejectCustomerBooking(transaction, bookingCustomer, appointmentId);
+    }
+    if (!adminOnly && isBlocking) {
+      const customerSnapshot = await transaction.get(db().doc(`users/${auth.uid}`));
+      validateCustomer(customerSnapshot, auth);
+    }
+
+    const scheduleLocks = await readScheduleLocks(transaction, [existing, merged]);
 
     if (!adminOnly && requested.status === 'cancelled') {
       enforceCustomerCancellationDeadline(merged, settings);
@@ -689,11 +914,12 @@ const updateAppointment = async (request, adminOnly) => {
 
     const appointments = await getDayAppointments(transaction, merged.date);
     if (BLOCKING_STATUSES.has(merged.status)) {
-      if (!adminOnly) {
-        rejectSchedule(merged, settings.workingHours);
-        if (settings.availabilityMode === 'manual') {
-          await rejectManualModeSlot(transaction, merged);
-        }
+      rejectPastAppointment(merged);
+      rejectSchedule(merged, settings.workingHours, settings.blockedDates);
+      if (!adminOnly && settings.availabilityMode === 'manual') {
+        await rejectManualModeSlot(transaction, merged, settings);
+      } else {
+        rejectSlotAlignment(merged, settings);
       }
       rejectConflict(findConflict(
         merged,
@@ -761,6 +987,11 @@ const updateAppointment = async (request, adminOnly) => {
         });
       }
     }
+    touchCustomerBookingLock(transaction, customerLockSnapshot, bookingCustomer, {
+      id: appointmentId,
+      status: merged.status,
+    });
+    touchScheduleLocks(transaction, scheduleLocks, auth.uid, appointmentId);
   });
 
   return { id: appointmentId };
@@ -770,10 +1001,37 @@ export const updateAdminAppointment = onCall((request) => updateAppointment(requ
 export const updateOwnAppointment = onCall((request) => updateAppointment(request, false));
 
 export const deleteAdminAppointment = onCall(async (request) => {
-  await requireAdmin(request);
+  const auth = await requireAdmin(request);
   const appointmentId = text(request.data.appointmentId);
   if (!appointmentId) throw new HttpsError('invalid-argument', 'appointmentId is required.');
-  await db().doc(`appointments/${appointmentId}`).delete();
+  const ref = db().doc(`appointments/${appointmentId}`);
+  await db().runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Appointment not found.');
+    const appointment = { id: snapshot.id, ...snapshot.data() };
+    const scheduleLocks = await readScheduleLocks(transaction, [appointment]);
+    const wasBlocking = BLOCKING_STATUSES.has(appointment.status);
+
+    transaction.update(ref, {
+      ...(wasBlocking
+        ? {
+          status: 'cancelled',
+          cancellationReason: 'admin_removed_appointment',
+          cancelledAt: FieldValue.serverTimestamp(),
+          cancelledBy: auth.uid,
+        }
+        : {}),
+      deletedFromAdmin: true,
+      deletedOriginalStatus: appointment.status || null,
+      deletedAt: FieldValue.serverTimestamp(),
+      deletedBy: auth.uid,
+      archivedFromActive: true,
+      archivedAt: FieldValue.serverTimestamp(),
+      archivedBy: auth.uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    touchScheduleLocks(transaction, scheduleLocks, auth.uid, appointmentId);
+  });
   return { id: appointmentId };
 });
 

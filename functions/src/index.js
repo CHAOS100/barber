@@ -29,6 +29,7 @@ import {
 import { NotificationJobService } from './notifications/notificationService.js';
 import { processPendingPushJobs, processImmediatePushJobs, IMMEDIATE_PUSH_TYPES } from './notifications/pushProcessor.js';
 import { BLOCKING_STATUSES, overlaps } from './scheduling.js';
+import { requireActiveAdmin, requirePhoneCustomerAuth } from './auth.js';
 export {
   createWebCustomTokenFromNativeAuth,
 } from './auth.js';
@@ -61,6 +62,12 @@ export {
   createCustomerWaitingListEntry,
   manualNotifyWaitingListEntry,
 } from './waitingList.js';
+export {
+  setBarberLifecycle,
+} from './barbers.js';
+export {
+  scheduledAppointmentCompletion,
+} from './appointmentMaintenance.js';
 
 initializeApp();
 
@@ -807,23 +814,20 @@ export const scheduledWaitlistExpiry = onSchedule(
  * preventing notifications from being delivered to the wrong person after
  * an account switch or shared-device login.
  *
- * Requires a Firestore single-field collection-group index on pushTokens.token.
- * (Firebase auto-creates this when the query is first executed, or add it to
- *  firestore.indexes.json explicitly.)
+ * Requires the collection-group token/enabled composite index declared in
+ * firestore.indexes.json.
  */
 export const registerPushToken = onCall(
   { enforceAppCheck: false },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Must be authenticated to register push token.');
-    }
+    const auth = await requirePhoneCustomerAuth(request);
 
     const { token, platform } = request.data || {};
     if (!token || typeof token !== 'string' || token.length < 10) {
       throw new HttpsError('invalid-argument', 'A valid FCM token is required.');
     }
 
-    const callerUid = request.auth.uid;
+    const callerUid = auth.uid;
     const tokenSlug = token.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'device';
     const tokenSuffix = `${token.slice(0, 8)}...${token.slice(-6)}`;
     const firestore = getFirestore();
@@ -901,17 +905,7 @@ export const registerPushToken = onCall(
 export const processPendingPushNotifications = onCall(
   { enforceAppCheck: false },
   async (request) => {
-    // Verify caller is a signed-in admin
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Must be signed in.');
-    }
-    const adminSnap = await getFirestore()
-      .collection('admins')
-      .doc(request.auth.uid)
-      .get();
-    if (!adminSnap.exists || adminSnap.data().role !== 'admin' || !adminSnap.data().active) {
-      throw new HttpsError('permission-denied', 'Admin access required.');
-    }
+    await requireActiveAdmin(request);
 
     const summary = await processPendingPushJobs();
     logger.info('processPendingPushNotifications: manual trigger', { uid: request.auth.uid, summary });
@@ -1053,16 +1047,7 @@ const createAdminMessageInAppNotifications = async (targets, input, adminUid, me
 export const sendAdminCustomerMessage = onCall(
   { enforceAppCheck: false },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Must be signed in.');
-    }
-    const adminSnap = await getFirestore()
-      .collection('admins')
-      .doc(request.auth.uid)
-      .get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
-      throw new HttpsError('permission-denied', 'Admin access required.');
-    }
+    await requireActiveAdmin(request);
 
     const input = adminMessageInput(request.data || {});
     const targets = await resolveAdminMessageTargets(input);
@@ -1196,14 +1181,8 @@ const TERMINAL_STATUSES_FOR_CANCEL = new Set(['completed', 'completed_auto', 'ca
 export const deactivateBarber = onCall(
   { enforceAppCheck: false },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Must be signed in.');
-    }
+    await requireActiveAdmin(request);
     const firestore = getFirestore();
-    const adminSnap = await firestore.collection('admins').doc(request.auth.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
-      throw new HttpsError('permission-denied', 'Admin access required.');
-    }
 
     const data = request.data || {};
     const barberId = String(data.barberId || '').trim();
@@ -1401,14 +1380,8 @@ export const deactivateBarber = onCall(
 export const publishManualSlotRelease = onCall(
   { enforceAppCheck: false },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'Must be signed in.');
-    }
+    await requireActiveAdmin(request);
     const firestore = getFirestore();
-    const adminSnap = await firestore.collection('admins').doc(request.auth.uid).get();
-    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin' || adminSnap.data()?.active !== true) {
-      throw new HttpsError('permission-denied', 'Admin access required.');
-    }
 
     const data = request.data || {};
     const fromDate = String(data.fromDate || '').trim();

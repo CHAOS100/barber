@@ -1,23 +1,12 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { requireCallableAuth, requirePhoneCustomerAuth } from './auth.js';
+import { requireActiveAdmin, requirePhoneCustomerAuth } from './auth.js';
 
 const db = () => getFirestore();
 const text = (value) => String(value || '').trim();
 
-const requireAuth = requireCallableAuth;
-
 const requireCustomer = (request) => requirePhoneCustomerAuth(request);
-
-const requireAdmin = async (request) => {
-  const auth = requireAuth(request);
-  const snapshot = await db().doc(`admins/${auth.uid}`).get();
-  const admin = snapshot.data();
-  if (!snapshot.exists || admin?.role !== 'admin' || admin?.active !== true) {
-    throw new HttpsError('permission-denied', 'Active admin access is required.');
-  }
-  return auth;
-};
+const requireAdmin = requireActiveAdmin;
 
 const normalizeRating = (value) => {
   const rating = Number(value);
@@ -34,21 +23,29 @@ const normalizeReviewText = (value) => {
   return reviewText;
 };
 
+const normalizeAppointmentId = (value) => {
+  const appointmentId = text(value);
+  if (!appointmentId || appointmentId.includes('/')) {
+    throw new HttpsError('invalid-argument', 'A valid appointmentId is required.');
+  }
+  return appointmentId;
+};
+
 export const createCustomerReview = onCall(async (request) => {
   const auth = await requireCustomer(request);
-  const appointmentId = text(request.data?.appointmentId);
+  const appointmentId = normalizeAppointmentId(request.data?.appointmentId);
   const rating = normalizeRating(request.data?.rating);
   const reviewText = normalizeReviewText(request.data?.text);
-  if (!appointmentId) throw new HttpsError('invalid-argument', 'appointmentId is required.');
 
-  const reviewRef = db().collection('reviews').doc();
+  const reviewRef = db().doc(`reviews/${appointmentId}`);
   await db().runTransaction(async (transaction) => {
     const appointmentRef = db().doc(`appointments/${appointmentId}`);
     const userRef = db().doc(`users/${auth.uid}`);
     const existingQuery = db().collection('reviews').where('appointmentId', '==', appointmentId).limit(1);
-    const [appointmentSnapshot, userSnapshot, existingReviews] = await Promise.all([
+    const [appointmentSnapshot, userSnapshot, reviewSnapshot, existingReviews] = await Promise.all([
       transaction.get(appointmentRef),
       transaction.get(userRef),
+      transaction.get(reviewRef),
       transaction.get(existingQuery),
     ]);
 
@@ -62,7 +59,7 @@ export const createCustomerReview = onCall(async (request) => {
         code: 'review/appointment-not-completed',
       });
     }
-    if (!existingReviews.empty) {
+    if (reviewSnapshot.exists || !existingReviews.empty) {
       throw new HttpsError('already-exists', 'A review already exists for this appointment.', {
         code: 'review/already-exists',
       });
@@ -90,23 +87,42 @@ export const createCustomerReview = onCall(async (request) => {
 
 export const createAdminReview = onCall(async (request) => {
   await requireAdmin(request);
-  const customerName = text(request.data?.customerName);
+  const appointmentId = normalizeAppointmentId(request.data?.appointmentId);
   const rating = normalizeRating(request.data?.rating);
   const reviewText = normalizeReviewText(request.data?.text);
-  if (!customerName) throw new HttpsError('invalid-argument', 'customerName is required.');
 
-  const reviewRef = db().collection('reviews').doc();
-  await reviewRef.set({
-    customerId: text(request.data?.customerId) || 'manual',
-    customerName,
-    appointmentId: text(request.data?.appointmentId) || `manual-${reviewRef.id}`,
-    serviceName: text(request.data?.serviceName),
-    rating,
-    text: reviewText,
-    status: request.data?.status === 'hidden' ? 'hidden' : 'published',
-    source: 'admin',
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+  const reviewRef = db().doc(`reviews/${appointmentId}`);
+  await db().runTransaction(async (transaction) => {
+    const appointmentRef = db().doc(`appointments/${appointmentId}`);
+    const existingQuery = db().collection('reviews').where('appointmentId', '==', appointmentId).limit(1);
+    const [appointmentSnapshot, reviewSnapshot, existingReviews] = await Promise.all([
+      transaction.get(appointmentRef),
+      transaction.get(reviewRef),
+      transaction.get(existingQuery),
+    ]);
+    const appointment = appointmentSnapshot.data();
+    if (!appointmentSnapshot.exists || appointment?.status !== 'completed') {
+      throw new HttpsError('failed-precondition', 'A review requires a completed appointment.', {
+        code: 'review/appointment-not-completed',
+      });
+    }
+    if (reviewSnapshot.exists || !existingReviews.empty) {
+      throw new HttpsError('already-exists', 'A review already exists for this appointment.', {
+        code: 'review/already-exists',
+      });
+    }
+    transaction.set(reviewRef, {
+      customerId: text(appointment.customerId),
+      customerName: text(appointment.customerName),
+      appointmentId,
+      serviceName: text(appointment.serviceName),
+      rating,
+      text: reviewText,
+      status: request.data?.status === 'hidden' ? 'hidden' : 'published',
+      source: 'admin-assisted',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
   });
   return { id: reviewRef.id };
 });

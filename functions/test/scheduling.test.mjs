@@ -47,3 +47,22 @@ test('server explains closed, outside-hours, and duration-fit rejections', () =>
     endTime: '12:10',
   }, workingHours), 'appointment/duration-does-not-fit');
 });
+
+test('server rejects blocked business dates before checking weekly hours', () => {
+  assert.equal(getScheduleRejectionCode({
+    date: '2030-06-20',
+    startTime: '10:00',
+    endTime: '10:30',
+  }, [], [{ date: '2030-06-20', isFullDay: true, active: true }]), 'business/blocked-date');
+});
+
+test('server rejects malformed appointment time values', () => {
+  const workingHours = [
+    { day_of_week: 4, is_open: true, open_time: '09:00', close_time: '12:00', breaks: [] },
+  ];
+  assert.equal(getScheduleRejectionCode({
+    date: '2030-06-20',
+    startTime: '99:00',
+    endTime: '99:30',
+  }, workingHours), 'appointment/invalid-time');
+});

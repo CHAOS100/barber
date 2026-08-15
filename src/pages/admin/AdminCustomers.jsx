@@ -9,6 +9,7 @@ import {
 } from '@/lib/customerProfilesFirestore';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
+import { formatILS } from '@/lib/formatters';
 
 const hasPaymentRequest = (customer) => (
   customer.requiresNoShowPayment === true
@@ -255,7 +256,7 @@ export default function AdminCustomers() {
                           לא ניתן להזמין עד להסדרת התשלום.
                         </p>
                         {Number(selectedCustomer.noShowPaymentAmount || 0) > 0 && (
-                          <p className="text-primary font-black text-sm mt-1">₪{selectedCustomer.noShowPaymentAmount}</p>
+                          <p className="text-primary font-black text-sm mt-1">{formatILS(selectedCustomer.noShowPaymentAmount)}</p>
                         )}
                         {selectedCustomer.noShowPaymentReason && (
                           <p className="text-muted-foreground text-xs leading-5 mt-1">{selectedCustomer.noShowPaymentReason}</p>

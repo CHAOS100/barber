@@ -1,18 +1,28 @@
 export const BLOCKING_STATUSES = new Set(['pending', 'approved', 'confirmed', 'scheduled']);
 
 export const DEFAULT_WORKING_HOURS = [
-  { day_of_week: 0, is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
-  { day_of_week: 1, is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
-  { day_of_week: 2, is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
-  { day_of_week: 3, is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
-  { day_of_week: 4, is_open: true, open_time: '09:00', close_time: '21:00', breaks: [] },
-  { day_of_week: 5, is_open: true, open_time: '09:00', close_time: '15:00', breaks: [] },
-  { day_of_week: 6, is_open: false, open_time: '09:00', close_time: '20:00', breaks: [] },
+  { day_of_week: 0, day_name: 'ראשון', is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
+  { day_of_week: 1, day_name: 'שני', is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
+  { day_of_week: 2, day_name: 'שלישי', is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
+  { day_of_week: 3, day_name: 'רביעי', is_open: true, open_time: '09:00', close_time: '20:00', breaks: [] },
+  { day_of_week: 4, day_name: 'חמישי', is_open: true, open_time: '09:00', close_time: '21:00', breaks: [] },
+  { day_of_week: 5, day_name: 'שישי', is_open: true, open_time: '09:00', close_time: '15:00', breaks: [] },
+  { day_of_week: 6, day_name: 'שבת', is_open: false, open_time: null, close_time: null, breaks: [] },
 ];
 
 export const timeToMinutes = (time) => {
-  const [hours, minutes] = String(time || '').split(':').map(Number);
+  const match = String(time || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return Number.NaN;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return Number.NaN;
   return (hours * 60) + minutes;
+};
+
+export const minutesToTime = (minutes) => {
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value < 0 || value >= 24 * 60) return '';
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 };
 
 const INACTIVE_RELEASE_STATUSES = new Set(['cancelled', 'canceled', 'inactive', 'archived', 'deleted']);
@@ -48,14 +58,28 @@ export const positiveMinutes = (value, fallback = 0) => {
 
 export const addMinutes = (time, duration) => {
   const total = timeToMinutes(time) + Number(duration || 0);
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  return minutesToTime(total);
+};
+
+export const getAppointmentInterval = (appointment = {}) => {
+  const startTime = appointment.startTime || appointment.time;
+  const start = timeToMinutes(startTime);
+  if (!Number.isFinite(start)) return null;
+  const duration = Math.max(1, Number(appointment.serviceDuration || appointment.service_duration || 30));
+  const explicitEnd = timeToMinutes(appointment.endTime);
+  const end = Number.isFinite(explicitEnd) ? explicitEnd : start + duration;
+  if (!Number.isFinite(end) || end <= start) return null;
+  return { start, end };
 };
 
 export const overlaps = (candidate, existing, bufferMinutes = 0) => {
-  const candidateStart = timeToMinutes(candidate.startTime);
-  const candidateEnd = timeToMinutes(candidate.endTime);
-  const existingStart = timeToMinutes(existing.startTime);
-  const existingEnd = timeToMinutes(existing.endTime);
+  const candidateInterval = getAppointmentInterval(candidate);
+  const existingInterval = getAppointmentInterval(existing);
+  if (!candidateInterval || !existingInterval) return false;
+  const candidateStart = candidateInterval.start;
+  const candidateEnd = candidateInterval.end;
+  const existingStart = existingInterval.start;
+  const existingEnd = existingInterval.end;
   if (typeof bufferMinutes === 'object' && bufferMinutes !== null) {
     const candidateBefore = positiveMinutes(bufferMinutes.candidateBufferBeforeMinutes);
     const candidateAfter = positiveMinutes(bufferMinutes.candidateBufferAfterMinutes);
@@ -75,7 +99,7 @@ export const overlaps = (candidate, existing, bufferMinutes = 0) => {
 export const findConflict = (candidate, appointments, bufferMinutes, excludeId = null) =>
   appointments.find((appointment) => (
     appointment.id !== excludeId
-    && appointment.barberId === candidate.barberId
+    && (!candidate.barberId || !appointment.barberId || appointment.barberId === candidate.barberId)
     && BLOCKING_STATUSES.has(appointment.status)
     && overlaps(candidate, appointment, typeof bufferMinutes === 'object' && bufferMinutes !== null
       ? {
@@ -94,7 +118,15 @@ export const getWorkingHoursForDate = (date, workingHours = []) => {
   return workingHours.find((item) => Number(item.day_of_week) === dayOfWeek) || null;
 };
 
-export const getScheduleRejectionCode = (appointment, workingHours = []) => {
+export const isDateBlocked = (date, blockedDates = []) => blockedDates.some((entry) => (
+  entry?.date === date
+  && entry?.active !== false
+  && entry?.isFullDay !== false
+  && entry?.is_full_day !== false
+));
+
+export const getScheduleRejectionCode = (appointment, workingHours = [], blockedDates = []) => {
+  if (isDateBlocked(appointment.date, blockedDates)) return 'business/blocked-date';
   const hours = getWorkingHoursForDate(appointment.date, workingHours);
   if (!hours || hours.is_open !== true) return 'business/closed-day';
 
@@ -103,12 +135,13 @@ export const getScheduleRejectionCode = (appointment, workingHours = []) => {
   const open = timeToMinutes(hours.open_time);
   const close = timeToMinutes(hours.close_time);
 
+  if (![start, end, open, close].every(Number.isFinite)) return 'appointment/invalid-time';
   if (start < open || start >= close) return 'appointment/outside-working-hours';
   if (end > close) return 'appointment/duration-does-not-fit';
 
   const overlapsBreak = (hours.breaks || []).some((item) => overlaps(
     appointment,
-    { startTime: item.start, endTime: item.end },
+    { startTime: item.start || item.startTime, endTime: item.end || item.endTime },
   ));
   return overlapsBreak ? 'appointment/duration-does-not-fit' : null;
 };

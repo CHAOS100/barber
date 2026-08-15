@@ -236,11 +236,16 @@ test('appointment mutations are restricted to trusted backend functions', async 
   }));
 });
 
-test('availability blocks are public but inactive barbers are hidden from customers', async () => {
+test('availability blocks and public barber profiles are readable; clients filter inactive barbers', async () => {
   const firestore = testEnvironment.unauthenticatedContext().firestore();
   await assertSucceeds(getDoc(doc(firestore, 'appointmentBlocks', 'customer-a-existing')));
   await assertSucceeds(getDoc(doc(firestore, 'barbers', 'active-barber')));
-  await assertFails(getDoc(doc(firestore, 'barbers', 'inactive-barber')));
+  await assertSucceeds(getDoc(doc(firestore, 'barbers', 'inactive-barber')));
+});
+
+test('barber records cannot be hard-deleted from a client', async () => {
+  const firestore = testEnvironment.authenticatedContext('active-admin').firestore();
+  await assertFails(deleteDoc(doc(firestore, 'barbers', 'inactive-barber')));
 });
 
 test('active admin can create, update, and delete services', async () => {
@@ -339,10 +344,10 @@ test('active admins can read notification jobs but cannot create them from the c
   }));
 });
 
-test('phone customer can create, read, and cancel only their own waiting list entries', async () => {
+test('phone customer uses the callable to create waiting-list entries and may cancel only their own entry', async () => {
   const firestore = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
 
-  await assertSucceeds(setDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+  await assertFails(setDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
     customerId: 'customer-a',
     customerName: 'Test Customer',
     phoneNumber: '+972500000000',
@@ -370,12 +375,32 @@ test('phone customer can create, read, and cancel only their own waiting list en
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }));
-  await assertSucceeds(updateDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+  await assertSucceeds(updateDoc(doc(firestore, 'waitingList', 'customer-a-wait'), {
     status: 'cancelled',
     updatedAt: serverTimestamp(),
   }));
-  await assertFails(updateDoc(doc(firestore, 'waitingList', 'customer-a-created-wait'), {
+  await assertFails(updateDoc(doc(firestore, 'waitingList', 'customer-a-wait'), {
     status: 'notified',
+    updatedAt: serverTimestamp(),
+  }));
+});
+
+test('appointment schedule locks are backend-only', async () => {
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  const customerDb = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+  const lockRef = doc(adminDb, 'appointmentScheduleLocks', 'barber-1_2026-06-20');
+
+  await assertFails(getDoc(lockRef));
+  await assertFails(setDoc(lockRef, { revision: 1, updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(customerDb, 'appointmentScheduleLocks', 'barber-1_2026-06-20')));
+});
+
+test('waiting-list customer locks are backend-only', async () => {
+  const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
+  const customerDb = testEnvironment.authenticatedContext('customer-a', phoneCustomerToken).firestore();
+  await assertFails(getDoc(doc(adminDb, 'waitingListCustomerLocks', 'customer-a')));
+  await assertFails(setDoc(doc(customerDb, 'waitingListCustomerLocks', 'customer-a'), {
+    revision: 1,
     updatedAt: serverTimestamp(),
   }));
 });

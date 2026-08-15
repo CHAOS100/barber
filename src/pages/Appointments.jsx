@@ -12,6 +12,7 @@ import { useCustomerAppointmentsRealtime } from '@/hooks/useAppointmentsRealtime
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 import { useBusinessSettingsRealtime } from '@/hooks/useBookingData';
 import { getCancellationReasonLabel } from '@/lib/labels';
+import { formatILS } from '@/lib/formatters';
 import {
   CUSTOMER_CANCEL_REASONS,
   getEffectiveAppointmentStatus,
@@ -255,7 +256,7 @@ export default function Appointments() {
                   </span>
                 </div>
                 {appt.service_price && (
-                  <div className="text-primary font-black">₪{appt.service_price}</div>
+                  <div className="text-primary font-black">{formatILS(appt.service_price)}</div>
                 )}
                 {appt.status === 'cancelled' && appt.cancellationReason
                   && !CUSTOMER_CANCEL_REASONS.has(appt.cancellationReason)

@@ -1,6 +1,7 @@
 import {
   getAvailableSlots,
   getWorkingHoursForDate,
+  isActiveBookingSlotRelease,
   timeToMinutes,
 } from './slotEngine.js';
 
@@ -11,17 +12,10 @@ export const ALL_BARBERS_OPTION = {
   isAllBarbers: true,
 };
 
-const INACTIVE_RELEASE_STATUSES = new Set(['cancelled', 'canceled', 'inactive', 'archived', 'deleted']);
-
-const cleanString = (value) => String(value || '').trim();
-
 export const isAllBarbersSelection = (barber) =>
   barber?.id === ALL_BARBERS_ID || barber === ALL_BARBERS_ID;
 
-export const isActiveBookingSlotRelease = (release) => {
-  if (!release || release.active === false) return false;
-  return !INACTIVE_RELEASE_STATUSES.has(cleanString(release.status));
-};
+export { isActiveBookingSlotRelease };
 
 export const getRelevantManualReleases = (
   releases = [],

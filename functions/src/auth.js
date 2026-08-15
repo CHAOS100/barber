@@ -1,4 +1,5 @@
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 
@@ -15,6 +16,25 @@ export const requireCallableAuth = (request) => {
     throw new HttpsError('unauthenticated', 'Authentication is required.');
   }
   return request.auth;
+};
+
+export const requireActiveAdminUid = async (uid) => {
+  const normalizedUid = String(uid || '').trim();
+  if (!normalizedUid) {
+    throw new HttpsError('unauthenticated', 'Authentication is required.');
+  }
+  const snapshot = await getFirestore().doc(`admins/${normalizedUid}`).get();
+  const admin = snapshot.data();
+  if (!snapshot.exists || admin?.role !== 'admin' || admin?.active !== true) {
+    throw new HttpsError('permission-denied', 'Active admin access is required.');
+  }
+  return { uid: normalizedUid, profile: admin };
+};
+
+export const requireActiveAdmin = async (request) => {
+  const auth = requireCallableAuth(request);
+  await requireActiveAdminUid(auth.uid);
+  return auth;
 };
 
 const cleanPhoneNumber = (value) => String(value || '').trim();

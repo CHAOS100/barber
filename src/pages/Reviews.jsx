@@ -11,7 +11,6 @@ import {
   usePublishedReviewsRealtime,
 } from '@/hooks/useReviewsRealtime';
 import {
-  createAdminReview,
   createCustomerReview,
   deleteAdminReview,
   setAdminReviewStatus,
@@ -27,7 +26,6 @@ export default function Reviews() {
   const [showForm, setShowForm] = useState(false);
   const [rating, setRating] = useState(5);
   const [text, setText] = useState('');
-  const [customerName, setCustomerName] = useState('');
   const [appointmentId, setAppointmentId] = useState('');
 
   const { reviews: publishedReviews, error: publicError } = usePublishedReviewsRealtime();
@@ -58,14 +56,11 @@ export default function Reviews() {
     setShowForm(false);
     setRating(5);
     setText('');
-    setCustomerName('');
     setAppointmentId('');
   };
 
   const submitMutation = useMutation({
-    mutationFn: () => isAdmin
-      ? createAdminReview({ customerName, rating, text })
-      : createCustomerReview({ appointmentId, rating, text }),
+    mutationFn: () => createCustomerReview({ appointmentId, rating, text }),
     onSuccess: () => {
       toast({ title: 'הביקורת פורסמה', description: 'תודה, הביקורת נשמרה.' });
       resetForm();
@@ -90,7 +85,7 @@ export default function Reviews() {
     onError: (error) => toast({ variant: 'destructive', title: 'המחיקה נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
-  const canWriteReview = isAdmin || eligibleAppointments.length > 0;
+  const canWriteReview = !isAdmin && eligibleAppointments.length > 0;
   const listenerError = adminError || publicError;
 
   return (
@@ -222,30 +217,21 @@ export default function Reviews() {
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black text-lg">{isAdmin ? 'הוסף ביקורת ידנית' : 'כתוב ביקורת'}</h3>
+                <h3 className="font-black text-lg">כתוב ביקורת</h3>
                 <button onClick={resetForm} className="glass p-2 rounded-xl"><X className="w-4 h-4" /></button>
               </div>
-              {isAdmin ? (
-                <input
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                  placeholder="שם הלקוח"
-                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 mb-4 text-right"
-                />
-              ) : (
-                <select
-                  value={appointmentId}
-                  onChange={(event) => setAppointmentId(event.target.value)}
-                  className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 mb-4"
-                >
-                  <option value="">בחר תור שהושלם</option>
-                  {eligibleAppointments.map((appointment) => (
-                    <option key={appointment.id} value={appointment.id}>
-                      {appointment.service_name} • {appointment.date}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <select
+                value={appointmentId}
+                onChange={(event) => setAppointmentId(event.target.value)}
+                className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 mb-4"
+              >
+                <option value="">בחר תור שהושלם</option>
+                {eligibleAppointments.map((appointment) => (
+                  <option key={appointment.id} value={appointment.id}>
+                    {appointment.service_name} • {appointment.date}
+                  </option>
+                ))}
+              </select>
               <div className="flex justify-center gap-2 mb-4">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button key={star} onClick={() => setRating(star)}>
@@ -266,7 +252,7 @@ export default function Reviews() {
                 disabled={
                   submitMutation.isPending
                   || !text.trim()
-                  || (isAdmin ? !customerName.trim() : !appointmentId)
+                  || !appointmentId
                 }
               >
                 {submitMutation.isPending ? 'מפרסם...' : 'פרסם ביקורת'}
