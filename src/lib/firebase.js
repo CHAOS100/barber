@@ -26,9 +26,7 @@ import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { logoutUser, userStore } from './userStore';
 
-const FIREBASE_APP_NAME = 'ost-barber-web';
-const EXPECTED_FIREBASE_PROJECT_ID = 'ost-barber-app';
-const EXPECTED_FIREBASE_API_KEY = 'AIzaSyDYKVodoIVuB2KDLLYV5q3ihkDudOjqMm4';
+const FIREBASE_APP_NAME = 'appointment-platform-web';
 const ADMIN_COLLECTION = 'admins';
 export const PHONE_RECAPTCHA_CONTAINER_ID = 'firebase-phone-recaptcha';
 const PHONE_SMS_COOLDOWN_MS = 60_000;
@@ -64,6 +62,13 @@ const firebaseConfig = {
   appId: readEnvironmentValue('VITE_FIREBASE_APP_ID'),
 };
 
+const expectedFirebaseProjectId = String(
+  import.meta.env.VITE_FIREBASE_EXPECTED_PROJECT_ID || '',
+).trim();
+const expectedFirebaseApiKey = String(
+  import.meta.env.VITE_FIREBASE_EXPECTED_API_KEY || '',
+).trim();
+
 export const missingFirebaseEnvironmentVariables = Object.entries(firebaseEnvironment)
   .filter(([, value]) => !String(value || '').trim())
   .map(([name]) => name);
@@ -76,7 +81,11 @@ if (firebaseConfig.apiKey && !/^AIza[0-9A-Za-z_-]{35}$/.test(firebaseConfig.apiK
   invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_API_KEY');
 }
 
-if (firebaseConfig.apiKey !== EXPECTED_FIREBASE_API_KEY) {
+if (expectedFirebaseProjectId && firebaseConfig.projectId !== expectedFirebaseProjectId) {
+  invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_PROJECT_ID');
+}
+
+if (expectedFirebaseApiKey && firebaseConfig.apiKey !== expectedFirebaseApiKey) {
   invalidFirebaseEnvironmentVariables.push('VITE_FIREBASE_API_KEY');
 }
 
@@ -139,7 +148,11 @@ export const firebaseRuntimeConfig = Object.freeze({
   authDomain: firebaseConfig.authDomain || 'missing',
   appId: firebaseConfig.appId || 'missing',
   apiKeyMasked: maskApiKey(firebaseConfig.apiKey),
-  apiKeyMatchesExpected: firebaseConfig.apiKey === EXPECTED_FIREBASE_API_KEY,
+  expectedProjectId: expectedFirebaseProjectId || 'not-enforced',
+  projectMatchesExpected: !expectedFirebaseProjectId
+    || firebaseConfig.projectId === expectedFirebaseProjectId,
+  apiKeyMatchesExpected: !expectedFirebaseApiKey
+    || firebaseConfig.apiKey === expectedFirebaseApiKey,
 });
 
 export const isFirebaseConfigured =
@@ -1104,7 +1117,7 @@ export const getPhoneAuthErrorMessage = (error) => {
 /** @param {string} reason */
 const unauthorizedAdminError = (reason) => {
   return Object.assign(
-    new Error('This Firebase user is not an active OST Barber admin.'),
+    new Error('This Firebase user is not an active business administrator.'),
     { code: 'admin/not-authorized', reason },
   );
 };
@@ -1178,13 +1191,13 @@ const validateAdminDocument = async (user) => {
   }
 
   if (
-    authProjectId !== EXPECTED_FIREBASE_PROJECT_ID
-    || firestoreProjectId !== EXPECTED_FIREBASE_PROJECT_ID
+    authProjectId !== firestoreProjectId
+    || (expectedFirebaseProjectId && authProjectId !== expectedFirebaseProjectId)
   ) {
     const reason = 'firebase-project-mismatch';
     console.error('[Firebase] Admin authorization denied', JSON.stringify({
       reason,
-      expectedProjectId: EXPECTED_FIREBASE_PROJECT_ID,
+      expectedProjectId: expectedFirebaseProjectId || 'same-configured-project',
       authProjectId,
       firestoreProjectId,
       currentUserUid,

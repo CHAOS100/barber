@@ -9,6 +9,29 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.active == true;
     }
 
+    function isPlatformAdmin() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/platformAdmins/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/platformAdmins/$(request.auth.uid)).data.role == 'platform_admin'
+        && firestore.get(/databases/(default)/documents/platformAdmins/$(request.auth.uid)).data.active == true;
+    }
+
+    function isBusinessOwner(businessId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/businesses/$(businessId)/members/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.role == 'business_owner'
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function canManageBusiness(businessId) {
+      return isPlatformAdmin() || isBusinessOwner(businessId);
+    }
+
+    function isActiveBusiness(businessId) {
+      return firestore.exists(/databases/(default)/documents/businesses/$(businessId))
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)).data.status == 'active';
+    }
+
     function isActiveGalleryImage(imageId) {
       return firestore.exists(/databases/(default)/documents/gallery/$(imageId))
         && firestore.get(/databases/(default)/documents/gallery/$(imageId)).data.active == true;
@@ -42,6 +65,35 @@ service firebase.storage {
         && request.resource.size <= 10 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
       allow delete: if isAdmin();
+    }
+
+    match /businesses/{businessId}/gallery/{imageId}/{fileName} {
+      allow read: if isActiveBusiness(businessId)
+        && firestore.exists(/databases/(default)/documents/businesses/$(businessId)/gallery/$(imageId))
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)/gallery/$(imageId)).data.active == true;
+      allow create, update: if canManageBusiness(businessId) && isValidGalleryImageUpload();
+      allow delete: if canManageBusiness(businessId);
+    }
+
+    match /businesses/{businessId}/staff/{staffId}/{fileName} {
+      allow read: if isActiveBusiness(businessId)
+        && firestore.exists(/databases/(default)/documents/businesses/$(businessId)/staff/$(staffId))
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)/staff/$(staffId)).data.active == true
+        && firestore.get(/databases/(default)/documents/businesses/$(businessId)/staff/$(staffId)).data.archived == false;
+      allow create, update: if canManageBusiness(businessId)
+        && request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
+      allow delete: if canManageBusiness(businessId);
+    }
+
+    match /businesses/{businessId}/settings/{path=**} {
+      allow read: if isActiveBusiness(businessId);
+      allow create, update: if canManageBusiness(businessId)
+        && request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if canManageBusiness(businessId);
     }
 
     match /{allPaths=**} {

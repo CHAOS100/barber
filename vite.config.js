@@ -10,8 +10,6 @@ const FIREBASE_ENVIRONMENT_NAMES = [
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
   'VITE_FIREBASE_APP_ID',
 ]
-const EXPECTED_FIREBASE_API_KEY = 'AIzaSyDYKVodoIVuB2KDLLYV5q3ihkDudOjqMm4'
-
 const maskApiKey = (apiKey) =>
   apiKey?.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : 'missing-or-invalid'
 
@@ -24,7 +22,14 @@ export default defineConfig(({ mode }) => {
     invalid.push('VITE_FIREBASE_API_KEY')
   }
 
-  if (environment.VITE_FIREBASE_API_KEY?.trim() !== EXPECTED_FIREBASE_API_KEY) {
+  const expectedProjectId = environment.VITE_FIREBASE_EXPECTED_PROJECT_ID?.trim()
+  const expectedApiKey = environment.VITE_FIREBASE_EXPECTED_API_KEY?.trim()
+
+  if (expectedProjectId && environment.VITE_FIREBASE_PROJECT_ID?.trim() !== expectedProjectId) {
+    invalid.push('VITE_FIREBASE_PROJECT_ID')
+  }
+
+  if (expectedApiKey && environment.VITE_FIREBASE_API_KEY?.trim() !== expectedApiKey) {
     invalid.push('VITE_FIREBASE_API_KEY')
   }
 
@@ -33,7 +38,11 @@ export default defineConfig(({ mode }) => {
     authDomain: environment.VITE_FIREBASE_AUTH_DOMAIN || 'missing',
     appId: environment.VITE_FIREBASE_APP_ID || 'missing',
     apiKeyMasked: maskApiKey(environment.VITE_FIREBASE_API_KEY?.trim()),
-    apiKeyMatchesExpected: environment.VITE_FIREBASE_API_KEY?.trim() === EXPECTED_FIREBASE_API_KEY,
+    expectedProjectId: expectedProjectId || 'not-enforced',
+    projectMatchesExpected: !expectedProjectId
+      || environment.VITE_FIREBASE_PROJECT_ID?.trim() === expectedProjectId,
+    apiKeyMatchesExpected: !expectedApiKey
+      || environment.VITE_FIREBASE_API_KEY?.trim() === expectedApiKey,
   })
 
   if (missing.length > 0 || invalid.length > 0) {

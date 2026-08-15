@@ -21,6 +21,47 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
 
+    // Root user roles are descriptive only. Tenant access always requires an
+    // active membership document scoped to the requested businessId.
+    function isPlatformAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)).data.role == 'platform_admin'
+        && get(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)).data.active == true;
+    }
+
+    function hasActiveBusinessMembership(businessId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function hasBusinessRole(businessId, role) {
+      return hasActiveBusinessMembership(businessId)
+        && get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid)).data.role == role;
+    }
+
+    function isBusinessOwner(businessId) {
+      return hasBusinessRole(businessId, 'business_owner');
+    }
+
+    function isBusinessStaff(businessId) {
+      return hasBusinessRole(businessId, 'staff');
+    }
+
+    function canAccessBusiness(businessId) {
+      return isPlatformAdmin() || isBusinessOwner(businessId) || isBusinessStaff(businessId);
+    }
+
+    function canManageBusiness(businessId) {
+      return isPlatformAdmin() || isBusinessOwner(businessId);
+    }
+
+    function isActiveBusiness(businessId) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId))
+        && get(/databases/$(database)/documents/businesses/$(businessId)).data.status == 'active';
+    }
+
     function ownsAppointment() {
       return isPhoneCustomer()
         && (
@@ -110,6 +151,129 @@ service cloud.firestore {
     match /admins/{adminId} {
       allow read: if signedIn() && request.auth.uid == adminId;
       allow write: if false;
+    }
+
+    match /platformAdmins/{platformAdminId} {
+      allow read: if signedIn()
+        && (request.auth.uid == platformAdminId || isPlatformAdmin());
+      allow write: if false;
+    }
+
+    match /businesses/{businessId} {
+      allow read: if resource.data.status == 'active' || canAccessBusiness(businessId);
+      // Provisioning/status/subscription changes must create related membership
+      // state atomically in trusted backend code.
+      allow create, update, delete: if false;
+
+      match /members/{memberId} {
+        allow read: if isPlatformAdmin()
+          || isBusinessOwner(businessId)
+          || (signedIn() && request.auth.uid == memberId);
+        allow create, update, delete: if false;
+      }
+
+      match /services/{serviceId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isActiveBusiness(businessId) && resource.data.active == true);
+        allow create, update, delete: if canManageBusiness(businessId);
+      }
+
+      match /staff/{staffId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isActiveBusiness(businessId)
+            && resource.data.active == true
+            && (
+              !resource.data.keys().hasAny(['archived'])
+              || resource.data.archived != true
+            ));
+        allow create, update: if canManageBusiness(businessId);
+        allow delete: if false;
+      }
+
+      match /appointments/{appointmentId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isPhoneCustomer() && resource.data.customerId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /customers/{customerId} {
+        allow read: if canAccessBusiness(businessId)
+          || (signedIn() && request.auth.uid == customerId);
+        allow create, update, delete: if false;
+
+        match /notifications/{notificationId} {
+          allow read: if canAccessBusiness(businessId)
+            || (signedIn() && request.auth.uid == customerId);
+          allow create, update, delete: if false;
+        }
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isActiveBusiness(businessId) && resource.data.status == 'published')
+          || (isPhoneCustomer() && resource.data.customerId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /gallery/{itemId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isActiveBusiness(businessId) && resource.data.active == true);
+        allow create, update, delete: if canManageBusiness(businessId);
+      }
+
+      match /notificationJobs/{jobId} {
+        allow read: if canAccessBusiness(businessId);
+        allow write: if false;
+      }
+
+      match /waitingList/{entryId} {
+        allow read: if canAccessBusiness(businessId)
+          || (isPhoneCustomer() && resource.data.customerId == request.auth.uid);
+        allow create: if false;
+        allow update: if canAccessBusiness(businessId)
+          || (
+            isPhoneCustomer()
+            && resource.data.customerId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+            && request.resource.data.status == 'cancelled'
+          );
+        allow delete: if canManageBusiness(businessId);
+      }
+
+      match /settings/{settingId} {
+        allow read: if settingId in ['business', 'booking']
+          && (canAccessBusiness(businessId) || isActiveBusiness(businessId));
+        allow create, update: if canManageBusiness(businessId)
+          && settingId in ['business', 'booking'];
+        allow delete: if false;
+      }
+
+      match /appointmentBlocks/{blockId} {
+        allow read: if canAccessBusiness(businessId) || isActiveBusiness(businessId);
+        allow write: if false;
+      }
+
+      match /bookingSlotReleases/{releaseId} {
+        allow read: if canAccessBusiness(businessId) || isActiveBusiness(businessId);
+        allow create, update: if canManageBusiness(businessId);
+        allow delete: if false;
+      }
+
+      match /appointmentScheduleLocks/{lockId} {
+        allow read, write: if false;
+      }
+
+      match /customerBookingLocks/{customerId} {
+        allow read, write: if false;
+      }
+
+      match /waitingListCustomerLocks/{customerId} {
+        allow read, write: if false;
+      }
+
+      match /{tenantDocument=**} {
+        allow read, write: if false;
+      }
     }
 
     // Push notification device tokens — customers write their own, admin can read

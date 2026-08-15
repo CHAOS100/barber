@@ -191,6 +191,115 @@ before(async () => {
       notifiedAt: null,
       expiresAt: null,
     });
+
+    await setDoc(doc(firestore, 'platformAdmins', 'platform-admin'), {
+      role: 'platform_admin',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'platformAdmins', 'inactive-platform-admin'), {
+      role: 'platform_admin',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const businessTemplate = {
+      name: 'Tenant Business',
+      status: 'active',
+      ownerUid: 'owner-a',
+      phone: '0500000000',
+      whatsapp: '972500000000',
+      address: 'Israel',
+      description: '',
+      logoUrl: '',
+      coverUrl: '',
+      accentColor: '#93E3BD',
+      subscription: { plan: 'free', status: 'inactive' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await setDoc(doc(firestore, 'businesses', 'business-a'), {
+      ...businessTemplate,
+      slug: 'business-a',
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-b'), {
+      ...businessTemplate,
+      name: 'Tenant Business B',
+      slug: 'business-b',
+      ownerUid: 'owner-b',
+    });
+    await setDoc(doc(firestore, 'businesses', 'suspended-business'), {
+      ...businessTemplate,
+      name: 'Suspended Business',
+      slug: 'suspended-business',
+      status: 'suspended',
+    });
+
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'members', 'owner-a'), {
+      role: 'business_owner',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'members', 'staff-a'), {
+      role: 'staff',
+      active: true,
+      staffId: 'staff-a',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'members', 'inactive-member'), {
+      role: 'business_owner',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-b', 'members', 'owner-b'), {
+      role: 'business_owner',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'services', 'tenant-service'), {
+      name: 'Tenant Haircut',
+      active: true,
+      duration: 30,
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-b', 'services', 'tenant-service'), {
+      name: 'Other Tenant Haircut',
+      active: true,
+      duration: 30,
+    });
+    await setDoc(doc(firestore, 'businesses', 'suspended-business', 'services', 'tenant-service'), {
+      name: 'Suspended Service',
+      active: true,
+      duration: 30,
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'appointments', 'tenant-appointment-a'), {
+      ...appointmentData('tenant-customer'),
+      createdAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-b', 'appointments', 'tenant-appointment-b'), {
+      ...appointmentData('other-tenant-customer'),
+      createdAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'settings', 'booking'), {
+      slotInterval: 10,
+      workingHours: [],
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'notificationJobs', 'tenant-job'), {
+      type: 'appointment_approved',
+      status: 'pending',
+      scheduledFor: new Date(),
+    });
+    await setDoc(doc(firestore, 'businesses', 'business-a', 'appointmentScheduleLocks', 'staff-a_2026-06-20'), {
+      revision: 1,
+      updatedAt: new Date(),
+    });
   });
 });
 
@@ -600,5 +709,182 @@ test('gallery exposes only published photos and admin can manage it', async () =
   const adminDb = testEnvironment.authenticatedContext('active-admin').firestore();
   await assertSucceeds(updateDoc(doc(adminDb, 'gallery', 'hidden-photo'), {
     active: true,
+  }));
+});
+
+test('active tenant business and public resources are readable, suspended tenant fails closed', async () => {
+  const publicDb = testEnvironment.unauthenticatedContext().firestore();
+
+  const activeBusiness = await assertSucceeds(getDoc(doc(publicDb, 'businesses', 'business-a')));
+  assert.equal(activeBusiness.data().slug, 'business-a');
+  const slugQuery = await assertSucceeds(getDocs(query(
+    collection(publicDb, 'businesses'),
+    where('slug', '==', 'business-a'),
+    where('status', '==', 'active'),
+  )));
+  assert.equal(slugQuery.size, 1);
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    'businesses', 'business-a',
+    'services', 'tenant-service',
+  )));
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    'businesses', 'business-a',
+    'settings', 'booking',
+  )));
+
+  await assertFails(getDoc(doc(publicDb, 'businesses', 'suspended-business')));
+  await assertFails(getDoc(doc(
+    publicDb,
+    'businesses', 'suspended-business',
+    'services', 'tenant-service',
+  )));
+});
+
+test('business owner and staff access only their membership business', async () => {
+  const ownerDb = testEnvironment.authenticatedContext('owner-a', {
+    role: 'business_owner',
+  }).firestore();
+  const staffDb = testEnvironment.authenticatedContext('staff-a', {
+    role: 'staff',
+  }).firestore();
+
+  await assertSucceeds(getDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  )));
+  await assertFails(getDoc(doc(
+    ownerDb,
+    'businesses', 'business-b',
+    'appointments', 'tenant-appointment-b',
+  )));
+  await assertSucceeds(getDoc(doc(
+    staffDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  )));
+  await assertFails(getDoc(doc(
+    staffDb,
+    'businesses', 'business-b',
+    'appointments', 'tenant-appointment-b',
+  )));
+});
+
+test('root role claims and URL changes cannot bypass tenant membership', async () => {
+  const spoofedOwnerDb = testEnvironment.authenticatedContext('spoofed-owner', {
+    role: 'business_owner',
+    businessId: 'business-a',
+  }).firestore();
+  const inactiveMemberDb = testEnvironment.authenticatedContext('inactive-member', {
+    role: 'business_owner',
+  }).firestore();
+
+  await assertFails(getDoc(doc(
+    spoofedOwnerDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  )));
+  await assertFails(getDoc(doc(
+    inactiveMemberDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  )));
+});
+
+test('tenant membership documents cannot be self-granted or edited from clients', async () => {
+  const ownerDb = testEnvironment.authenticatedContext('owner-a').firestore();
+  const customerDb = testEnvironment.authenticatedContext('tenant-customer', phoneCustomerToken).firestore();
+
+  await assertSucceeds(getDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'members', 'owner-a',
+  )));
+  await assertFails(updateDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'members', 'owner-a',
+  ), { active: false }));
+  await assertFails(setDoc(doc(
+    customerDb,
+    'businesses', 'business-a',
+    'members', 'tenant-customer',
+  ), { role: 'business_owner', active: true }));
+});
+
+test('tenant operational writes and booking locks remain server-only', async () => {
+  const ownerDb = testEnvironment.authenticatedContext('owner-a').firestore();
+
+  await assertFails(updateDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  ), { status: 'confirmed' }));
+  await assertFails(getDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'appointmentScheduleLocks', 'staff-a_2026-06-20',
+  )));
+  await assertFails(setDoc(doc(
+    ownerDb,
+    'businesses', 'business-a',
+    'customerBookingLocks', 'tenant-customer',
+  ), { revision: 1 }));
+});
+
+test('business owner can manage tenant catalog while staff cannot elevate management access', async () => {
+  const ownerDb = testEnvironment.authenticatedContext('owner-a').firestore();
+  const staffDb = testEnvironment.authenticatedContext('staff-a').firestore();
+  const ownerService = doc(ownerDb, 'businesses', 'business-a', 'services', 'owner-service');
+
+  await assertSucceeds(setDoc(ownerService, {
+    name: 'Owner Service',
+    active: true,
+    duration: 45,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(
+    staffDb,
+    'businesses', 'business-a',
+    'services', 'staff-service',
+  ), {
+    name: 'Staff Service',
+    active: true,
+    duration: 30,
+  }));
+});
+
+test('active platform admin can cross tenant boundaries but cannot forge platform role documents', async () => {
+  const platformDb = testEnvironment.authenticatedContext('platform-admin').firestore();
+  const inactivePlatformDb = testEnvironment.authenticatedContext('inactive-platform-admin').firestore();
+
+  await assertSucceeds(getDoc(doc(platformDb, 'platformAdmins', 'platform-admin')));
+  await assertSucceeds(getDoc(doc(
+    platformDb,
+    'businesses', 'business-b',
+    'appointments', 'tenant-appointment-b',
+  )));
+  await assertSucceeds(getDoc(doc(
+    platformDb,
+    'businesses', 'business-a',
+    'notificationJobs', 'tenant-job',
+  )));
+  await assertFails(getDoc(doc(
+    inactivePlatformDb,
+    'businesses', 'business-a',
+    'appointments', 'tenant-appointment-a',
+  )));
+  await assertFails(setDoc(doc(platformDb, 'platformAdmins', 'another-admin'), {
+    role: 'platform_admin',
+    active: true,
+  }));
+  await assertFails(setDoc(doc(platformDb, 'businesses', 'client-created-business'), {
+    name: 'Client Created',
+    slug: 'client-created-business',
+    status: 'active',
+    ownerUid: 'platform-admin',
   }));
 });
