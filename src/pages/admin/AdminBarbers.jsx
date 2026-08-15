@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Archive, Edit3, Instagram, Plus, RotateCcw, User, X } from 'lucide-react';
+import { ArrowRight, Archive, Edit3, Instagram, Plus, RotateCcw, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   callDeactivateBarber,
   callSetBarberLifecycle,
@@ -15,6 +14,8 @@ import { toast } from '@/components/ui/use-toast';
 import { useAllBarbersRealtime } from '@/hooks/useBookingData';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import AdminImageUploadButton from '@/components/admin/AdminImageUploadButton';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -42,19 +43,13 @@ export default function AdminBarbers() {
   const [deactivateReason, setDeactivateReason] = useState('');
   const [deactivateReasonError, setDeactivateReasonError] = useState('');
   const [deactivateLoading, setDeactivateLoading] = useState(false);
+  const [barberToArchive, setBarberToArchive] = useState(null);
   const { data: barbers, error: barbersError } = useAllBarbersRealtime();
 
-  const saveMutation = useMutation({
-    mutationFn: () => saveBarber(editing?.id, form),
-    onSuccess: () => {
-      setEditing(null);
-      toast({ title: editing?.id ? 'הספר עודכן' : 'הספר נוסף', description: 'רשימת הצוות עודכנה בהצלחה.' });
-    },
-    onError: (error) => toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: getUserFacingErrorMessage(error) }),
-  });
   const archiveMutation = useMutation({
     mutationFn: (barberId) => callSetBarberLifecycle({ barberId, action: 'archive' }),
     onSuccess: () => {
+      setBarberToArchive(null);
       toast({ title: 'הספר הועבר לארכיון' });
     },
     onError: (error) => toast({ variant: 'destructive', title: 'העברה לארכיון נכשלה', description: getUserFacingErrorMessage(error) }),
@@ -71,7 +66,7 @@ export default function AdminBarbers() {
   });
 
   const handleDeactivateConfirm = async () => {
-    if (!deactivatingBarber) return;
+    if (!deactivatingBarber || deactivateLoading) return;
     if (!deactivateReason.trim()) {
       setDeactivateReasonError('חובה להזין סיבה לביטול זמינות הספר');
       return;
@@ -102,6 +97,25 @@ export default function AdminBarbers() {
       ? restoreMutation.variables?.id
       : null;
 
+  useEffect(() => {
+    if (!photoPreview) return undefined;
+    return () => URL.revokeObjectURL(photoPreview);
+  }, [photoPreview]);
+
+  const closeEditor = () => {
+    setEditing(null);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    setPhotoProgress(0);
+  };
+
+  const closeDeactivation = () => {
+    if (deactivateLoading) return;
+    setDeactivatingBarber(null);
+    setDeactivateReason('');
+    setDeactivateReasonError('');
+  };
+
   const openEditor = (barber = null) => {
     setForm(barber ? {
       ...barber,
@@ -130,7 +144,7 @@ export default function AdminBarbers() {
   };
 
   const handleSaveWithPhoto = async () => {
-    if (!editing) return;
+    if (!editing || photoUploading) return;
     setPhotoUploading(true);
     try {
       let savedId = editing.id;
@@ -142,7 +156,7 @@ export default function AdminBarbers() {
       if (photoFile && savedId) {
         await uploadBarberPhoto(savedId, photoFile, setPhotoProgress);
       }
-      setEditing(null);
+      closeEditor();
       toast({ title: editing.isNew ? 'הספר נוסף' : 'הספר עודכן', description: 'רשימת הצוות עודכנה בהצלחה.' });
     } catch (error) {
       toast({ variant: 'destructive', title: 'שמירת הספר נכשלה', description: getUserFacingErrorMessage(error) });
@@ -154,7 +168,7 @@ export default function AdminBarbers() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול"><ArrowRight className="w-6 h-6" /></button>
         <div>
           <h1 className="font-black text-lg">ספרים / צוות</h1>
@@ -208,7 +222,7 @@ export default function AdminBarbers() {
                 {togglingBarberId === barber.id ? 'מעדכן...' : barber.archived ? <RotateCcw className="w-4 h-4" /> : isBarberBookable(barber) ? 'זמין' : 'לא זמין'}
               </button>
               <button
-                onClick={() => archiveMutation.mutate(barber.id)}
+                onClick={() => setBarberToArchive(barber)}
                 disabled={barber.archived || isBarberBookable(barber) || archiveMutation.isPending}
                 className="icon-btn glass press-scale"
                 title={isBarberBookable(barber) ? 'יש להסיר מהזמנות לפני העברה לארכיון' : 'העבר לארכיון'}
@@ -226,33 +240,18 @@ export default function AdminBarbers() {
         )}
       </div>
 
-      <AnimatePresence>
-        {editing && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setEditing(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onPointerDown={event => event.stopPropagation()}
-            >
-              {/* Fixed header — always visible */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-                <h3 className="font-black text-lg">{editing.isNew ? 'ספר חדש' : 'עריכת ספר'}</h3>
-                <button onClick={() => setEditing(null)} className="glass p-2 rounded-xl press-scale"><X className="w-4 h-4" /></button>
-              </div>
+      <ModalShell
+        open={Boolean(editing)}
+        onClose={closeEditor}
+        label={editing?.isNew ? 'ספר חדש' : 'עריכת ספר'}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={photoUploading}
+        className="dark-card max-w-sm rounded-3xl"
+      >
+        <ModalHeader title={editing?.isNew ? 'ספר חדש' : 'עריכת ספר'} onClose={closeEditor} busy={photoUploading} />
 
-              {/* Scrollable form body */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <div className="space-y-3 pb-1">
                   {/* Photo upload */}
                   <div className="flex flex-col items-center gap-3">
@@ -305,10 +304,9 @@ export default function AdminBarbers() {
                     <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked, archived: false })} className="accent-primary w-5 h-5" />
                   </label>}
                 </div>
-              </div>
+              </ModalBody>
 
-              {/* Save button always pinned at bottom */}
-              <div className="modal-actions px-5">
+              <ModalActions>
                 <GoldButton
                   onClick={handleSaveWithPhoto}
                   disabled={photoUploading || !form.name.trim()}
@@ -316,45 +314,23 @@ export default function AdminBarbers() {
                 >
                   {photoUploading ? `מעלה תמונה... ${photoProgress}%` : 'שמור'}
                 </GoldButton>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </ModalActions>
+      </ModalShell>
 
       {/* Deactivation reason modal */}
-      <AnimatePresence>
-        {deactivatingBarber && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget && !deactivateLoading) {
-                setDeactivatingBarber(null);
-              }
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-              onPointerDown={event => event.stopPropagation()}
-            >
-              {/* Header — fixed, never scrolls */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-                <h3 className="font-black text-lg">הסרה מהזמנות</h3>
-                {!deactivateLoading && (
-                  <button onClick={() => setDeactivatingBarber(null)} className="glass p-2 rounded-xl press-scale">
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+      <ModalShell
+        open={Boolean(deactivatingBarber)}
+        onClose={closeDeactivation}
+        label="הסרת ספר מהזמנות"
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={deactivateLoading}
+        level="confirmation"
+        className="dark-card max-w-sm rounded-3xl"
+      >
+        <ModalHeader title="הסרה מהזמנות" onClose={closeDeactivation} busy={deactivateLoading} />
               {/* Scrollable body — grows to fill available space and scrolls if keyboard pushes it */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <div className="space-y-4 pb-1">
                   <p className="text-muted-foreground text-sm leading-5">
                     פעולה זו תבטל את כל התורים העתידיים הפעילים של הספר ותשלח הודעה ללקוחות.
@@ -378,9 +354,9 @@ export default function AdminBarbers() {
                     )}
                   </label>
                 </div>
-              </div>
+              </ModalBody>
               {/* Actions — always pinned above keyboard */}
-              <div className="modal-actions px-5">
+              <ModalActions>
                 <GoldButton
                   onClick={handleDeactivateConfirm}
                   disabled={deactivateLoading || !deactivateReason.trim()}
@@ -388,11 +364,19 @@ export default function AdminBarbers() {
                 >
                   {deactivateLoading ? 'מעבד...' : 'הפוך ללא זמין ובטל תורים'}
                 </GoldButton>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </ModalActions>
+      </ModalShell>
+
+      <ConfirmDialog
+        open={Boolean(barberToArchive)}
+        title="העברת ספר לארכיון"
+        description={`להעביר את ${barberToArchive?.name || 'הספר'} לארכיון? ניתן יהיה לשחזר אותו בהמשך.`}
+        confirmLabel="העבר לארכיון"
+        onClose={() => setBarberToArchive(null)}
+        onConfirm={() => barberToArchive && archiveMutation.mutate(barberToArchive.id)}
+        busy={archiveMutation.isPending}
+        destructive={false}
+      />
     </div>
   );
 }

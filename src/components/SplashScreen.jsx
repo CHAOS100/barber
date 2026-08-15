@@ -20,7 +20,7 @@ export default function SplashScreen({ onDone }) {
           initial={{ opacity: 1 }}
           animate={{ opacity: phase === 'fadeout' ? 0 : 1 }}
           transition={{ duration: 0.6, ease: 'easeInOut' }}
-          className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center"
+          className="fixed inset-0 z-[var(--z-splash)] bg-background flex flex-col items-center justify-center"
         >
           {/* Logo / image area */}
           <motion.div

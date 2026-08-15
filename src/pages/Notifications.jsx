@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
+import { ModalActions, ModalBody, ModalShell } from '@/components/ui/ModalShell';
 
 const SEVERITY = {
   info: {
@@ -189,6 +190,7 @@ export default function Notifications() {
     dismissMessage,
   } = useCustomerMessages();
   const [selectedMessage, setSelectedMessage] = React.useState(null);
+  const [modalAction, setModalAction] = React.useState(null);
   const hasUnreadMessages = messages.some(canMarkMessageRead);
 
   const openMessage = (message) => {
@@ -210,20 +212,30 @@ export default function Notifications() {
   };
 
   const markSelectedRead = async () => {
-    if (!selectedMessage) return;
-    await markAsRead(selectedMessage.id);
-    setSelectedMessage(null);
+    if (!selectedMessage || modalAction) return;
+    setModalAction('read');
+    try {
+      await markAsRead(selectedMessage.id);
+      setSelectedMessage(null);
+    } finally {
+      setModalAction(null);
+    }
   };
 
   const dismissSelected = async () => {
-    if (!selectedMessage) return;
-    await dismissMessage(selectedMessage.id);
-    setSelectedMessage(null);
+    if (!selectedMessage || modalAction) return;
+    setModalAction('dismiss');
+    try {
+      await dismissMessage(selectedMessage.id);
+      setSelectedMessage(null);
+    } finally {
+      setModalAction(null);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => navigate(-1)} className="icon-btn press-scale -mr-2" aria-label="חזרה">
             <ArrowRight className="w-6 h-6" />
@@ -308,32 +320,24 @@ export default function Notifications() {
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>
+      <ModalShell
+        open={Boolean(selectedMessage)}
+        onClose={() => setSelectedMessage(null)}
+        label={safeText(selectedMessage?.title, 'הודעה')}
+        closeOnBackdrop
+        busy={Boolean(modalAction)}
+        className="dark-card max-w-sm rounded-3xl"
+      >
         {selectedMessage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center backdrop-blur-md"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setSelectedMessage(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 18, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 18, scale: 0.96 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onPointerDown={(event) => event.stopPropagation()}
-            >
+          <>
               {/* Fixed header — always visible */}
               <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 flex-shrink-0">
                 <MessageIcon message={selectedMessage} />
                 <button
                   type="button"
                   onClick={() => setSelectedMessage(null)}
-                  className="glass p-2 rounded-xl text-muted-foreground press-scale"
+                  disabled={Boolean(modalAction)}
+                  className="glass min-h-11 min-w-11 p-2 rounded-xl text-muted-foreground press-scale disabled:cursor-wait disabled:opacity-50"
                   aria-label="סגור"
                 >
                   <X className="w-4 h-4" />
@@ -341,7 +345,7 @@ export default function Notifications() {
               </div>
 
               {/* Scrollable message body */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <h2 className="text-xl font-black leading-tight">{safeText(selectedMessage.title, 'הודעה')}</h2>
                 {selectedMessage.createdAt && (
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -360,42 +364,44 @@ export default function Notifications() {
                     זו התראה חשובה. אפשר לסמן שקראת אותה, אבל היא תישאר זמינה עד שהעסק יסיר או יעדכן את הדרישה.
                   </div>
                 )}
-              </div>
+              </ModalBody>
 
               {/* Action buttons always pinned at bottom */}
-              <div className="modal-actions px-5">
+              <ModalActions>
                 <div className="grid gap-3">
                   {canMarkMessageRead(selectedMessage) && (
                     <button
                       type="button"
                       onClick={markSelectedRead}
-                      className="w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale"
+                      disabled={Boolean(modalAction)}
+                      className="w-full rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale disabled:cursor-wait disabled:opacity-50"
                     >
-                      קראתי
+                      {modalAction === 'read' ? 'מסמן...' : 'קראתי'}
                     </button>
                   )}
                   {selectedMessage.canDismiss && (
                     <button
                       type="button"
                       onClick={dismissSelected}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-black text-muted-foreground press-scale"
+                      disabled={Boolean(modalAction)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-black text-muted-foreground press-scale disabled:cursor-wait disabled:opacity-50"
                     >
-                      מחק התראה
+                      {modalAction === 'dismiss' ? 'מוחק...' : 'מחק התראה'}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => setSelectedMessage(null)}
-                    className="w-full rounded-2xl border border-primary/20 bg-primary/10 py-3 text-sm font-black text-primary press-scale"
+                    disabled={Boolean(modalAction)}
+                    className="w-full rounded-2xl border border-primary/20 bg-primary/10 py-3 text-sm font-black text-primary press-scale disabled:cursor-wait disabled:opacity-50"
                   >
                     סגור
                   </button>
                 </div>
-              </div>
-            </motion.div>
-          </motion.div>
+              </ModalActions>
+          </>
         )}
-      </AnimatePresence>
+      </ModalShell>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, Plus, Star, Trash2, X } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Eye, EyeOff, Plus, Star, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -19,6 +19,8 @@ import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import StarRating from '../components/ui/StarRating';
 import GoldButton from '../components/ui/GoldButton';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 export default function Reviews() {
   const navigate = useNavigate();
@@ -27,6 +29,7 @@ export default function Reviews() {
   const [rating, setRating] = useState(5);
   const [text, setText] = useState('');
   const [appointmentId, setAppointmentId] = useState('');
+  const [reviewToDelete, setReviewToDelete] = useState(null);
 
   const { reviews: publishedReviews, error: publicError } = usePublishedReviewsRealtime();
   const { reviews: adminReviews, error: adminError } = useAdminReviewsRealtime(isAdmin);
@@ -81,7 +84,10 @@ export default function Reviews() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteAdminReview,
-    onSuccess: () => toast({ title: 'הביקורת נמחקה' }),
+    onSuccess: () => {
+      setReviewToDelete(null);
+      toast({ title: 'הביקורת נמחקה' });
+    },
     onError: (error) => toast({ variant: 'destructive', title: 'המחיקה נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
@@ -160,11 +166,13 @@ export default function Reviews() {
               {isAdmin && (
                 <div className="flex gap-1">
                   <button
+                    type="button"
                     onClick={() => statusMutation.mutate({
                       id: review.id,
                       status: review.status === 'hidden' ? 'published' : 'hidden',
                     })}
-                    className="icon-btn glass press-scale"
+                    disabled={statusMutation.isPending && statusMutation.variables?.id === review.id}
+                    className="icon-btn glass press-scale disabled:cursor-wait disabled:opacity-50"
                     aria-label={review.status === 'hidden' ? 'פרסם ביקורת' : 'הסתר ביקורת'}
                   >
                     {review.status === 'hidden'
@@ -172,8 +180,10 @@ export default function Reviews() {
                       : <EyeOff className="w-4 h-4 text-yellow-400" />}
                   </button>
                   <button
-                    onClick={() => deleteMutation.mutate(review.id)}
-                    className="icon-btn glass press-scale"
+                    type="button"
+                    onClick={() => setReviewToDelete(review)}
+                    disabled={deleteMutation.isPending}
+                    className="icon-btn glass press-scale disabled:cursor-wait disabled:opacity-50"
                     aria-label="מחק ביקורת"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
@@ -198,28 +208,17 @@ export default function Reviews() {
         </div>
       )}
 
-      <AnimatePresence>
-        {showForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) resetForm();
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-6 w-full max-w-sm overflow-y-auto"
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black text-lg">כתוב ביקורת</h3>
-                <button onClick={resetForm} className="glass p-2 rounded-xl"><X className="w-4 h-4" /></button>
-              </div>
+      <ModalShell
+        open={showForm}
+        onClose={resetForm}
+        label="כתיבת ביקורת"
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={submitMutation.isPending}
+        className="dark-card max-w-sm rounded-3xl"
+      >
+        <ModalHeader title="כתוב ביקורת" onClose={resetForm} busy={submitMutation.isPending} />
+        <ModalBody>
               <select
                 value={appointmentId}
                 onChange={(event) => setAppointmentId(event.target.value)}
@@ -234,7 +233,7 @@ export default function Reviews() {
               </select>
               <div className="flex justify-center gap-2 mb-4">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <button key={star} onClick={() => setRating(star)}>
+                  <button type="button" key={star} onClick={() => setRating(star)} aria-label={`דירוג ${star} מתוך 5`}>
                     <Star className={`w-8 h-8 ${star <= rating ? 'fill-primary text-primary' : 'text-muted-foreground'}`} />
                   </button>
                 ))}
@@ -243,8 +242,10 @@ export default function Reviews() {
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 placeholder="ספר לנו על החוויה שלך..."
-                className="w-full bg-secondary border border-border rounded-2xl px-4 py-3 text-right resize-none h-28 mb-4"
+                className="w-full bg-secondary border border-border rounded-2xl px-4 py-3 text-right resize-none h-28"
               />
+        </ModalBody>
+        <ModalActions>
               <GoldButton
                 onClick={() => submitMutation.mutate()}
                 size="lg"
@@ -257,10 +258,18 @@ export default function Reviews() {
               >
                 {submitMutation.isPending ? 'מפרסם...' : 'פרסם ביקורת'}
               </GoldButton>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </ModalActions>
+      </ModalShell>
+
+      <ConfirmDialog
+        open={Boolean(reviewToDelete)}
+        title="מחיקת ביקורת"
+        description="למחוק את הביקורת לצמיתות? הפעולה אינה ניתנת לביטול."
+        confirmLabel="מחק ביקורת"
+        onClose={() => setReviewToDelete(null)}
+        onConfirm={() => reviewToDelete && deleteMutation.mutate(reviewToDelete.id)}
+        busy={deleteMutation.isPending}
+      />
     </div>
   );
 }

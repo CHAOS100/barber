@@ -32,6 +32,7 @@ export default function AdminDashboard() {
   const { reviews } = useAdminReviewsRealtime(isAdmin);
   const { customers } = useCustomerProfilesRealtime(isAdmin);
   const [moveError, setMoveError] = React.useState('');
+  const [movingAppointmentId, setMovingAppointmentId] = React.useState('');
   const [customerNotifications, setCustomerNotifications] = React.useState([]);
   const stats = React.useMemo(
     () => calculateAdminStats(appointments, customers, services, reviews),
@@ -64,6 +65,8 @@ export default function AdminDashboard() {
   }, [isAdmin]);
 
   const moveAppointment = async (appointment, startTime) => {
+    if (movingAppointmentId) return;
+    setMovingAppointmentId(appointment.id);
     setMoveError('');
     try {
       await updateAdminAppointment(appointment.id, { startTime });
@@ -73,6 +76,8 @@ export default function AdminDashboard() {
         ? 'לא ניתן להזיז את התור: השעה החדשה חופפת לתור אחר.'
         : 'הזזת התור נכשלה.');
       toast({ variant: 'destructive', title: 'הזזת התור נכשלה', description: getUserFacingErrorMessage(error) });
+    } finally {
+      setMovingAppointmentId('');
     }
   };
 
@@ -246,7 +251,11 @@ export default function AdminDashboard() {
               ניהול תורים <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
-          <DailyCalendarView appointments={activeAppointments} onMove={moveAppointment} />
+          <DailyCalendarView
+            appointments={activeAppointments}
+            onMove={moveAppointment}
+            movingAppointmentId={movingAppointmentId}
+          />
         </div>
 
         {/* Pending Appointments */}

@@ -11,6 +11,7 @@ import {
   manuallyNotifyWaitingListEntry,
   subscribeToAdminWaitingList,
 } from '@/lib/waitingListFirestore';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 const STATUS_OPTIONS = [
   { value: 'active', label: 'פעילים' },
@@ -57,6 +58,7 @@ export default function AdminWaitingList() {
   const [entries, setEntries] = React.useState([]);
   const [error, setError] = React.useState('');
   const [busyId, setBusyId] = React.useState('');
+  const [entryToDelete, setEntryToDelete] = React.useState(null);
 
   const todayStr = localDateToString();
   // Defensive: hide past-dated entries from the 'active'/'notified' views while the
@@ -83,6 +85,7 @@ export default function AdminWaitingList() {
   }, [date, status]);
 
   const runAction = async (entryId, action, successTitle) => {
+    if (busyId === entryId) return false;
     setBusyId(entryId);
     try {
       const result = await action(entryId);
@@ -94,12 +97,14 @@ export default function AdminWaitingList() {
       } else {
         toast({ title: successTitle });
       }
+      return true;
     } catch (actionError) {
       toast({
         variant: 'destructive',
         title: 'הפעולה נכשלה',
         description: getUserFacingErrorMessage(actionError),
       });
+      return false;
     } finally {
       setBusyId('');
     }
@@ -107,7 +112,7 @@ export default function AdminWaitingList() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
             <ArrowRight className="w-6 h-6" />
@@ -224,10 +229,7 @@ export default function AdminWaitingList() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!window.confirm('למחוק את הרשומה מרשימת ההמתנה?')) return;
-                      runAction(entry.id, deleteWaitingListEntryByAdmin, 'הרשומה נמחקה');
-                    }}
+                    onClick={() => setEntryToDelete(entry)}
                     disabled={busyId === entry.id}
                     className="rounded-xl bg-red-500/10 text-red-400 border border-red-500/30 px-3 py-2 text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-1"
                   >
@@ -240,6 +242,20 @@ export default function AdminWaitingList() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(entryToDelete)}
+        title="מחיקת רשומת המתנה"
+        description={`למחוק את בקשת ההמתנה של ${entryToDelete?.customerName || 'הלקוח'}? הפעולה אינה ניתנת לביטול.`}
+        confirmLabel="מחק רשומה"
+        onClose={() => setEntryToDelete(null)}
+        busy={Boolean(entryToDelete && busyId === entryToDelete.id)}
+        onConfirm={async () => {
+          if (!entryToDelete) return;
+          const deleted = await runAction(entryToDelete.id, deleteWaitingListEntryByAdmin, 'הרשומה נמחקה');
+          if (deleted) setEntryToDelete(null);
+        }}
+      />
     </div>
   );
 }

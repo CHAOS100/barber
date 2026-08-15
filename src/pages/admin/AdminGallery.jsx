@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   ArrowRight,
   Edit3,
@@ -8,7 +8,6 @@ import {
   EyeOff,
   Plus,
   Trash2,
-  X,
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -27,6 +26,8 @@ import { toast } from '@/components/ui/use-toast';
 import GoldButton from '../../components/ui/GoldButton';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import AdminImageUploadButton, { AdminCameraUploadButton } from '@/components/admin/AdminImageUploadButton';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const CATEGORIES = [
   { key: 'gallery', label: 'גלריה / תיק עבודות' },
@@ -53,6 +54,7 @@ export default function AdminGallery() {
   const [file, setFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
+  const [photoToDelete, setPhotoToDelete] = useState(null);
   const { photos, error } = useAdminGalleryRealtime(isAdmin);
   const { data: services } = useAllServicesRealtime();
   const { data: barbers } = useAllBarbersRealtime();
@@ -134,7 +136,10 @@ export default function AdminGallery() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteGalleryPhoto,
-    onSuccess: () => toast({ title: 'התמונה נמחקה' }),
+    onSuccess: () => {
+      setPhotoToDelete(null);
+      toast({ title: 'התמונה נמחקה' });
+    },
     onError: (mutationError) => toast({
       variant: 'destructive',
       title: 'מחיקת התמונה נכשלה',
@@ -168,7 +173,7 @@ export default function AdminGallery() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -223,7 +228,8 @@ export default function AdminGallery() {
                   </button>
                   <button
                     onClick={() => toggleMutation.mutate({ id: photo.id, active: !photo.active })}
-                    className="glass p-2 rounded-lg"
+                    disabled={toggleMutation.isPending && toggleMutation.variables?.id === photo.id}
+                    className="glass p-2 rounded-lg disabled:cursor-wait disabled:opacity-50"
                     aria-label={photo.active ? 'הסתר תמונה' : 'הצג תמונה'}
                   >
                     {photo.active
@@ -231,8 +237,9 @@ export default function AdminGallery() {
                       : <Eye className="w-4 h-4 text-green-400" />}
                   </button>
                   <button
-                    onClick={() => window.confirm('למחוק את התמונה לצמיתות?') && deleteMutation.mutate(photo)}
-                    className="glass p-2 rounded-lg"
+                    onClick={() => setPhotoToDelete(photo)}
+                    disabled={deleteMutation.isPending}
+                    className="glass p-2 rounded-lg disabled:cursor-wait disabled:opacity-50"
                     aria-label="מחק תמונה"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
@@ -244,35 +251,22 @@ export default function AdminGallery() {
         </div>
       </div>
 
-      <AnimatePresence>
-        {editing && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) closeEditor();
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              {/* Fixed header — always visible */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-                <h3 className="font-black text-lg">{editing.id ? 'עריכת תמונה' : 'הוספת תמונה'}</h3>
-                <button onClick={closeEditor} className="glass p-2 rounded-xl press-scale">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+      <ModalShell
+        open={Boolean(editing)}
+        onClose={closeEditor}
+        label={editing?.id ? 'עריכת תמונה' : 'הוספת תמונה'}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={saveMutation.isPending}
+        className="dark-card max-w-md rounded-3xl"
+      >
+        <ModalHeader
+          title={editing?.id ? 'עריכת תמונה' : 'הוספת תמונה'}
+          onClose={closeEditor}
+          busy={saveMutation.isPending}
+        />
 
-              {/* Scrollable form body */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <div className="space-y-3 pb-1">
                   {previewUrl && (
                     <img src={previewUrl} alt="תצוגה מקדימה" className="w-full h-44 object-cover rounded-2xl" />
@@ -398,10 +392,9 @@ export default function AdminGallery() {
                     />
                   </label>
                 </div>
-              </div>
+              </ModalBody>
 
-              {/* Save button always pinned at bottom */}
-              <div className="modal-actions px-5">
+              <ModalActions>
                 <GoldButton
                   onClick={() => saveMutation.mutate()}
                   size="lg"
@@ -410,11 +403,18 @@ export default function AdminGallery() {
                 >
                   {saveButtonText}
                 </GoldButton>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </ModalActions>
+      </ModalShell>
+
+      <ConfirmDialog
+        open={Boolean(photoToDelete)}
+        title="מחיקת תמונה"
+        description={`למחוק את התמונה ${photoToDelete?.title ? `„${photoToDelete.title}”` : ''} לצמיתות? הפעולה אינה ניתנת לביטול.`}
+        confirmLabel="מחק תמונה"
+        onClose={() => setPhotoToDelete(null)}
+        onConfirm={() => photoToDelete && deleteMutation.mutate(photoToDelete)}
+        busy={deleteMutation.isPending}
+      />
     </div>
   );
 }

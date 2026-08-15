@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ArrowRight, Check, X, UserX, Plus, Edit3, Calendar, CalendarPlus, Clock, Scissors, Save, Trash2, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -25,6 +25,8 @@ import { normalizeIsraeliPhoneNumber } from '@/lib/firebase';
 import { formatILS } from '@/lib/formatters';
 import { downloadAppointmentsIcs, isCalendarExportableAppointment } from '@/lib/calendarExport';
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const STATUS_CONFIG = {
   pending:               { label: 'ממתין',              color: 'text-yellow-400 bg-yellow-400/20',   pill: 'status-pill--warning' },
@@ -119,33 +121,19 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <ModalShell
+      open
+      onClose={onClose}
+      label={isNew ? 'תור חדש' : 'עריכת תור'}
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+      busy={isSaving}
+      className="dark-card max-w-sm rounded-3xl"
     >
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.98 }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-        onPointerDown={e => e.stopPropagation()}
-      >
-        {/* Header — always visible, never scrolls */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-          <h3 className="font-black text-lg">{isNew ? 'תור חדש' : 'עריכת תור'}</h3>
-          <button onClick={onClose} className="glass p-2 rounded-xl">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <ModalHeader title={isNew ? 'תור חדש' : 'עריכת תור'} onClose={onClose} busy={isSaving} />
 
         {/* Scrollable form body */}
-        <div className="modal-scroll-body px-5">
+        <ModalBody>
           <div className="space-y-4 pb-2">
             {/* Customer selection */}
             <div className="glass-gold rounded-2xl p-3 space-y-2">
@@ -290,6 +278,7 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
                   const cfg = STATUS_CONFIG[key];
                   return (
                     <button
+                      type="button"
                       key={key}
                       onClick={() => setForm(f => ({ ...f, status: key }))}
                       className={`py-2 rounded-xl text-xs font-bold transition-all ${
@@ -335,20 +324,21 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
               />
             </div>
           </div>
-        </div>
+        </ModalBody>
 
         {/* Error banner + action buttons — always visible, never scrolls */}
-        <div className="modal-actions px-5">
+        <ModalActions>
           {error && (
             <div className="banner-error mb-3">
               {getBookingRejectionMessage(error)}
             </div>
           )}
           <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass text-muted-foreground font-bold text-sm">
+            <button type="button" onClick={onClose} disabled={isSaving} className="flex-1 py-3 rounded-2xl glass text-muted-foreground font-bold text-sm disabled:cursor-wait disabled:opacity-50">
               ביטול
             </button>
             <button
+              type="button"
               onClick={() => onSave(appt.id, form)}
               disabled={isSaving}
               className="flex-1 py-3 rounded-2xl gold-gradient text-black font-black text-sm flex items-center justify-center gap-2 disabled:opacity-60"
@@ -357,9 +347,8 @@ function EditAppointmentSheet({ appt, services, barbers, customers, onSave, onCl
               {isSaving ? (isNew ? 'יוצר...' : 'שומר...') : (isNew ? 'צור תור' : 'שמור')}
             </button>
           </div>
-        </div>
-      </motion.div>
-    </motion.div>
+        </ModalActions>
+    </ModalShell>
   );
 }
 
@@ -368,13 +357,13 @@ export default function AdminAppointments() {
   const [viewMode, setViewMode] = useState('active');
   const [rangeFilter, setRangeFilter] = useState('all_time');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedAppt, setSelectedAppt] = useState(null);
   const [editAppt, setEditAppt] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [noShowAppt, setNoShowAppt] = useState(null);
   const [noShowAction, setNoShowAction] = useState('warning');
   const [cancelAppt, setCancelAppt] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [deleteAppt, setDeleteAppt] = useState(null);
 
   // Per-appointment-per-action loading key: "{appointmentId}:{action}"
   // e.g. "appt123:approve", "appt123:cancel", "appt123:delete", "appt123:paid"
@@ -391,7 +380,6 @@ export default function AdminAppointments() {
   const updateMutation = useMutation({
     mutationFn: (/** @type {any} */ { id, data }) => updateAdminAppointment(id, data),
     onSuccess: () => {
-      setSelectedAppt(null);
       setEditAppt(null);
       setNoShowAppt(null);
       setCancelAppt(null);
@@ -408,7 +396,7 @@ export default function AdminAppointments() {
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteAppointment(id),
     onSuccess: () => {
-      setSelectedAppt(null);
+      setDeleteAppt(null);
       clearAction();
       toast({ title: 'התור הוסר מהניהול', description: 'הרשומה נשמרה להיסטוריה והזמן התפנה להזמנה מחדש.' });
     },
@@ -523,7 +511,7 @@ export default function AdminAppointments() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -762,10 +750,7 @@ export default function AdminAppointments() {
                   const loading = isActionLoading(key);
                   return (
                     <button
-                      onClick={() => {
-                        if (!window.confirm('להסיר תור זה מהניהול? הרשומה תישמר להיסטוריה.')) return;
-                        handleQuickAction(key, () => deleteMutation.mutate(appt.id));
-                      }}
+                      onClick={() => setDeleteAppt(appt)}
                       disabled={appointmentBusy}
                       className="py-1.5 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold flex items-center justify-center disabled:opacity-50"
                     >
@@ -780,7 +765,6 @@ export default function AdminAppointments() {
       </div>
 
       {/* Edit Sheet */}
-      <AnimatePresence>
         {editAppt && (
           <EditAppointmentSheet
             appt={editAppt}
@@ -805,32 +789,25 @@ export default function AdminAppointments() {
             error={createMutation.error}
           />
         )}
-        {cancelAppt && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setCancelAppt(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-              onPointerDown={event => event.stopPropagation()}
-              dir="rtl"
-            >
+        <ModalShell
+          open={Boolean(cancelAppt)}
+          onClose={() => { setCancelAppt(null); setCancelReason(''); }}
+          label="ביטול תור על ידי מנהל"
+          closeOnBackdrop={false}
+          closeOnEscape={false}
+          busy={updateMutation.isPending}
+          level="confirmation"
+          className="dark-card max-w-sm rounded-3xl"
+        >
+          {cancelAppt && (
+            <>
               <div className="px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg mb-1">ביטול תור</h3>
                 <p className="text-muted-foreground text-sm">
                   כתוב סיבת ביטול שתופיע בהיסטוריית התור ללקוח ולניהול.
                 </p>
               </div>
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <textarea
                   value={cancelReason}
                   onChange={(event) => setCancelReason(event.target.value)}
@@ -839,15 +816,18 @@ export default function AdminAppointments() {
                   className="w-full bg-secondary border border-border rounded-2xl px-3 py-3 text-sm resize-none focus:outline-none focus:border-primary"
                   dir="rtl"
                 />
-              </div>
-              <div className="modal-actions px-5 flex gap-2">
+              </ModalBody>
+              <ModalActions className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => { setCancelAppt(null); setCancelReason(''); }}
-                  className="flex-1 glass py-3 rounded-xl font-bold"
+                  disabled={updateMutation.isPending}
+                  className="flex-1 glass py-3 rounded-xl font-bold disabled:cursor-wait disabled:opacity-50"
                 >
                   חזרה
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setLoadingAction(`${cancelAppt.id}:cancel`);
                     updateMutation.mutate({
@@ -864,36 +844,30 @@ export default function AdminAppointments() {
                   {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   {updateMutation.isPending ? 'מבטל...' : 'בטל תור'}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        {noShowAppt && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setNoShowAppt(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm mx-4"
-              onPointerDown={event => event.stopPropagation()}
-              dir="rtl"
-            >
+              </ModalActions>
+            </>
+          )}
+        </ModalShell>
+
+        <ModalShell
+          open={Boolean(noShowAppt)}
+          onClose={() => setNoShowAppt(null)}
+          label="סימון אי הגעה"
+          closeOnBackdrop={false}
+          closeOnEscape={false}
+          busy={updateMutation.isPending}
+          level="confirmation"
+          className="dark-card max-w-sm rounded-3xl"
+        >
+          {noShowAppt && (
+            <>
               <div className="px-5 pt-5 pb-3 flex-shrink-0">
                 <h3 className="font-black text-lg mb-1">סימון אי הגעה</h3>
                 <p className="text-muted-foreground text-sm">
                   בחר מה לעשות עם הלקוח בעקבות אי הגעה לתור.
                 </p>
               </div>
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <div className="space-y-2 pb-1">
                   {[
                     { value: 'warning', label: 'אזהרה בלבד', description: 'הוספת אזהרה לפרופיל הלקוח.' },
@@ -901,6 +875,7 @@ export default function AdminAppointments() {
                     { value: 'block', label: 'חסום לקוח', description: 'מונע מהלקוח לקבוע תורים חדשים.' },
                   ].map((option) => (
                     <button
+                      type="button"
                       key={option.value}
                       onClick={() => setNoShowAction(option.value)}
                       className={`w-full rounded-2xl p-3 text-right border transition-all ${
@@ -914,12 +889,13 @@ export default function AdminAppointments() {
                     </button>
                   ))}
                 </div>
-              </div>
-              <div className="modal-actions px-5 flex gap-2">
-                <button onClick={() => setNoShowAppt(null)} className="flex-1 glass py-3 rounded-xl font-bold">
+              </ModalBody>
+              <ModalActions className="flex gap-2">
+                <button type="button" onClick={() => setNoShowAppt(null)} disabled={updateMutation.isPending} className="flex-1 glass py-3 rounded-xl font-bold disabled:cursor-wait disabled:opacity-50">
                   ביטול
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setLoadingAction(`${noShowAppt.id}:noshow`);
                     updateMutation.mutate({
@@ -928,16 +904,29 @@ export default function AdminAppointments() {
                     });
                   }}
                   disabled={updateMutation.isPending}
-                  className="flex-1 gold-gradient text-black py-3 rounded-xl font-black flex items-center justify-center gap-2"
+                  className="flex-1 gold-gradient text-black py-3 rounded-xl font-black flex items-center justify-center gap-2 disabled:cursor-wait disabled:opacity-50"
                 >
                   {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   {updateMutation.isPending ? 'שומר...' : 'סמן לא הגיע'}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </ModalActions>
+            </>
+          )}
+        </ModalShell>
+
+        <ConfirmDialog
+          open={Boolean(deleteAppt)}
+          title="הסרת תור מהניהול"
+          description="להסיר את התור מהניהול? הרשומה תישמר בהיסטוריה והזמן יתפנה להזמנה מחדש."
+          confirmLabel="הסר תור"
+          onClose={() => setDeleteAppt(null)}
+          busy={deleteMutation.isPending}
+          onConfirm={() => {
+            if (!deleteAppt || deleteMutation.isPending) return;
+            const key = `${deleteAppt.id}:delete`;
+            handleQuickAction(key, () => deleteMutation.mutate(deleteAppt.id));
+          }}
+        />
     </div>
   );
 }

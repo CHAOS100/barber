@@ -38,7 +38,7 @@ export default function AdminAnalytics() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4 flex items-center gap-3">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול"><ArrowRight className="w-6 h-6" /></button>
         <h1 className="font-black text-lg">אנליטיקה</h1>
         <div className="mr-auto flex gap-1 glass rounded-xl p-1">

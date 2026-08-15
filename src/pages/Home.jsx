@@ -139,9 +139,15 @@ export default function Home() {
     ? ''
     : withImageVersion(businessSettings?.profileImageUrl, businessSettings?.profileImageUpdatedAt);
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (navigator.share) {
-      navigator.share({ title: businessName, url: window.location.href });
+      try {
+        await navigator.share({ title: businessName, url: window.location.href });
+      } catch (error) {
+        if (error?.name !== 'AbortError') {
+          console.warn('[Home] sharing failed', { name: error?.name || 'unknown' });
+        }
+      }
     }
   };
 
@@ -166,7 +172,7 @@ export default function Home() {
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-background" />
         <div className="absolute top-4 left-4">
-          <button onClick={handleShare} className="glass p-2.5 rounded-full press-scale">
+          <button type="button" onClick={handleShare} className="glass min-h-11 min-w-11 p-2.5 rounded-full press-scale" aria-label="שיתוף העסק">
             <Share2 className="w-5 h-5 text-white" />
           </button>
         </div>

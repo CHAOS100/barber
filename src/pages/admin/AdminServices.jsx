@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Plus, Edit3, Trash2, X, Scissors } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowRight, Plus, Edit3, Trash2, Scissors } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { deleteService, saveService } from '@/lib/businessFirestore';
 import GoldButton from '../../components/ui/GoldButton';
@@ -9,6 +9,8 @@ import { useAllServicesRealtime } from '@/hooks/useBookingData';
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import { formatILS } from '@/lib/formatters';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const emptyService = {
   name: '',
@@ -24,6 +26,7 @@ export default function AdminServices() {
   const [editModal, setEditModal] = useState(null);
   const [form, setForm] = useState(emptyService);
   const [validationError, setValidationError] = useState('');
+  const [serviceToDelete, setServiceToDelete] = useState(null);
 
   const { data: services, error: servicesError } = useAllServicesRealtime();
 
@@ -45,7 +48,10 @@ export default function AdminServices() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteService,
-    onSuccess: () => toast({ title: 'השירות נמחק', description: 'הרשימה עודכנה בזמן אמת.' }),
+    onSuccess: () => {
+      setServiceToDelete(null);
+      toast({ title: 'השירות נמחק', description: 'הרשימה עודכנה בזמן אמת.' });
+    },
     onError: (error) => toast({ variant: 'destructive', title: 'מחיקת השירות נכשלה', description: getUserFacingErrorMessage(error) }),
   });
 
@@ -96,7 +102,7 @@ export default function AdminServices() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -154,7 +160,7 @@ export default function AdminServices() {
                 >
                   {togglingServiceId === service.id ? 'מעדכן...' : service.is_active ? 'פעיל' : 'לא פעיל'}
                 </button>
-                <button onClick={() => window.confirm('למחוק את השירות?') && deleteMutation.mutate(service.id)} className="icon-btn glass press-scale" aria-label="מחק שירות">
+                <button onClick={() => setServiceToDelete(service)} disabled={deleteMutation.isPending} className="icon-btn glass press-scale disabled:opacity-50" aria-label="מחק שירות">
                   <Trash2 className="w-4 h-4 text-red-400" />
                 </button>
               </div>
@@ -163,36 +169,22 @@ export default function AdminServices() {
         ))}
       </div>
 
-      {/* Edit Modal */}
-      <AnimatePresence>
-        {editModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-[200] bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setEditModal(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onPointerDown={e => e.stopPropagation()}
-            >
-              {/* Fixed header — always visible */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-                <h3 className="font-black text-lg">{editModal.isNew ? 'שירות חדש' : 'עריכת שירות'}</h3>
-                <button onClick={() => setEditModal(null)} className="glass p-2 rounded-xl press-scale">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+      <ModalShell
+        open={Boolean(editModal)}
+        onClose={() => setEditModal(null)}
+        label={editModal?.isNew ? 'שירות חדש' : 'עריכת שירות'}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={saveMutation.isPending}
+        className="dark-card max-w-sm rounded-3xl"
+      >
+        <ModalHeader
+          title={editModal?.isNew ? 'שירות חדש' : 'עריכת שירות'}
+          onClose={() => setEditModal(null)}
+          busy={saveMutation.isPending}
+        />
 
-              {/* Scrollable form body */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <div className="space-y-3 pb-1">
                   {[
                     { field: 'name', label: 'שם השירות', placeholder: 'תספורת רגילה', type: 'text' },
@@ -216,6 +208,7 @@ export default function AdminServices() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">שירות פעיל</span>
                     <button
+                      type="button"
                       onClick={() => setForm(prev => ({ ...prev, is_active: !prev.is_active }))}
                       className={`w-12 h-6 rounded-full transition-all duration-200 relative ${form.is_active ? 'gold-gradient' : 'bg-secondary'}`}
                     >
@@ -228,10 +221,9 @@ export default function AdminServices() {
                     </div>
                   )}
                 </div>
-              </div>
+              </ModalBody>
 
-              {/* Save button always pinned at bottom */}
-              <div className="modal-actions px-5">
+              <ModalActions>
                 <GoldButton
                   onClick={handleSave}
                   disabled={saveMutation.isPending}
@@ -240,11 +232,18 @@ export default function AdminServices() {
                 >
                   {saveMutation.isPending ? 'שומר...' : editModal.isNew ? 'צור שירות' : 'שמור שינויים'}
                 </GoldButton>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </ModalActions>
+      </ModalShell>
+
+      <ConfirmDialog
+        open={Boolean(serviceToDelete)}
+        title="מחיקת שירות"
+        description={`למחוק את השירות ${serviceToDelete?.name || ''}? הפעולה אינה ניתנת לביטול.`}
+        confirmLabel="מחק שירות"
+        onClose={() => setServiceToDelete(null)}
+        onConfirm={() => serviceToDelete && deleteMutation.mutate(serviceToDelete.id)}
+        busy={deleteMutation.isPending}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Share2, ZoomIn } from 'lucide-react';
 import { usePublishedGalleryRealtime } from '@/hooks/useGalleryRealtime';
 import { DATA_LOAD_ERROR_MESSAGE } from '@/lib/userFacingErrors';
+import { ModalShell } from '@/components/ui/ModalShell';
 
 const CATEGORIES = [
   { key: 'all', label: 'הכל' },
@@ -26,7 +27,13 @@ export default function Gallery() {
 
   const handleShare = async () => {
     if (navigator.share && filtered[selectedIndex]) {
-      await navigator.share({ url: filtered[selectedIndex].imageUrl || filtered[selectedIndex].url });
+      try {
+        await navigator.share({ url: filtered[selectedIndex].imageUrl || filtered[selectedIndex].url });
+      } catch (error) {
+        if (error?.name !== 'AbortError') {
+          console.warn('[Gallery] image sharing failed', { name: error?.name || 'unknown' });
+        }
+      }
     }
   };
 
@@ -65,7 +72,8 @@ export default function Gallery() {
         <motion.div layout className="grid grid-cols-2 md:grid-cols-3 gap-2">
           <AnimatePresence>
             {filtered.map((photo, index) => (
-              <motion.div
+              <motion.button
+                type="button"
                 key={photo.id || photo.url}
                 layout
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -73,6 +81,7 @@ export default function Gallery() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="relative aspect-square rounded-2xl overflow-hidden cursor-pointer group"
                 onClick={() => setSelectedIndex(index)}
+                aria-label={`פתיחת תמונה ${photo.title || index + 1}`}
               >
                 <img
                   src={photo.imageUrl || photo.url}
@@ -86,41 +95,45 @@ export default function Gallery() {
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center">
                   <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
-              </motion.div>
+              </motion.button>
             ))}
           </AnimatePresence>
         </motion.div>
       </div>
 
-      {/* Lightbox */}
-      <AnimatePresence>
+      <ModalShell
+        open={selectedIndex !== null && Boolean(filtered[selectedIndex])}
+        onClose={() => setSelectedIndex(null)}
+        label={filtered[selectedIndex]?.title ? `תמונה: ${filtered[selectedIndex].title}` : 'תצוגת תמונה מוגדלת'}
+        closeOnBackdrop
+        overlayClassName="bg-black/95"
+        className="h-full max-w-6xl bg-transparent shadow-none"
+      >
         {selectedIndex !== null && filtered[selectedIndex] && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setSelectedIndex(null);
-            }}
-          >
+          <>
             <div className="absolute top-4 right-4 flex gap-3">
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); handleShare(); }}
-                className="glass p-3 rounded-full"
+                className="glass min-h-11 min-w-11 p-3 rounded-full"
+                aria-label="שיתוף התמונה"
               >
                 <Share2 className="w-5 h-5 text-white" />
               </button>
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); setSelectedIndex(null); }}
-                className="glass p-3 rounded-full"
+                className="glass min-h-11 min-w-11 p-3 rounded-full"
+                aria-label="סגירת התמונה"
               >
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 glass p-3 rounded-full"
+              className="absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 glass min-h-11 min-w-11 p-3 rounded-full"
+              aria-label="התמונה הקודמת"
             >
               <ChevronRight className="w-6 h-6 text-white" />
             </button>
@@ -131,12 +144,14 @@ export default function Gallery() {
               exit={{ opacity: 0 }}
               src={filtered[selectedIndex].imageUrl || filtered[selectedIndex].url}
               alt={filtered[selectedIndex].title || ''}
-              className="max-w-full max-h-full object-contain px-16"
+              className="h-full w-full object-contain px-12 sm:px-16 py-16"
               onPointerDown={(e) => e.stopPropagation()}
             />
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); handleNext(); }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 glass p-3 rounded-full"
+              className="absolute left-1 sm:left-4 top-1/2 -translate-y-1/2 glass min-h-11 min-w-11 p-3 rounded-full"
+              aria-label="התמונה הבאה"
             >
               <ChevronLeft className="w-6 h-6 text-white" />
             </button>
@@ -145,12 +160,13 @@ export default function Gallery() {
                 <div
                   key={i}
                   className={`w-1.5 h-1.5 rounded-full transition-all ${i === selectedIndex ? 'bg-primary w-4' : 'bg-white/40'}`}
+                  aria-hidden="true"
                 />
               ))}
             </div>
-          </motion.div>
+          </>
         )}
-      </AnimatePresence>
+      </ModalShell>
     </div>
   );
 }

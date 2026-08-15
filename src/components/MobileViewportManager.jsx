@@ -92,6 +92,10 @@ export default function MobileViewportManager() {
       document.removeEventListener('focusout', handleFocusOut);
       pendingTimers.forEach((timer) => window.clearTimeout(timer));
       root.classList.remove('keyboard-open');
+      root.style.removeProperty('--app-viewport-height');
+      root.style.removeProperty('--visible-viewport-height');
+      root.style.removeProperty('--visual-viewport-offset-top');
+      root.style.removeProperty('--keyboard-height');
     };
   }, []);
 

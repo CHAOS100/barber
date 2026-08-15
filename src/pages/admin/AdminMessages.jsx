@@ -190,6 +190,7 @@ export default function AdminMessages() {
   });
 
   const handleSend = () => {
+    if (createMessageMutation.isPending) return;
     console.log('[ADMIN_MESSAGES_DEBUG] send clicked', JSON.stringify({
       targetType: form.targetType,
       hasTitle: Boolean(form.title.trim()),
@@ -230,7 +231,7 @@ export default function AdminMessages() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Page header */}
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
             <ArrowRight className="w-6 h-6" />

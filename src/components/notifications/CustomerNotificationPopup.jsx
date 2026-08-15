@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
   Ban,
@@ -15,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCustomerMessages } from '@/hooks/useCustomerMessages';
+import { ModalActions, ModalBody, ModalShell } from '@/components/ui/ModalShell';
 
 const IMPORTANT_TYPES = new Set([
   'free_slot',
@@ -107,56 +107,62 @@ export default function CustomerNotificationPopup() {
   );
   const activeMessage = importantMessages[0] || null;
   const otherUnreadCount = Math.max(0, importantMessages.length - 1);
+  const [pendingAction, setPendingAction] = React.useState(null);
 
   if (!isLoggedIn) return null;
 
   const close = async () => {
-    if (activeMessage) await markAsRead(activeMessage.id);
+    if (!activeMessage || pendingAction) return;
+    setPendingAction('close');
+    try {
+      await markAsRead(activeMessage.id);
+    } finally {
+      setPendingAction(null);
+    }
   };
 
   const openInbox = async () => {
-    if (activeMessage) await markAsRead(activeMessage.id);
-    navigate('/notifications');
+    if (!activeMessage || pendingAction) return;
+    setPendingAction('inbox');
+    try {
+      await markAsRead(activeMessage.id);
+      navigate('/notifications');
+    } finally {
+      setPendingAction(null);
+    }
   };
 
   const severity = SEVERITY_STYLE[activeMessage?.severity] || SEVERITY_STYLE.info;
   const DisplayIcon = TYPE_ICON[activeMessage?.type] || severity.Icon;
 
   return (
-    <AnimatePresence>
+    <ModalShell
+      open={Boolean(activeMessage)}
+      onClose={close}
+      label={activeMessage?.title || 'הודעה חשובה'}
+      closeOnBackdrop={false}
+      busy={Boolean(pendingAction)}
+      level="system"
+      className={`max-w-sm rounded-3xl border shadow-2xl ${severity.bgClass} ${severity.borderClass}`}
+    >
       {activeMessage && (
-        <motion.div
-          key={activeMessage.id}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4 backdrop-blur-md"
-          style={{ paddingTop: 'var(--safe-area-top)', paddingBottom: 'var(--safe-area-bottom)' }}
-          dir="rtl"
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.94, y: 18 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 14 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={`w-full max-w-sm rounded-3xl border p-5 shadow-2xl ${severity.bgClass} ${severity.borderClass}`}
-          >
-            <div className="flex items-start justify-between gap-3">
+        <>
+            <div className="flex flex-shrink-0 items-start justify-between gap-3 px-5 pt-5">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${severity.bgClass} ${severity.borderClass}`}>
                 <DisplayIcon className={`w-6 h-6 ${severity.iconClass}`} />
               </div>
               <button
                 type="button"
                 onClick={close}
-                className="glass rounded-xl p-2 text-muted-foreground press-scale"
+                disabled={Boolean(pendingAction)}
+                className="glass min-h-11 min-w-11 rounded-xl p-2 text-muted-foreground press-scale disabled:cursor-wait disabled:opacity-50"
                 aria-label="סגור הודעה"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="mt-4">
+            <ModalBody className="mt-4">
               <h2 className="text-xl font-black text-foreground leading-tight">
                 {activeMessage.title}
               </h2>
@@ -173,28 +179,29 @@ export default function CustomerNotificationPopup() {
                   יש לך עוד {otherUnreadCount} הודעות חדשות
                 </p>
               )}
-            </div>
+            </ModalBody>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
+            <ModalActions className="mt-2 grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={close}
-                className="rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale flex items-center justify-center gap-2"
+                disabled={Boolean(pendingAction)}
+                className="rounded-2xl bg-primary py-3 text-sm font-black text-black press-scale flex items-center justify-center gap-2 disabled:cursor-wait disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                קראתי
+                {pendingAction === 'close' ? 'מסמן...' : 'קראתי'}
               </button>
               <button
                 type="button"
                 onClick={openInbox}
-                className="rounded-2xl border border-primary/30 bg-primary/10 py-3 text-sm font-black text-primary press-scale"
+                disabled={Boolean(pendingAction)}
+                className="rounded-2xl border border-primary/30 bg-primary/10 py-3 text-sm font-black text-primary press-scale disabled:cursor-wait disabled:opacity-50"
               >
-                פתח הודעות
+                {pendingAction === 'inbox' ? 'פותח...' : 'פתח הודעות'}
               </button>
-            </div>
-          </motion.div>
-        </motion.div>
+            </ModalActions>
+        </>
       )}
-    </AnimatePresence>
+    </ModalShell>
   );
 }

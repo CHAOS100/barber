@@ -19,6 +19,9 @@ import {
   isAppointmentActiveForSchedule,
   isAppointmentHistoryForSchedule,
 } from '@/lib/appointmentStatus';
+import { toast } from '@/components/ui/use-toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalShell } from '@/components/ui/ModalShell';
 
 const STATUS_LABELS = {
   pending: { label: 'ממתין', pill: 'status-pill--warning' },
@@ -298,51 +301,27 @@ export default function Appointments() {
         )}
       </div>}
 
-      {/* Cancel waiting list modal */}
-      <AnimatePresence>
-        {cancelWlModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setCancelWlModal(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onPointerDown={e => e.stopPropagation()}
-            >
-              <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
-                <BellRing className="w-8 h-8 text-primary flex-shrink-0" />
-                <div>
-                  <div className="font-bold">הסרה מרשימת המתנה</div>
-                  <div className="text-muted-foreground text-sm">האם להסיר את הבקשה?</div>
-                </div>
-              </div>
-              <div className="modal-actions px-5 flex gap-3">
-                <button onClick={() => setCancelWlModal(null)} className="flex-1 glass py-3 rounded-xl font-bold">חזרה</button>
-                <button
-                  disabled={cancelWlBusy}
-                  onClick={async () => {
-                    setCancelWlBusy(true);
-                    try { await cancelOwnWaitingListEntry(cancelWlModal.id); setCancelWlModal(null); }
-                    catch (err) { console.error('[WL] cancel failed', err?.code); }
-                    finally { setCancelWlBusy(false); }
-                  }}
-                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold disabled:opacity-60"
-                >
-                  {cancelWlBusy ? 'מסיר...' : 'הסר'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ConfirmDialog
+        open={Boolean(cancelWlModal)}
+        title="הסרה מרשימת המתנה"
+        description="האם להסיר את בקשת ההמתנה? לא יישלחו עוד עדכונים עבור הבקשה הזו."
+        confirmLabel="הסר בקשה"
+        onClose={() => setCancelWlModal(null)}
+        busy={cancelWlBusy}
+        onConfirm={async () => {
+          if (!cancelWlModal || cancelWlBusy) return;
+          setCancelWlBusy(true);
+          try {
+            await cancelOwnWaitingListEntry(cancelWlModal.id);
+            setCancelWlModal(null);
+          } catch (err) {
+            console.error('[WL] cancel failed', err?.code);
+            toast({ variant: 'destructive', title: 'הסרת הבקשה נכשלה', description: 'אפשר לנסות שוב בעוד רגע.' });
+          } finally {
+            setCancelWlBusy(false);
+          }
+        }}
+      />
 
       {/* Edit Modal */}
       <AnimatePresence>
@@ -354,25 +333,18 @@ export default function Appointments() {
         )}
       </AnimatePresence>
 
-      {/* Cancel Modal */}
-      <AnimatePresence>
+      <ModalShell
+        open={Boolean(cancelModal)}
+        onClose={() => { setCancelModal(null); setCancelReason(''); }}
+        label="ביטול תור"
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={cancelMutation.isPending}
+        level="confirmation"
+        className="dark-card max-w-sm rounded-3xl"
+      >
         {cancelModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setCancelModal(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-sm"
-              onPointerDown={e => e.stopPropagation()}
-            >
+          <>
               {/* Header — always visible */}
               <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
                 <AlertTriangle className="w-8 h-8 text-yellow-400 flex-shrink-0" />
@@ -383,7 +355,7 @@ export default function Appointments() {
               </div>
 
               {/* Scrollable body */}
-              <div className="modal-scroll-body px-5">
+              <ModalBody>
                 <p className="text-sm text-muted-foreground mb-4">
                   ניתן לבטל עד {cancellationDeadlineMinutes} דקות לפני מועד התור לפי מדיניות העסק.
                 </p>
@@ -403,25 +375,25 @@ export default function Appointments() {
                     {getBookingRejectionMessage(cancelMutation.error)}
                   </div>
                 )}
-              </div>
+              </ModalBody>
 
               {/* Actions — always visible */}
-              <div className="modal-actions px-5 flex gap-3">
-                <button onClick={() => { setCancelModal(null); setCancelReason(''); }} className="flex-1 glass py-3 rounded-xl font-bold">
+              <ModalActions className="flex gap-3">
+                <button type="button" onClick={() => { setCancelModal(null); setCancelReason(''); }} disabled={cancelMutation.isPending} className="flex-1 glass py-3 rounded-xl font-bold disabled:cursor-wait disabled:opacity-50">
                   חזרה
                 </button>
                 <button
+                  type="button"
                   onClick={() => cancelMutation.mutate(cancelModal.id)}
                   disabled={cancelMutation.isPending}
-                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold"
+                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold disabled:cursor-wait disabled:opacity-50"
                 >
                   {cancelMutation.isPending ? 'מבטל...' : 'בטל תור'}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
+              </ModalActions>
+          </>
         )}
-      </AnimatePresence>
+      </ModalShell>
     </div>
   );
 }

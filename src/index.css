@@ -13,6 +13,16 @@
     --safe-area-top: calc(env(safe-area-inset-top, 0px) + 12px);
     --safe-area-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
     --bottom-nav-height: calc(72px + env(safe-area-inset-bottom, 0px));
+    --z-page: 0;
+    --z-sticky-nav: 40;
+    --z-bottom-nav: 80;
+    --z-dropdown: 450;
+    --z-overlay: 400;
+    --z-modal: 410;
+    --z-confirmation: 500;
+    --z-toast: 600;
+    --z-system-dialog: 700;
+    --z-splash: 800;
     --background: 0 0% 4%;
     --foreground: 0 0% 98%;
     --card: 0 0% 7%;
@@ -151,7 +161,8 @@
   padding: max(env(safe-area-inset-top, 0px), 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
   overflow: hidden;
   overscroll-behavior: contain;
-  touch-action: pan-y;
+  touch-action: none;
+  isolation: isolate;
 }
 
 /* Fixed-positioned overlay variant (used with inset-0 class) */
@@ -216,9 +227,27 @@
 html:has(.keyboard-safe-overlay),
 body:has(.keyboard-safe-overlay),
 html:has([role="dialog"]),
-body:has([role="dialog"]) {
+body:has([role="dialog"]),
+html.modal-open,
+body.modal-open {
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+[data-modal-overlay="true"] {
+  pointer-events: auto;
+}
+
+[data-modal-content="true"] {
+  touch-action: pan-y;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-modal-overlay="true"],
+  [data-modal-content="true"] {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .app-content {

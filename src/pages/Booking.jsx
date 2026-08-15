@@ -445,6 +445,7 @@ export default function Booking() {
   }
 
   const handleConfirm = async () => {
+    if (loading) return;
     if (!currentUser) { navigate('/login', { state: { next: '/booking' } }); return; }
     if (!bookingPolicyConfigured) {
       setBookingError('מדיניות העסק טרם הוגדרה. לא ניתן לקבוע תור עד לעדכון ההגדרות.');
@@ -497,6 +498,7 @@ export default function Booking() {
   };
 
   const handleJoinWaitingList = async () => {
+    if (waitingListLoading) return;
     if (!currentUser) {
       navigate('/login', { state: { next: '/booking' } });
       return;
@@ -820,7 +822,7 @@ export default function Booking() {
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
       {/* Header */}
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-4">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-4">
         <div className="flex items-center gap-1">
           <button
             onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)}

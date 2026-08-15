@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Search, AlertTriangle, Ban, Phone, ChevronLeft, CreditCard, Save, X } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowRight, Search, AlertTriangle, Ban, Phone, ChevronLeft, CreditCard, Save } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import {
   subscribeToAllCustomerProfiles,
@@ -10,6 +10,8 @@ import {
 import { toast } from '@/components/ui/use-toast';
 import { DATA_LOAD_ERROR_MESSAGE, getUserFacingErrorMessage } from '@/lib/userFacingErrors';
 import { formatILS } from '@/lib/formatters';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const hasPaymentRequest = (customer) => (
   customer.requiresNoShowPayment === true
@@ -50,6 +52,7 @@ export default function AdminCustomers() {
   const [blockedReason, setBlockedReason] = useState('');
   const [clearAction, setClearAction] = useState(null);
   const [clearReason, setClearReason] = useState('');
+  const [confirmBlock, setConfirmBlock] = useState(false);
 
   useEffect(() => subscribeToAllCustomerProfiles(setCustomers, setLoadError), []);
 
@@ -60,6 +63,7 @@ export default function AdminCustomers() {
       setSelectedCustomer(null);
       setClearAction(null);
       setClearReason('');
+      setConfirmBlock(false);
     },
     onError: (error) => toast({
       variant: 'destructive',
@@ -86,7 +90,7 @@ export default function AdminCustomers() {
     setSelectedCustomer(customer);
     setFirstName(customer.firstName || '');
     setLastName(customer.lastName || '');
-    setBlockedReason(customer.blocked_reason || '');
+    setBlockedReason(customer.blocked_reason || customer.blockedReason || '');
     setClearAction(null);
     setClearReason('');
   };
@@ -114,7 +118,7 @@ export default function AdminCustomers() {
 
   return (
     <div className="min-h-screen bg-background page-transition" dir="rtl">
-      <div className="sticky-top-safe z-30 glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
+      <div className="sticky-top-safe z-[var(--z-sticky-nav)] glass border-b border-white/10 px-4 py-3 flex items-center gap-1">
         <button onClick={() => navigate('/admin')} className="icon-btn press-scale -mr-2" aria-label="חזרה לניהול">
           <ArrowRight className="w-6 h-6" />
         </button>
@@ -215,35 +219,21 @@ export default function AdminCustomers() {
         ))}
       </div>
 
-      <AnimatePresence>
+      <ModalShell
+        open={Boolean(selectedCustomer)}
+        onClose={() => setSelectedCustomer(null)}
+        label="עריכת לקוח"
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        busy={updateMutation.isPending}
+        className="dark-card max-w-sm rounded-3xl"
+      >
         {selectedCustomer && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setSelectedCustomer(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="keyboard-safe-modal dark-card rounded-3xl p-5 w-full max-w-sm overflow-y-auto"
-              onPointerDown={event => event.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="font-black text-lg">עריכת לקוח</h2>
-                  <p className="text-muted-foreground text-xs" dir="ltr">{selectedCustomer.phoneNumber}</p>
-                </div>
-                <button onClick={() => setSelectedCustomer(null)} className="glass p-2 rounded-xl">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
+          <>
+              <ModalHeader title="עריכת לקוח" onClose={() => setSelectedCustomer(null)} busy={updateMutation.isPending}>
+                <p className="text-muted-foreground text-xs" dir="ltr">{selectedCustomer.phoneNumber}</p>
+              </ModalHeader>
+              <ModalBody className="space-y-3">
                 {(hasPaymentRequest(selectedCustomer) || isBlocked(selectedCustomer) || hasWarning(selectedCustomer) || noShowCount(selectedCustomer) > 0) && (
                   <div className="space-y-2">
                     {hasPaymentRequest(selectedCustomer) && (
@@ -369,18 +359,13 @@ export default function AdminCustomers() {
                   />
                 </label>
                 <button
+                  type="button"
                   onClick={() => {
                     if (isBlocked(selectedCustomer)) {
                       openClearAction('block');
                       return;
                     }
-                    updateMutation.mutate({
-                      id: selectedCustomer.id,
-                      changes: {
-                        blocked: true,
-                        blockedReason,
-                      },
-                    });
+                    setConfirmBlock(true);
                   }}
                   disabled={updateMutation.isPending || (!isBlocked(selectedCustomer) && !blockedReason.trim())}
                   className={`w-full py-3 rounded-xl font-bold text-sm disabled:opacity-40 ${
@@ -400,22 +385,40 @@ export default function AdminCustomers() {
                     />
                   </label>
                 )}
+              </ModalBody>
+              <ModalActions>
                 <button
+                  type="button"
                   onClick={() => updateMutation.mutate({
                     id: selectedCustomer.id,
                     changes: { firstName, lastName },
                   })}
                   disabled={updateMutation.isPending || !firstName.trim() || !lastName.trim()}
-                  className="w-full py-3 rounded-xl gold-gradient text-black font-black flex items-center justify-center gap-2"
+                  className="w-full py-3 rounded-xl gold-gradient text-black font-black flex items-center justify-center gap-2 disabled:cursor-wait disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
                   {updateMutation.isPending ? 'שומר...' : 'שמור שמות'}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
+              </ModalActions>
+          </>
         )}
-      </AnimatePresence>
+      </ModalShell>
+
+      <ConfirmDialog
+        open={confirmBlock && Boolean(selectedCustomer)}
+        title="חסימת לקוח"
+        description={`לחסום את ${selectedCustomer?.name || 'הלקוח'} מהזמנות? הסיבה תישמר בפרופיל הלקוח.`}
+        confirmLabel="חסום לקוח"
+        onClose={() => setConfirmBlock(false)}
+        busy={updateMutation.isPending}
+        onConfirm={() => selectedCustomer && updateMutation.mutate({
+          id: selectedCustomer.id,
+          changes: {
+            blocked: true,
+            blockedReason,
+          },
+        })}
+      />
     </div>
   );
 }

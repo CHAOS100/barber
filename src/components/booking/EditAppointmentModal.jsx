@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { X, Calendar, Clock, AlertCircle, Check } from 'lucide-react';
+import { Calendar, Clock, AlertCircle, Check } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAvailableSlots, getWorkingHoursForDate, isDateBlocked as isBusinessDateBlocked } from '../../lib/slotEngine';
 import GoldButton from '../ui/GoldButton';
 import { updateOwnAppointment } from '@/lib/appointmentsFirestore';
 import { getBookingRejectionMessage } from '@/lib/bookingErrors';
 import { useAppointmentBlocksRealtime, useBookingSettingsRealtime } from '@/hooks/useBookingData';
+import { ModalActions, ModalBody, ModalHeader, ModalShell } from '@/components/ui/ModalShell';
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const MONTH_NAMES = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
@@ -96,24 +97,15 @@ export default function EditAppointmentModal({ appointment, onClose }) {
   });
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="keyboard-safe-overlay fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <ModalShell
+      open
+      onClose={onClose}
+      label={done ? 'התור עודכן' : 'שינוי מועד תור'}
+      closeOnBackdrop={false}
+      closeOnEscape={done}
+      busy={updateMutation.isPending}
+      className="dark-card max-w-md rounded-3xl"
     >
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.98 }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="keyboard-safe-modal dark-card rounded-3xl w-full max-w-md"
-        onPointerDown={e => e.stopPropagation()}
-        dir="rtl"
-      >
         {done ? (
           <div className="text-center py-6 px-5">
             <div className="w-16 h-16 gold-gradient rounded-full flex items-center justify-center mx-auto mb-4">
@@ -122,19 +114,13 @@ export default function EditAppointmentModal({ appointment, onClose }) {
             <h3 className="text-xl font-black mb-1">התור עודכן!</h3>
             <p className="text-muted-foreground text-sm mb-2">{selectedDate?.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
             <p className="text-primary font-bold text-lg">{selectedTime}</p>
-            <button onClick={onClose} className="mt-5 text-muted-foreground text-sm">סגור</button>
+            <button type="button" onClick={onClose} className="mt-5 min-h-11 rounded-xl px-5 text-sm text-muted-foreground">סגור</button>
           </div>
         ) : (
           <>
-            {/* Header */}
-            <div className="px-5 pt-5 pb-3 flex-shrink-0 flex items-center justify-between">
-              <h3 className="font-black text-lg">שינוי מועד תור</h3>
-              <button onClick={onClose} className="glass p-2 rounded-full">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <ModalHeader title="שינוי מועד תור" onClose={onClose} busy={updateMutation.isPending} />
 
-            <div className="modal-scroll-body px-5">
+            <ModalBody>
               {/* Current booking info */}
               <div className="glass-gold rounded-2xl p-3 mb-5 flex justify-between items-center text-sm">
                 <span className="text-muted-foreground">{appointment.date} • {appointment.time}</span>
@@ -198,10 +184,10 @@ export default function EditAppointmentModal({ appointment, onClose }) {
                   )}
                 </div>
               )}
-            </div>
+            </ModalBody>
 
             {((selectedDate && selectedTime) || updateMutation.error) && (
-              <div className="modal-actions px-5">
+              <ModalActions>
                 {selectedDate && selectedTime && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <GoldButton
@@ -219,11 +205,10 @@ export default function EditAppointmentModal({ appointment, onClose }) {
                     {getBookingRejectionMessage(updateMutation.error)}
                   </div>
                 )}
-              </div>
+              </ModalActions>
             )}
           </>
         )}
-      </motion.div>
-    </motion.div>
+    </ModalShell>
   );
 }

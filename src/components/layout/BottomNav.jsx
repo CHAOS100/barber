@@ -34,7 +34,7 @@ export default function BottomNav() {
   const tabs = isAdmin && !adminPreview ? adminTabs : customerTabs;
 
   return (
-    <div className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/10">
+    <div className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-[var(--z-bottom-nav)] glass border-t border-white/10">
       <div className="flex items-center justify-around px-2 pt-2 pb-1">
         {tabs.map((tab) => {
           const isActive = location.pathname === tab.path
